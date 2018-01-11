@@ -1,0 +1,3 @@
+[submodule "docs"]
+	path = docs
+	url = https://github.com/w2dynamics/W2Dynamics.wiki.git
