@@ -7,3 +7,4 @@ If you want to have a copy please get in touch with us via asking Giorgio Sangio
 
 [Disclaimer](https://www.uni-wuerzburg.de/sonstiges/impressum/)
 
+[Github Privacy Statement](https://help.github.com/articles/github-privacy-statement/)
