@@ -1,0 +1,282 @@
+#!/usr/bin/env python
+"""Tool for extracting information from HDF5 output files"""
+import sys
+import re
+import os
+import itertools
+import numpy as np
+import h5py as hdf5
+
+__version__ = "1.0"
+
+from auxiliaries.quantities import *
+
+error = lambda s, *a: sys.exit("hgrep: error: %s\n" % s % a)
+
+class Output:
+    @classmethod
+    def column_len(cls, header, column, str_func=str):
+        if not column: return len(header)
+        col_length = max(len(str_func(val)) for val in column)
+        return max(len(header), col_length)
+    
+    def __init__(self, options=None):
+        self.count = 0
+    
+    def __call__(self, path_names, path_values, axes_names, axes_values,
+                 field_names, datasets):
+        self.count += 1
+        
+    def close(self):
+        if not self.count:
+            if debug: debug("did not find any data for requested quantity")
+
+class SequentialOutput(Output):
+    def __call__(self, path_names, path_values, axes_names, axes_values, 
+                 field_names, datasets):
+        Output.__call__(self, path_names, path_values, axes_names, axes_values, 
+                        field_names, datasets)
+        form = ""
+        header = ""
+        for title, elem in zip(path_names[2:] + tuple(axes_names),
+                               path_values[2:] + tuple(axes_values)):
+            if isinstance(elem, tuple):
+                elem = elem[0]
+            if isinstance(elem, float):
+                header += "%13s " % title
+                form += "%13.6g "
+            elif isinstance(elem, int):
+                header += title + " "
+                form += "%%%ii " % len(title) 
+            else:
+                header += "%-8s" % title + " "
+                form += "%-8s "
+        form += " " + "%13.6g "*len(datasets)
+        header += " " + "".join("%13s " % s for s in field_names)
+        if debug: debug("format: %s", form)
+        if self.count == 1: 
+            if not sys.stdout.isatty():
+                print >> sys.stderr, header
+            print "#" + " ".join(path_values[:2])
+            print "#" + header[1:]
+        for tup in itertools.izip(datasets[0].keys(),
+                                  *[dset.values().flat for dset in datasets]):
+            print form % (path_values[2:] + tup[0] + tup[1:])
+            
+class MatplotOutput(Output):
+    def __init__(self, options=None):
+        Output.__init__(self, options=options)
+        try:
+            global pl
+            from matplotlib import pyplot as pl
+        except ImportError:
+            error("python library 'matplotlib' required for plotting")
+             
+    
+    def __call__(self, path_names, path_values, axes_names, axes_values, 
+                 field_names, datasets):
+        Output.__call__(self, path_names, path_values, axes_names, axes_values, 
+                        field_names, datasets)
+        try:
+            iplotaxis = next(i for i,a in reversed(tuple(enumerate(axes_values)))
+                            if len(a) > 2)
+        except StopIteration:
+            error("did not find plot axis (one of size greater than 2)")
+        
+        if debug: debug("plot axis: %i:%s", iplotaxis, axes_names[iplotaxis])
+        
+        axes_names = list(axes_names)
+        axes_values = list(axes_values)
+        xname = axes_names.pop(iplotaxis)
+        xvalues = axes_values.pop(iplotaxis)
+        
+        if self.count == 1:
+            pl.gcf().canvas.set_window_title("%s - %s - hgrep plot" % path_values[:2])
+            pl.title(path_values[0])
+            pl.xlabel(xname)
+            pl.ylabel(path_values[1])
+            try:
+                pl.tight_layout()
+            except AttributeError: pass
+            pl.grid(True)
+        
+        prev = " ".join("%s=%s" % p for p in zip(path_names[2:], path_values[2:]))
+        for field_name, dataset in zip(field_names, datasets):
+            dataset = np.rollaxis(dataset.values(), 
+                                  iplotaxis, -1).reshape(-1, len(xvalues))
+            for titles, yvalues in zip(iter_product(*axes_values), dataset):
+                title = " ".join("%s=%s" % p for p in zip(axes_names, titles))
+                if debug: debug("plotting %s, %s: %s", prev, title, str(yvalues)[:50])
+                pl.plot(xvalues, yvalues, label="%s %s %s" % (field_name, prev, title))
+        
+    def close(self):
+        if not self.count: return
+        pl.legend()
+        pl.show()
+        
+
+def parse_args(args=None):
+    """Parses command line options"""
+    import optparse
+    global debug
+    
+    OUTPUT = {"sequential": SequentialOutput,
+              "matplot":    MatplotOutput,
+              #"gnuplot":    None,
+              #"tabular":    None,
+              }
+    p = optparse.OptionParser(
+                 usage = "%prog (<file>|latest) <data> [[<index>=]<slice> ...]]",
+                 version = "%prog " + __version__, description = __doc__)
+    p.disable_interspersed_args()  # interferes with negative indices like -1
+    p.add_option("-d", "--debug",
+                 action="store_true",  dest="debug",  default=False,
+                 help="print debug output")
+    p.add_option("-f", 
+                 metavar="FORMAT", dest="format", default="sequential", 
+                 help="set output format (default: sequential)")
+    p.add_option("-p", 
+                 action="store_const", dest="format", const="matplot",
+                 help="set plot output format (short for -fmatplot)")
+    
+    #error = p.error
+    options, args = p.parse_args(args)
+    if options.debug:
+        debug = lambda s, *a: sys.stderr.write("debug: %s\n" % s % a)
+    try:
+        output = OUTPUT[options.format](options)
+    except KeyError:
+        error("unknown output format: %s (should be %s)",
+              options.format, " or ".join(OUTPUT.keys()))
+
+    selectors = SelectorPool()
+    for arg in args:
+        try:
+            selectors.append_from_string(arg)
+        except Exception,e:
+            error("invalid selector `%s':\n%s" % (arg, e.message))
+    return output, selectors
+
+if __name__ == "__main__":
+    
+    ATTRSET = {
+        "run-date":        ("run-date", "local date/time at the start of the run"),
+        "version-code":    ("code-version", "version of the CTQMC code"),
+        "version-outfile": ("outfile-version", "version of the HDF5 output file"),
+        "version-git":     ("git-revision", "git revision of the code")
+        }
+    
+    try:
+        output, selectors = parse_args()
+        if debug: debug("selectors = %s", selectors)
+        file_sel = selectors.expect("file")
+        for f in FileSelection(selectors.expect("file")).values():
+            try:
+                fileversion = tuple(f.attrs["outfile-version"])
+            except KeyError:
+                error("file `%s' is illegal HDF5 output file", f.filename)
+            if debug: debug("handling file %s, version %d.%d", f, *fileversion)
+            if "error" in f or ".error" in f:
+                warn("run aborted with error. See quantity error for details")
+            qtty_sel = selectors.expect("qtty")
+            if qtty_sel.empty():
+                error("expecting quantity as second argument or 'list' to list all")
+            for qtty in qtty_sel:
+                if qtty == 'list':
+                    try:
+                        normal_qttys = dict(f[".quantities"])
+                    except KeyError:
+                        if debug: debug("get old quantity list")
+                        normal_qttys = dict(pair
+                                            for n, it in IterationSelection.get_set(f)
+                                            for pair in it.iteritems())
+                    normal_keyset = set(normal_qttys.keys())
+                    qtty_list = []
+                    qtty_list.extend((k, v[2]) for k, v in MetaQttyContainer.DESC.iteritems()
+                                     if MetaQttyContainer.DESC[k][fileversion[0]-1] in f)
+                    qtty_list.extend((k, v[1]) for k,v in ATTRSET.iteritems()
+                                     if ATTRSET[k][0] in f.attrs)
+                    qtty_list.extend((k, v.attrs["desc"]) 
+                                     for k,v in normal_qttys.iteritems())
+                    qtty_list.extend((k+"*", v["desc"])
+                                     for k,v in derived_quantities.iteritems()
+                                     if set(v["base"]).issubset(normal_keyset))
+                    qtty_list.extend((
+                            ("list", "list of all quantities in the file"),
+                            ("iter", "list of all iterations in the file"),
+                            ))                                        
+                    qtty_list = sorted(qtty_list)
+                    length = max(len(k) for k,v in qtty_list)
+                    print "#", "name".ljust(length-2), "description (* marks derived quantities)"
+                    for k,v in qtty_list:
+                        print k.ljust(length), v
+                elif qtty == 'iter':
+                    iter_sel = IterationSelection(Selector(), f)
+                    for k,v in iter_sel.items():
+                        try: desc = v.attrs["desc"]
+                        except KeyError: desc = "<>"
+                        print k.ljust(10), desc
+                elif qtty in MetaQttyContainer.DESC:
+                    # meta quantities
+                    if debug: debug("meta quantity: %s", qtty)
+                    qtty_container = MetaQttyContainer(qtty, f, fileversion)
+                    items_sel = qtty_container.select(selectors)
+                    try:
+                        cols = max(len(k) for k, v in items_sel.items())
+                        format = "%%-%ds = %%s" % cols
+                        for pair in items_sel.items():
+                            print format % pair
+                    except ValueError:
+                        warn("empty selection")
+                elif qtty in ATTRSET:
+                    # attribute quantitites
+                    if debug: debug("attribute quantity: %s", ATTRSET[qtty])
+                    attrname = ATTRSET[qtty][0]
+                    print str(f.attrs[attrname])
+                else:
+                    if qtty in derived_quantities:
+                        if debug: debug("derived quantity: %s", qtty)
+                        qtty_container = DerivedQttyContainer(derived_quantities[qtty], 
+                                                              f, fileversion)
+                    else: 
+                        if debug: debug("presumed normal quantity: %s", qtty)
+                        qtty_container = QuantityContainer(qtty, f, fileversion)
+                        
+                    for path_titles, path, qtty_node in qtty_container.select(selectors):
+                        field_sel = FieldSelection(selectors.expect("field"), qtty_node)
+                        if field_sel.shape is None:
+                            if debug: debug("empty field selection")
+                            continue
+                        dset_selectors = [selectors.expect(name) 
+                                          for name in qtty_container.axes_names]
+                        if debug: debug("dataset sel: %s", map(str, dset_selectors))
+                        factory = DatasetSelectionFactory(field_sel.shape, 
+                                          qtty_container.axes_values, *dset_selectors)
+                        dsets = [factory.select(node) for node in field_sel.values()]
+        
+                        # sequential output
+                        output(("file", "qtty") + path_titles, 
+                               (f.filename, qtty) + path, qtty_container.axes_names, 
+                               factory.sink_axes, field_sel.keys(), dsets)
+        output.close()
+        if selectors.positional:
+            warn("additional (superfluous) selectors")
+    
+    except IOError,e:
+        import errno
+        if e.errno == errno.EPIPE:
+            if debug: debug("broken pipe, exitting successfully anyway")
+            sys.exit(0)
+        if debug: raise
+        error(e.message)
+    except KeyboardInterrupt:
+        if debug: debug("keyboard interrupt")
+    except Exception,e:
+        if debug: raise
+        error(e.message)
+    finally:
+        try: # needed for the broken pipe problem
+            sys.stdout.close()
+        except IOError:
+            pass
+

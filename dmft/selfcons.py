@@ -1,0 +1,583 @@
+from __future__ import division
+from warnings import warn
+import numpy as np
+import scipy.optimize as opt
+import sys
+
+#import dmft.lattice as latt
+import dmft.impurity as impurity
+import dmft.doublecounting as doublecounting
+import dmft.orbspin as orbspin
+import dmft.gw as gw
+
+import auxiliaries.transform as tf
+
+def iw_to_tau_fast(aiw, ntau, beta, axis=-1):
+    """Fast Fourier transform from fermionic Matsubara to tau grid [0, beta]
+
+    This functions takes a quantity on the fermionic Matsubara axis `aiw`,
+    where all frequencies from n = {-n, ..., n-1} have to be given, and
+    transforms it to the imaginary time axis, where both endpoints [0,beta]
+    are included, by mapping it to a fast discrete Fourier transform (FFT).
+    """
+    if axis != -1:
+        aiw = np.rollaxis(aiw, axis, aiw.ndim)
+    niw = aiw.shape[-1]
+    if ntau < niw:
+        raise ValueError("tau axis must be greater than frequency axis")
+
+    # We work over the doubled array. This corresponds to both fermionic
+    # and bosonic frequencies in Fourier space and to periodic functions
+    # on an interval of 2 * beta.  This allows us to use the standard
+    # FFT algorithms, but we can then only use (1) half the result interval,
+    # (2) every other result point, since we get the signal and its
+    # mirror image.
+    n = 2 * (ntau - 1)
+    a = np.zeros(aiw.shape[:-1] + (2*n,), aiw.dtype)
+    a[..., n-niw+1:-n+niw:2] = aiw
+    atau = np.fft.fft(a)
+    atau = 1./beta * atau[...,:2*ntau:2]
+
+    assert atau.shape == aiw.shape[:-1] + (ntau,)
+    if axis != -1:
+        atau = np.rollaxis(atau, -1, axis)
+    return atau
+
+
+class FrequencyDistribution:
+    def __init__(self, mpi_comm, niw):
+        self.comm = mpi_comm
+        self.rank = mpi_comm.Get_rank()
+        self.size = mpi_comm.Get_size()
+        self.niw = None
+        self.set_niw(niw)
+
+    def rdebug(self, fmt, *params):
+        """Write debugging message to STDERR, but only on root"""
+        if self.rank == 0:
+            sys.stderr.write("MPI: %s\n" % (str(fmt) % params))
+
+    def set_niw(self, niw):
+        if self.niw == niw: return
+        rank = self.comm.Get_rank()
+        nranks = self.comm.Get_size()
+        iw_per_rank = niw // nranks
+        iw_excess = niw - iw_per_rank * nranks
+
+        self.niw = niw
+        self.sizes = iw_per_rank * np.ones(nranks, int)
+        if iw_excess:
+            self.sizes[-iw_excess:] += 1
+
+        slice_ends = self.sizes.cumsum()
+        self.slices = map(slice, slice_ends - self.sizes, slice_ends)
+
+        self.myniw = self.sizes[rank]
+        self.myslice = self.slices[rank]
+        self.myshare = float(self.myniw) / self.niw
+        self.rdebug("distributing %d frequencies (%d per rank)",
+                    niw, iw_per_rank)
+
+    def allgather(self, rank_result):
+        if self.myniw != rank_result.shape[0]:
+            raise ValueError("Illegal frequency gathering operation")
+        tot_shape = (self.niw,) + rank_result.shape[1:]
+        tot_result = np.empty(tot_shape, rank_result.dtype)
+        tot_result[...] = np.nan
+        other_dims = np.prod(rank_result.shape[1:])
+
+        # The sizes argument needs the total number of elements rather than
+        # just the first axis. The type argument is inferred.
+        self.comm.Allgatherv(rank_result,
+                             [tot_result, self.sizes*other_dims])
+        return tot_result
+    
+    def shape(self, rank_result):
+        return (self.niw,) + rank_result.shape[1:]
+    
+    def parts(self, rank_result):
+        for rank, curr_slice in enumerate(list(self.slices)):
+            curr_result = self.comm.bcast(rank_result, rank)
+            yield curr_slice, curr_result
+
+class DMFTStep:
+    def __init__(self, beta, lattice, ineq_list, niwf, nftau, dc_dp, dc_dp_orbitals, GW, GW_KAverage, natoms, dc=None,
+                 udd_full=None, udp_full=None, upp_full=None, paramag=False,
+                 siw_mix_strategy=None, mu_mix_strategy=None, mpi_comm=None):
+
+        if beta < 0: raise ValueError("beta must be positive")
+        if niwf <= 0 or niwf % 2 != 0: raise ValueError("niwf must be even")
+        if nftau <= 1: raise ValueError("nftau must be greater than 1")
+        if dc is None: dc = doublecounting.Zero()
+        if siw_mix_strategy is None: siw_mix_strategy = LinearMixingStrategy()
+        if mu_mix_strategy is None: mu_mix_strategy = LinearMixingStrategy()
+        
+        self.mpi_comm = mpi_comm
+
+        self.beta = beta
+        self.lattice = lattice
+        self.ineq_list = ineq_list
+        self.dc = dc
+        self.udd_full = udd_full
+        self.udp_full = udp_full
+        self.upp_full = upp_full
+        self.paramag = paramag
+
+        self.init_siws = True
+        self.init_mu = True
+
+        if self.udp_full is None or upp_full is None:
+            self.use_hartree = False
+        else:
+            self.use_hartree = udp_full.any() or upp_full.any()
+
+        self.siw_mix_strategy = siw_mix_strategy
+        self.mu_mix_strategy = mu_mix_strategy
+
+        self._eye = lattice.eye
+
+        self.niwf = niwf
+        self.iwf = tf.matfreq(beta, 'fermi', niwf)
+        
+        if self.mpi_comm is not None:
+            self.mpi_strategy = FrequencyDistribution(mpi_comm, self.niwf)
+            self.my_slice = self.mpi_strategy.myslice
+        else:
+            self.my_slice = slice(None)
+        
+        self.my_iwf = self.iwf[self.my_slice]
+        self.my_niwf = self.iwf.size
+        self.nftau = nftau
+
+        # build transformation yourself since it potentially only contains part
+        # of the frequency axis
+        self.tauf = np.arange(nftau)*self.beta/(nftau - 1.0)
+        
+        # Fixing d-p distance
+        self.dc_dp = dc_dp
+        self.dc_dp_orbitals = dc_dp_orbitals
+        self.dc_dp_shift = None
+
+        # GW Inclusion
+        self.use_gw = GW
+        self.use_gw_kaverage = GW_KAverage
+
+        if self.use_gw == 1:
+          try:
+            dummy_try = self.lattice.nkpoints
+          except:
+            print '********* GW MODULE IS NOT AVAILABLE FOR BETHE LATTICE *********'
+            print '...exiting'''
+            exit()
+          self.gw = gw.GWInclusion(self.lattice.norbitals, natoms, self.lattice.nkpoints, self.my_niwf, self.paramag, self.use_gw_kaverage)
+
+        self.siw_gw = None
+        self.smom_gw = None
+        self.natoms = natoms
+
+    def set_siws(self, siw_dd=None, smom_dd=None, dc_full=None, init=False,
+                 hartree_start=False,giws=None,occs=None):
+        new_run = siw_dd is None and init
+
+        nspins = self.lattice.nspins
+        norbitals = self.lattice.norbitals
+
+        if siw_dd is None:
+            siw_dd = []
+            smom_dd = []
+            for ineq in self.ineq_list:
+                siw_block = np.zeros((self.niwf, ineq.nd, nspins, ineq.nd, 
+                                      nspins), np.complex)
+                if not self.paramag:
+                    siw_block[:,:,0,:,0] += .5 * ineq.se_shift
+                    siw_block[:,:,1,:,1] -= .5 * ineq.se_shift
+
+                siw_dd.append(siw_block)
+                smom_dd.append(siw_block[:1].real)
+
+        if smom_dd is None:
+            warn("extracting moments from Sigma. Better use siw_mom",
+                 UserWarning, 2)
+            smom_dd = [siw_block[:1].real for siw_block in siw_dd]
+
+        # Enforce paramagnetic option
+        if self.paramag:
+            siw_dd = [orbspin.symm_spins(siw_block) for siw_block in siw_dd]
+            smom_dd = [orbspin.symm_spins(smom_block) for smom_block in smom_dd]
+
+        # get double-counting if we do not force it to a value.
+        # Note that the double-counting is essentially a correction to the
+        # Hamiltonian and therefore present from the start.
+
+
+        
+        # fix for self consitent dc: If self.dc_full is present
+        # (from last iteration or from init), then do not call the
+        # standard dc call here but do it later
+        # this implies that set_siws() can initialize dc with dc_full
+        # exaclty once, which makes sense
+
+        try:
+            self.dc_full
+        except AttributeError:
+            if dc_full is None:
+                self.dc_full = self.dc.get()
+            else:
+                self.dc_full = dc_full
+                # We also have to set the double counting inside the
+                # dc class so that trace double counting works
+                self.dc.set(dc_full)
+
+        if self.use_gw == 1:
+          self.dc_full = self.dc_full * 0
+
+        # Try to mimic the behaviour of the old code
+        if new_run and hartree_start:
+            self.sigma_hartree = -self.dc_full
+            for ineq_no, ineq in enumerate(self.ineq_list):
+                siw_dd[ineq_no][:] += ineq.d_downfold(self.sigma_hartree)
+                ineq.d_setpart(self.sigma_hartree, 0)
+
+        # Perform mixing of self-energy and double-counting with the same
+        # strategy: this is important as to keep them "consistent", i.e.,
+        # double-count correlations at the same rate as switching them on.
+        if init:
+            # First iteration: initialise mixers
+            self.dc_mixer = self.siw_mix_strategy.mixer(dc_full)
+            self.siw_mixer = [self.siw_mix_strategy.mixer(siw_block)
+                              for siw_block in siw_dd]
+            self.smom_mixer = [self.siw_mix_strategy.mixer(smom_block)
+                               for smom_block in smom_dd]
+
+            self.siw_dd = siw_dd
+            self.smom_dd = smom_dd
+        else:
+            # In-the-middle iteration: perform mixing
+            self.dc_full = self.dc_mixer(self.dc_full)
+            self.siw_dd = [mixer(siw_block) for mixer, siw_block
+                           in zip(self.siw_mixer, siw_dd)]
+            self.smom_dd = [mixer(smom_block) for mixer, smom_block
+                            in zip(self.smom_mixer, smom_dd)]
+
+        # Fix the distance between selected d-orbitals and the p-manifold to the original distance of the LDA/GW Hamiltonian
+        if self.dc_dp == 1:
+          self.dc_full = self.dc_full * 0
+          dp_dc = doublecounting.Fixed_dp_Distance()
+          self.dc_full = -dp_dc.get(self.dc_full, siw_dd, smom_dd, self.iwf, self.natoms, self.dc_dp_orbitals)
+
+        # not doing mixing for self consistent dc
+        # if we do want to mix... simply move this part above the mixing routine
+        # if dc_full is not None, it comes from a restarted run. We do not want to
+        # overwrite the restart value here!
+        if self.dc.self_cons and ( dc_full is None ):
+            # this currently should only work for trace dc
+            # todo: fix siginfbar
+            self.dc_full = self.dc.get(siws=siw_dd, smoms=smom_dd, giws=giws,occs=occs)
+        # Upfold self-energy.
+        self.siw_full = 0
+        self.siw_moments = 0
+        for ineq, siw_bl, siw_bl_mom in zip(self.ineq_list, self.siw_dd,
+                                            self.smom_dd):
+            # Here, we potentially encounter a memory problem (a set of
+            # nflavours x nflavours x nfrequencies) object may very well
+            # overflow, so we split the upfolded self-energy in frequency 
+            # "chunks"
+            self.siw_full += ineq.d_upfold(siw_bl[self.my_slice])
+            self.siw_moments += ineq.d_upfold(siw_bl_mom)          
+
+        # Add double-counting to the self-energy
+        self.siw_full += self.dc_full
+        self.siw_moments[0] += self.dc_full
+
+        # This is an approximation: really, the paritial densities and Hartree
+        # self-energy an inter-dependent system. Here, we assume that the
+        # partial densities won't change much adding  a static self-energy
+        # shift ...
+        if not (hartree_start and new_run):
+            if self.use_hartree:
+                #self.siw2gloc() # computes densities as well
+                hartree = np.einsum("isjt,jt->is", self.udp_full + self.upp_full,
+                                    self.densities)
+                self.sigma_hartree = orbspin.promote_diagonal(hartree)
+            else:
+                self.sigma_hartree = np.zeros_like(self.siw_full[0])
+
+        self.siw_full += self.sigma_hartree
+        self.siw_moments[0] += self.sigma_hartree.real
+
+        # Invalidate lattice quantities (call to siw2gloc necessary)
+        self.glociw = None
+        self.densities = None
+        self.densmatrix = None
+
+        # GW Inclusion
+        if self.use_gw == 1:
+          # Only if the DMFT Self-Energy is non-zero, we add the GW Self-Energy
+          if np.sum(self.siw_full) != 0:        # siw_full is d+p siw_dd is d-only
+            self.siw_gw, self.smom_gw = self.gw.get_GW_Sigma(self.beta, self.my_iwf)
+            self.siw_gw = self.siw_gw.transpose(1,0,2,3,4,5)
+            
+
+    def update_mu(self, target_totdens, epsn, search_range):
+        if epsn <= 0: raise ValueError("epsn must be greater than 0")
+        if search_range <= 0: raise ValueError("search range must be > 0")
+
+        # Again consider only frequencies of the own process
+        trace_factory = self.lattice.trace(self.my_iwf, self.siw_full, self.siw_moments, 'local', self.use_gw, self.siw_gw, self.smom_gw)
+
+
+        def root_func(mu):
+            """f(mu) that has a root (zero) at the desired density"""
+            trgloc = trace_factory.trgloc(mu)
+            trgmodel, dmodel = trace_factory.trgmodel(mu)
+
+            totdens = (trgloc - trgmodel).sum()/self.beta
+            if self.mpi_comm is not None:
+                totdens = self.mpi_comm.allreduce(totdens)
+            totdens += dmodel
+            
+            if totdens.imag > epsn: warn("non-vanishing imaginary part")
+            return totdens.real - target_totdens
+
+        mu = opt.brentq(root_func, self.mu - search_range,
+                        self.mu + search_range, xtol=epsn)
+        self.set_mu(mu)
+
+    def set_mu(self, mu, init=False):
+        if self.init_mu or init:
+            self.mu = mu
+            self.mu_mixer = self.mu_mix_strategy.mixer(mu)
+            self.init_mu = False
+        else:
+            self.mu = self.mu_mixer(mu)
+        self.trace = None
+
+    def siw2gloc(self):
+        self.glociw = self.lattice.gloc(self.my_iwf, self.mu, self.siw_full, self.siw_gw)
+        self.gmodeliw, dmatrix = self.lattice.gmodel(self.my_iwf, self.mu, self.siw_moments,  self.smom_gw)
+
+        self.densmatrix = (self.glociw - self.gmodeliw).sum(0)/self.beta
+        if self.mpi_comm is not None:
+            self.densmatrix = self.mpi_comm.allreduce(self.densmatrix)
+        self.densmatrix += dmatrix
+        
+        self.densities = orbspin.extract_diagonal(self.densmatrix)
+        # Destroy large GW siw for MC cycle 
+        self.siw_GW_dyn = None
+        #self.smom_GW = None
+
+
+    def write_before_mu_search(self, output):
+        # This quantity is potentially distributed over cores, so we need to
+        # take that into account here.
+        if self.mpi_comm is not None:
+            output.write_distributed("glocold",
+                                  self.mpi_strategy.parts(self.glociw),
+                                  self.mpi_strategy.shape(self.glociw))
+        else:
+            output.write_quantity("glocold", self.glociw)
+
+        output.write_quantity("gdensold", self.densmatrix)
+
+    def write_lattice_problem(self, output):
+        # This quantity is potentially distributed over cores, so we need to
+        # take that into account here.
+        if self.mpi_comm is not None:
+            output.write_distributed("glocnew",
+                                  self.mpi_strategy.parts(self.glociw),
+                                  self.mpi_strategy.shape(self.glociw))
+        else:
+            output.write_quantity("glocnew", self.glociw)
+
+        output.write_quantity("dc", self.dc_full)
+        output.write_quantity("dc-latt", self.dc_full)
+        if self.use_hartree:
+            output.write_quantity("sigma-hartree", self.sigma_hartree)
+
+        # FIXME: hack; should got into some write routine of ShellAveraged
+        if isinstance(self.dc, doublecounting.ShellAveraged):
+            output.write_quantity("ubar", self.dc.ubar)
+            output.write_quantity("jbar", self.dc.jbar)
+
+        # The rest is consistent on all nodes
+        output.write_quantity("mu", self.mu)
+        output.write_quantity("gdensnew", self.densmatrix)
+
+    def gloc2fiw(self):
+        self.imp_problems = []
+
+        if self.use_gw == 1:
+          if np.sum(self.siw_full) != 0:
+            muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc.real - self.sigma_hartree - np.sum(self.smom_gw, axis=0)/self.lattice.nkpoints)
+          else:
+            muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc.real - self.sigma_hartree)
+        else:
+          muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc.real - self.sigma_hartree)
+          
+        atom = 0
+        for ineq, siw_block, smom_block in zip(self.ineq_list, self.siw_dd, self.smom_dd):
+            # extract d-d blocks and perform inversion.
+            giw_block = ineq.d_downfold(self.glociw)
+            g0inviw_block = orbspin.invert(giw_block)
+
+            # Now we "undo" the frequency splitting in order to create
+            # the same impurity problem for each core
+            if self.mpi_comm is not None:
+                g0inviw_block = self.mpi_strategy.allgather(g0inviw_block)
+
+            # Remove self-energy using the Dyson equation.  Note that in 
+            # d+p or general multi-site, the d-d block is extracted *before*
+            # the inversion and therefore the impurity self-energy is used.
+            g0inviw_block += siw_block
+
+# giorgio: Symmetrisierung von G0inviw
+            g0inviw_block.real[:,...] = 0.5*(g0inviw_block.real[:,...]+g0inviw_block.real[::-1,...])
+            g0inviw_block.imag[:,...] = 0.5*(g0inviw_block.imag[:,...]-g0inviw_block.imag[::-1,...])
+
+            nbands=g0inviw_block.shape[1]
+            niw=g0inviw_block.shape[0]
+            g0inviw_block=g0inviw_block.reshape(niw,nbands*2,nbands*2)
+
+            g0_new=np.zeros_like(g0inviw_block,dtype=complex)
+            for i in range(0,niw):
+               tmp=g0inviw_block[i,:,:]
+               g0_new[i,:,:]=0.5*(tmp.transpose(1,0)+tmp)
+
+            g0_new=g0_new.reshape(niw,nbands,2,nbands,2)
+            g0inviw_block=g0_new
+
+# giorgio   ######
+
+            # in principle, since the bare impurity propagator reads:
+            # `1/G_0(iw) =  iw - muimp - F(iw)`, we have a freedom where to put
+            # constant shifts.  However, constant terms in `F(iw)` translate to
+            # an unresolvable delta peak at `F(tau=0)`. Therefore, we want the
+            # zero-th moment of `F(iw)` to vanish, which in turn fixes `muimp`.
+            eye_block = ineq.d_downfold(self._eye)
+
+            # The first moment of the hybridisation function is given as
+            # - P <H>^2 P + (P <H> P)^2, where P is the downfolding projector,
+            # (see Eq. (4.63b) in Markus' thesis), so we cannot simply downfold
+            # the second moment of the DOS.
+            hloc_block = ineq.d_downfold(self.lattice.hloc)
+
+            # GW Inclusion
+            if self.use_gw == 1:
+              norbitals_per_atom = np.int(self.lattice.norbitals/self.natoms)
+              orbits = slice( atom*norbitals_per_atom , (atom+1)*norbitals_per_atom )
+
+              # Inclusion of GW 0th Moment  
+              if np.sum(self.siw_full) != 0:
+                # Distinguish between different methods to substract the local GW part
+
+                # => Model based
+                if self.use_gw_kaverage == 0:    
+                  smom_gw2 = np.sum(self.smom_gw[:,orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
+
+                  #C1 = 2* np.sum(self.mu * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
+                  #C2 = 2* np.sum(smom_block * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
+                  ## Double Counting term Sigma_DC (Wallerberger Thesis 137)
+                  #C3 = 2* np.sum(self.dc_full[orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints     
+                  ## Hartree self-energy from the d-p interaction? (Wallerberger Thesis 137)
+                  #C4 = 2* np.sum(self.udp_full[orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints    
+                  fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2)) #+ C1 - C2 - C3 - C4 - smom_gw2  # (-) CORRECT HERE!
+
+                # => K-average based
+                else:                                 
+                  smom_gw2 = np.sum(self.smom_gw[:,orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
+                  fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2)) - smom_gw2    # MINUS SIGN IS CORRECT HERE!
+
+              # No GW in first iteration
+              else:
+                fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2))
+
+            # Standard non-GW 
+            else:
+              fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2))
+            
+            muimp_block = ineq.d_downfold(muimp)
+
+            # fiw is defined in the bath picture, which means that:
+            #      G0(iw)^{-1} = iw + muimp - F(-iw);   F(-iw) = F*(iw)
+            # TODO: check if that is still true with complex F(tau)
+            fiw_block = -1j*self.iwf[:,None,None,None,None] * eye_block \
+                            + muimp_block - g0inviw_block.conj()
+            fiw_model = fmom1_block/(1j*self.iwf[:,None,None,None,None])
+
+            # GW Inclusion 
+            if self.use_gw == 1: 
+              if np.sum(self.siw_full) != 0:
+                if self.use_gw_kaverage == 0:    # => Model based
+                  extension_of = 1
+                  fiw_block_asymptotic, fiw_model_asymptotic, model_mom1 = self.gw.Reach_asymptotics_for_Hybridization(fiw_block, fiw_model, self.iwf, extension_of)
+                  ftau_block = iw_to_tau_fast(fiw_block_asymptotic - fiw_model_asymptotic, self.nftau, self.beta, axis=0) - model_mom1/2.
+                  fmom_block = np.asarray((np.zeros_like(model_mom1), model_mom1))
+
+                else:
+                  ftau_block = iw_to_tau_fast(fiw_block - fiw_model, self.nftau,
+                                              self.beta, axis=0) - fmom1_block/2.
+                  fmom_block = np.asarray((np.zeros_like(fmom1_block), fmom1_block))
+              else:
+                ftau_block = iw_to_tau_fast(fiw_block - fiw_model, self.nftau,
+                                            self.beta, axis=0) - fmom1_block/2.
+                fmom_block = np.asarray((np.zeros_like(fmom1_block), fmom1_block))
+            else:
+              ftau_block = iw_to_tau_fast(fiw_block - fiw_model, self.nftau,
+                                          self.beta, axis=0) - fmom1_block/2.            
+              fmom_block = np.asarray((np.zeros_like(fmom1_block), fmom1_block))
+            # End GW Correction 
+            
+            imp_problem = impurity.ImpurityProblem(
+                    self.beta, g0inviw_block, fiw_block, fmom_block, ftau_block,
+                    muimp_block, ineq.dd_int, None, None, ineq.symmetry_moves,
+                    self.paramag)
+            self.imp_problems.append(imp_problem)
+            atom = atom + 1
+        
+    def write_imp_problems(self, output):
+        g0iw = [orbspin.invert(p.g0inviw) for p in self.imp_problems]
+
+        output.write_quantity("g0iw-full", g0iw)
+        output.write_quantity("g0iw",  g0iw)
+        output.write_quantity("fiw",   [p.fiw for p in self.imp_problems])
+        output.write_quantity("fmom",  [p.fmom for p in self.imp_problems])
+        output.write_quantity("ftau",  [p.ftau for p in self.imp_problems])
+        output.write_quantity("ftau-full",  [p.ftau for p in self.imp_problems])
+        output.write_quantity("muimp", [p.muimp for p in self.imp_problems])
+        output.write_quantity("muimp-full", [p.muimp for p in self.imp_problems])
+
+class LinearMixingStrategy(object):
+    """Allows (linear) under relaxation of quantities in the DMFT loop.
+
+    This is achieved by mixing into the new self-energy a certain share of the
+    previous self-energy (controlled by `oldshare`) every time that `mix()` is
+    called:
+
+            A^{mixed}_n = (1-oldshare) * A_n + oldshare * A^{mixed}_{n-1}
+
+    thereby exponentially decreasing the influence of the old iterations by
+    `\exp(-n \log oldshare)`. This strategy dampens strong statistical
+    fluctuations in the QMC solver and ill-defined chemical potentials in
+    insulating cases.
+    """
+    def __init__(self, oldshare=0.):
+        if not (0 <= oldshare <= 1):
+            raise ValueError("Mixing factor must be between 0 and 1")
+        self.oldshare = float(oldshare)
+
+    def mixer(self, init_value=None):
+        return self.__class__.Mixer(self, init_value)
+
+    class Mixer:
+        def __init__(self, strategy, init_value):
+            self.strategy = strategy
+            self.oldvalue = init_value
+
+        def __call__(self, newvalue):
+            if newvalue is None: raise ValueError("new value must not be None")
+            oldsh = self.strategy.oldshare
+            if self.oldvalue is None:
+                self.oldvalue = newvalue
+            else:
+                self.oldvalue = oldsh * self.oldvalue + (1-oldsh) * newvalue
+            return self.oldvalue

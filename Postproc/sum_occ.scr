@@ -1,0 +1,46 @@
+#!/bin/bash
+
+list="1111 1212"
+NB=0
+for x in $list
+do
+ NB=$(($NB+1))
+done
+echo $NB "entries"
+
+echo "-----------------------------------------------------------------------"
+grep -E "occ([0-9])([0-9])\1\2" $1 | awk '{{print $0}; if (NR%'$NB'==0) {print "-----------------------------------------------------------------------"}}'
+
+echo "======================================================================="
+echo "last iteration"
+echo "======================================================================="
+
+for x in $list
+do
+ grep occ"$x" $1  | tail -n 1
+done | awk 'BEGIN{n=0.0} {print $0; n+=$2} END{print(n/'$NB')}'
+echo "======================================================================="
+
+
+#Round Brackets Create a Backreference
+#
+#Besides grouping part of a regular expression together, round brackets also create a "backreference". A backreference stores the part of the string matched by the part of the regular expression inside the parentheses.
+#
+#That is, unless you use non-capturing parentheses. Remembering part of the regex match in a backreference, slows down the regex engine because it has more work to do. If you do not use the backreference, you can speed things up by using non-capturing parentheses, at the expense of making your regular expression slightly harder to read.
+#
+#The regex Set(Value)? matches Set or SetValue. In the first case, the first backreference will be empty, because it did not match anything. In the second case, the first backreference will contain Value.
+#
+#If you do not use the backreference, you can optimize this regular expression into Set(?:Value)?. The question mark and the colon after the opening round bracket are the special syntax that you can use to tell the regex engine that this pair of brackets should not create a backreference. Note the question mark after the opening bracket is unrelated to the question mark at the end of the regex. That question mark is the regex operator that makes the previous token optional. This operator cannot appear after an opening round bracket, because an opening bracket by itself is not a valid regex token. Therefore, there is no confusion between the question mark as an operator to make a token optional, and the question mark as a character to change the properties of a pair of round brackets. The colon indicates that the change we want to make is to turn off capturing the backreference.
+#How to Use Backreferences
+#
+#Backreferences allow you to reuse part of the regex match. You can reuse it inside the regular expression (see below), or afterwards. What you can do with it afterwards, depends on the tool or programming language you are using. The most common usage is in search-and-replace operations. The replacement text will use a special syntax to allow text matched by capturing groups to be reinserted. This syntax differs greatly between various tools and languages, far more than the regex syntax does. Please check the replacement text reference for details.
+#Using Backreferences in The Regular Expression
+#
+#Backreferences can not only be used after a match has been found, but also during the match. Suppose you want to match a pair of opening and closing HTML tags, and the text in between. By putting the opening tag into a backreference, we can reuse the name of the tag for the closing tag. Here's how: <([A-Z][A-Z0-9]*)\b[^>]*>.*?</\1> . This regex contains only one pair of parentheses, which capture the string matched by [A-Z][A-Z0-9]* into the first backreference. This backreference is reused with \1 (backslash one). The / before it is simply the forward slash in the closing HTML tag that we are trying to match.
+#
+#To figure out the number of a particular backreference, scan the regular expression from left to right and count the opening round brackets. The first bracket starts backreference number one, the second number two, etc. Non-capturing parentheses are not counted. This fact means that non-capturing parentheses have another benefit: you can insert them into a regular expression without changing the numbers assigned to the backreferences. This can be very useful when modifying a complex regular expression.
+#
+#You can reuse the same backreference more than once. ([a-c])x\1x\1 will match axaxa, bxbxb and cxcxc.
+
+
+

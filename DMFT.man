@@ -1,0 +1,42 @@
+.TH DMFT.py 1
+.
+.
+.SH NAME
+
+DMFT.py \- run DMFT self-consistency loop with the CT-QMC solver
+.
+.
+.SH SYNOPSIS
+
+.B DMFT.py
+.RI "[OPTIONS] [" inputfile " ...] [" key "\fB=\fR" value " ...]"
+.
+.
+.SH DESCRIPTION
+
+.B DMFT.py 
+is a python wrapper around the CT-QMC solver. It runs a set of iterations of
+this solver, optionally within a DMFT self-consistency cycle.
+.
+.
+.SH EXAMPLES
+.TP
+DMFT.py
+Run with the parameters found in Parameters.in, which must reside in the current
+directory.
+.TP
+DMFT.py calc/Parameters.in DMFTsteps=9 mu=3.0
+Run with the parameters found in calc/Parameters.in, but override the values for
+the number of DMFT iterations and mu with 9 and 3.0, respectively. 
+.TP
+mpirun -np 10 DMFT.py mu=1
+Use the parallel version of the script.
+.
+.
+.SH CODE AUTHORS
+
+Nicolaus Parragh <nicolaus.parragh@physik.uni-wuerzburg.de>
+
+Markus Wallerberger <wallerberger@ifp.tuwien.ac.at>
+
+Giorgio Sangiovanni <sangiovanni@physik.uni-wuerzburg.de>

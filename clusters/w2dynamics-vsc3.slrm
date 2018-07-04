@@ -1,0 +1,12 @@
+#!/bin/bash
+#SBATCH -N 8
+#SBATCH --ntasks-per-node=16
+#SBATCH --ntasks-per-core=2
+#SBATCH --time=08:00:00
+
+logfile=ctqmc-.log
+
+echo "Starting DMFT code ..."
+exec srun DMFT.py 2> 1>&2
+
+# exec replaces the shell, so no commands are meaningful here.

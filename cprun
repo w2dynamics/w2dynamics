@@ -1,0 +1,153 @@
+#!/usr/bin/env python
+"""copies run-time directory
+
+Author: Markus Wallerberger"""
+
+__version__ = 0, 2
+
+import re
+import sys
+import os
+import shutil
+import glob
+from optparse import OptionParser
+
+class IniFile:
+    INI_REGEX_STRING = r"""
+        ^(?:                                                    # empty line
+          | \s* (?P<key> [-\w]+) \s* = \s* (?P<value> [^#]*?)   # key=value
+          | \s* (?P<sdepth> \[+) \s* (?P<section> \w+) \s* \]+  # [section]
+         ) \s* (?: \#.*)? $"""
+
+    def __init__(self, ini_file=None):
+        self.lines_info = []
+        self.index = {}
+        if ini_file is not None:
+            self.read(ini_file)
+
+    def read(self, ini_file):
+        ini_regex = re.compile(IniFile.INI_REGEX_STRING, re.X)
+        curr_section = []
+        curr_section_str = ""
+        lines = []
+        index = {}
+        for lineno, line in enumerate(ini_file):
+            match = ini_regex.match(line)
+            if match is None:
+                raise ValueError("Error in line %d: %s" % (lineno, line))
+            line_info = {"type":0, "no": lineno, "text": line}  
+            if match.group("section") is not None:
+                # create "insertion" point for previous section (trailing ..)
+                #index[curr_section_str + "."] = line_info
+                depth = len(match.group("sdepth"))
+                if depth - 1 > len(curr_section):
+                    raise ValueError("Nesting error @%d: %s" % (lineno, line))
+                del curr_section[depth-1:]
+                curr_section.append(match.group("section"))
+                curr_section_str = ".".join(curr_section) + "."
+                index[curr_section_str] = line_info
+                line_info.update(type=1, depth=depth)
+            elif match.group("key") is not None:
+                key = match.group("key")
+                value = match.group("value")
+                index[curr_section_str + key] = line_info
+                line_info.update(type=2, key=key, value=value)
+            lines.append(line_info)
+        self.lines_info += lines
+        self.index.update(index)
+    
+    def lines(self):
+        for line in self.lines_info:
+            yield line["text"]
+
+    def update_key(self, key, new_value):
+        try:
+            line = self.index[key]
+            line_txt = line["text"]
+            old_value = line["value"]
+            line["text"] = "%s = %s  # WAS: %s\n" % \
+                     (line_txt[:line_txt.index("=")], new_value, old_value)
+            return old_value
+        except KeyError:
+            section, rkey = key.rsplit(".", 1)
+            insline = self.index[section + "."]
+            insindex = self.lines_info.index(insline)
+            line = {"type":2, "key":rkey, "value":new_value, "no":insline["no"],
+                    "text":"%s = %s  # NEW\n" % (rkey, new_value)}
+            self.lines_info.insert(insindex+1, line)
+            self.index[key] = line
+            return None
+
+if __name__ == "__main__":
+    parser = OptionParser(usage="%prog [OPTIONS] FROM TO [KEY=NEW_VALUE ...]",
+                          version=".".join(map(str, __version__)),
+                          description=__doc__.split("\n",1)[0])
+    parser.add_option("--cont", "-c", action="store_true")
+    parser.add_option("--recursive", "-r", action="store_true")
+    options, args = parser.parse_args()
+
+    try:
+        from_dir, to_dir = args[:2]
+        subst = {}
+        for arg in args[2:]:
+            key, val = arg.split("=", 1)
+            subst[key] = val
+    except Exception, e:
+        parser.error(str(e))
+
+    if options.cont:
+        subst["General.readold"] = -1
+        subst["General.fileold"] = "old.hdf5"
+
+    COPY_RE = re.compile(r"\.sh$|\.hk|\.ham|^parameters\.dat$")
+
+    for from_currdir, subdirs, files in os.walk(from_dir):
+        reldir = os.path.relpath(from_currdir, from_dir)
+        to_currdir = os.path.join(to_dir, reldir)
+        print "%s/ -> %s/" % (from_currdir, to_currdir)
+        os.makedirs(to_currdir, 0755)
+
+        for fname in files:
+            from_file = os.path.join(from_currdir, fname)
+            to_file = os.path.join(to_currdir, fname)
+
+            if os.path.islink(from_file):
+                if options.cont and fname == "old.hdf5":
+                    print "  RE-CONTINUATION: ignoring old.hdf5"
+                    continue
+                target = os.readlink(from_file)
+                if not os.path.isabs(target):
+                    target = os.path.join(from_currdir, target)
+                    target = os.path.relpath(os.path.abspath(target),
+                                             os.path.abspath(to_currdir))
+
+                print "  %s -> %s (=> %s)" % (from_file, to_file, target)
+                os.symlink(target, to_file)
+
+            elif COPY_RE.search(fname):
+                print "  %s -> %s" % (from_file, to_file)
+                shutil.copy(from_file, to_file)
+
+            elif fname.endswith(".in"):
+                print "  %s -> %s" % (from_file, to_file)
+                ini_data = IniFile(file(from_file, "r"))
+                for k, v in subst.iteritems():
+                    print "    %s: %s -> %s" % (k, ini_data.update_key(k, v), v)
+                file(to_file, "w").writelines(ini_data.lines())
+                del ini_data
+    
+        if options.cont:
+            old4new = os.path.relpath(from_currdir, to_currdir)
+            from_file = max(glob.iglob(os.path.join(from_currdir, '*.hdf5')),
+                            key=os.path.getctime)
+            from_fname = os.path.basename(from_file)
+            target = os.path.join(old4new, from_fname)
+            to_file = os.path.join(to_currdir, "old.hdf5")
+            print "  %s -> %s (=> %s)" % (from_file, to_file, target)
+            os.symlink(target, to_file)
+            
+        if not options.recursive:
+            break
+
+
+        

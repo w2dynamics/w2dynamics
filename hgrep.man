@@ -1,0 +1,121 @@
+.TH hgrep 1
+.
+.
+.SH NAME
+
+hgrep \- extract values from the HDF5 QMC output file
+.
+.
+.SH SYNOPSIS
+
+.B hgrep
+.RI "(" filename " | " \fBlatest\fR ")" " " \fBlist\fR
+
+.B hgrep
+.RI "[OPTIONS] (" filename " | " \fBlatest\fR ") " "quantity" " [[" index \fB=\fR] values " ...]"
+.
+.
+.SH DESCRIPTION
+
+.B hgrep 
+is a python script which extracts data sets from the binary result file of a DMFT
+calculation.  These files are essentially a collection of quantities together 
+with some metadata describing the run and the quantities in general.
+
+To retrieve all quantities stored in an output file, use the first form above.  
+To print a specific quantity, use the second form above.  You can select only 
+parts of the data by specifying further values (see \fBSelecting data\fR).
+
+You can use \fBlatest\fR instead of \fIfilename\fR to use the .hdf5 file in
+the current directory that was last modified.  You can join multiple input files
+by a colon.
+.
+.SS Output
+
+By default, hgrep prints the selected quantity as a set of column-aligned 
+tuples. Each tuple corresponds to one datapoint and contains the respective
+indices (iteration, band, tau bin, etc.), the result value and, where 
+available, an error estimate. It will also print header lines starting with `#'
+that describe the data being plotted. The output is compatible with most
+plotting tools and CSV import filters.
+.
+.SS Selecting data
+
+You can limit the output to only parts of the quantity by specifying ranges for
+the different indices. The general syntax is:
+.IP
+.RI [ index \fB=\fR] selection [\fB,\fR selection " ...]"
+.PP
+If \fIindex\fR is omitted, then the selections refer to the indices in the order
+that they are printed. You may not mix named and unnamed indices.
+
+Each \fIselection\fR (separated by \fB,\fR but no whitespace) may either be a
+a single \fIvalue\fR or a range from \fIstart\fR to \fIstop\fR, both inclusive:
+.IP
+.IR selection " ::= " value " | [" start "]\fB:\fR[" stop "][\fB:\fR" step "]"
+.PP
+\fIvalue\fR, \fIstart\fR and \fIstop\fR may be positive or negative: if positive
+\fIn\fR, they denote the \fIn\fR-th element of the index, starting with 1. If 
+negative \fI\-n\fR, they denote the \fIn\fR-th last element (\-1 being the last
+element). If \fIstart\fR or \fIstop\fR are omitted, they default to the 1 and 
+\-1, respectively. \fIstep\fR is an optional positive stepsize and defaults to 1.
+For example, \fB:\fR is shorthand for \fB1:-1:1\fR and selects all elements (see
+\fBExamples\fR).
+
+Selecting iterations works a bit differenty: there are two special iterations,
+\fBstart\fR and \fBfinish\fR, which store data for the beginning and the end of
+the run. If you omit the iteration selection, or use \fB:\fR for it, then these
+iterations are included as well. If you specify only parts of the iterations,
+then they are not included and you will have to select the manually, e.g., you
+can use: \fBiter=-3:,finish\fR.
+.
+.
+.SH OPTIONS
+.TP
+.BR \-d ", " \-\-debug
+Prints lots of debug output.
+.TP
+.BR \-t ", " \-\-tabular
+Print the quantity in a pivot table like fashion instead of a list of tuples,
+but also separate them by tabs. Prints separate tables all fields (value, error,
+real and imaginary part). These tables are separated by a pair of newlines,
+which makes them available to the \fBindex\fR keyword in \fBgnuplot\fR.
+
+.PI 
+Then, the quantity's indices are distributed to rows and columns based on the 
+nature of the quantity: for instance, typical plotting indices (like tau) are
+used as row indices to aid plotting.
+
+.PI
+Unless \fB--skip-header\fR is specified, each table begins with header lines
+(prefixed by `#') describing how the different columns map to combinations of the
+column index values. Then, for each row in the table, first the row index values
+are printed and then the field value for each column.
+.
+.
+.SH EXAMPLES
+.TP
+hgrep foo.hdf5
+Print available quantities from foo.hdf5.
+.TP
+hgrep foo.hdf5 mu
+Print the chemical potential (mu) for all iterations in foo.hdf5.
+.TP
+hgrep foo.hdf5 siw 1,\-1 1 3: 2 0:20
+Print the self-energy in Matsubara frequencies (siw) for the first and last 
+iteration (1,\-1), first atom (1), all but the first two bands (3:) and 
+second spin (2) for the frequency range 0 to 20 of foo.hdf5.
+.TP
+hgrep --tabular foo.hdf5 gtau iter=1,-3:-1 spin=1
+Print the Green's function in tau (gtau) in a tabular fashion (--tabular)
+for the first and the last three iterations (iter=1,-3:-1) and the first
+spin (spin=1)
+.TP
+hgrep foo.hdf5 time finish
+Print the total runtime
+.
+.
+.SH AUTHOR
+
+Markus Wallerberger <markus.wallerberger@ifp.tuwien.ac.at>
+

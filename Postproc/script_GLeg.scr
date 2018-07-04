@@ -1,0 +1,22 @@
+#!/bin/bash
+
+file=$1
+
+beta=`grep -i "Beta" $file | awk '{print $3}'`
+echo "beta = " $beta
+
+NLegMax=`grep -i "NLegMax" $file | awk '{print $3}'`
+echo "NLegMax = " $NLegMax
+
+if [ -e GLeg.dat ]; then rm -f GLeg.dat; fi
+if [ -e GLeg11.dat ]; then rm -f GLeg11.dat; fi
+if [ -e GLeg12.dat ]; then rm -f GLeg12.dat; fi
+
+grep :GLeg11: $file  | tail -n $NLegMax | awk '{print $2, $3, $4}' > GLeg11.dat
+grep :GLeg12: $file  | tail -n $NLegMax | awk '{print $3, $4}' > GLeg12.dat
+paste GLeg11.dat GLeg12.dat > GLeg.dat
+rm GLeg11.dat GLeg12.dat 
+
+cat GLeg.dat | awk 'BEGIN{c=0.0; cc=0.0; ccc=0.0} {if($1%2 == 0){  c+=(2.0/'$beta')*sqrt(2.0*$1+1.0)*$2; printf("%20.16f \n", c)}}' > c.dat 
+cat GLeg.dat | awk 'BEGIN{c=0.0; cc=0.0; ccc=0.0} {if($1%2 == 1){ cc-=(2.0/'$beta'^2)*sqrt(2.0*$1+1.0)*$2*$1*($1+1); printf("%20.16f \n", cc)}}' > cc.dat
+cat GLeg.dat | awk 'BEGIN{c=0.0; cc=0.0; ccc=0.0} {if($1%2 == 0){ccc+=(1.0/'$beta'^3)*sqrt(2.0*$1+1.0)*$2*($1+2)*($1+1)*$1*($1-1); printf("%20.16f \n", ccc)}}' > ccc.dat
