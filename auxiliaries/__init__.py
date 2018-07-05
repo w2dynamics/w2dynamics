@@ -12,11 +12,12 @@ BANNER = r"""
   |\    | |X/  \X| __ \\ \/ /  \ | |                coupling impurity solver
   \ \ |\| |____/X| | \ \\  /| \ \| |
    \ \\ \ /XXXXXX| |_/ // / | |\ \ |   Authors: M Wallerberger, A Hausoel,
-    \__\__|X/____|____//_/  |_| \__|       P Gunacker, N Parragh, G Sangiovanni
+    \__\__|X/____|____//_/  |_| \__|   P Gunacker, A Kowalski, N Parragh, F Goth,
+                                                 K Held, G Sangiovanni
          |XXXXXXXX|                    Version %s, %s
 """
 
-CODE_VERSION = 1, 0, "alpha1"
+CODE_VERSION = 1, 0, "0"
 CODE_VERSION_STRING = ".".join(map(str,CODE_VERSION))
-CODE_DATE = "May 2016"
+CODE_DATE = "July 2018"
 OUTPUT_VERSION = 2, 2
