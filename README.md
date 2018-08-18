@@ -114,6 +114,12 @@ Files and directories
   - `run_tests.sh`: run the run-through tests
   - `setup.py`: Python installation script
 
+Citation
+--------
+If you use the w2dynamics package, please mention the following in the acknowledments:
+
+The QMC simulations were carried out with the w2dynamics package available at https://github.com/w2dynamics/w2dynamics .
+
 
 [Disclaimer](https://www.uni-wuerzburg.de/sonstiges/impressum/)
 
