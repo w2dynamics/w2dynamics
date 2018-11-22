@@ -4,7 +4,7 @@ w2dynamics - Wien/Wuerzburg strong coupling solver
 w2dynamics is a hybridization-expansion continuous-time quantum Monte Carlo
 package, developed jointly in Wien and Würzburg. 
 
-In any published papers arising from the use of w2dynamics, please cite:
+**In any published papers arising from the use of w2dynamics, please cite:**
 
    M. Wallerberger, A. Hausoel, P. Gunacker, A. Kowalski, N. Paragh, F. Goth, K. Held, and G. Sangiovanni,  
    Comput. Phys. Commun. 235, 2 (2019)  
