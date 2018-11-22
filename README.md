@@ -6,13 +6,12 @@ package, developed jointly in Wien and Würzburg.
 
 In any published papers arising from the use of w2dynamics, please cite:
 
-   M. Wallerberger, A. Hausoel, P. Gunacker, A. Kowalski, N. Paragh, F. Goth, K. Held, and G. Sangiovanni,
-   Comput. Phys. Commun. 235, 2 (2019)
-   <https://www.sciencedirect.com/science/article/pii/S0010465518303217>
-   arXiv:1801.10209 <https://arxiv.org/abs/1801.10209>
-   When using additional codes in  conjunction with w2dynamics, do not forget
-   to give credit to them as well.
-
+   M. Wallerberger, A. Hausoel, P. Gunacker, A. Kowalski, N. Paragh, F. Goth, K. Held, and G. Sangiovanni,  
+   Comput. Phys. Commun. 235, 2 (2019)  
+   <https://www.sciencedirect.com/science/article/pii/S0010465518303217>  
+   arXiv:1801.10209 <https://arxiv.org/abs/1801.10209>  
+   When using additional codes in  conjunction with w2dynamics, do not forget  
+   to give credit to them as well.  
 
 w2dynamics contains:
 
