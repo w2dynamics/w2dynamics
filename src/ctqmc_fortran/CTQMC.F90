@@ -203,10 +203,8 @@ implicit none
 
    integer, parameter :: GF4_IMAGTIME = 1, GF4_LEGENDRE = 2, GF4_MATSUBARA = 4, GF4_WORM = 8
    integer            :: WormphConv,ZphConv
-   integer :: N_amplum_stayed,N_Nouter_states_changed,N_outer_states_changed
-   integer :: ff, ee, ef, fe
    
-   logical :: b_Eigenbasis, b_Densitymatrix,www,measuring,b_meas_susz,b_segment
+   logical :: b_Eigenbasis, b_Densitymatrix,b_meas_susz,b_segment
    logical :: b_meas_susz_mat
    logical :: b_Giw_lookup
    logical :: b_statesampling
@@ -334,10 +332,6 @@ subroutine init_CTQMC()
    endif
    
    wormEta=get_Real_Parameter("WormEta")
-   www=.false.
-   N_amplum_stayed=0
-   N_Nouter_states_changed=0
-   N_outer_states_changed=0
    
    !! choose Eigenbasis or Krylov solver
    !! we cannot use Krylov for segment algorithm
@@ -2963,8 +2957,12 @@ subroutine StepAdd4(Sector)
 
    TryAdd4=TryAdd4+1
 
-   call pair_OperAdd(DTrace,NBands,Oper,4,taudiff_factor,force_diagonal=.false.)
-   
+   if (b_offdiag) then
+      call pair_OperAdd(DTrace,NBands,Oper,4,taudiff_factor,force_diagonal=.false.)
+   else
+      call pair_OperAdd(DTrace,NBands,Oper,4,taudiff_factor,force_diagonal=.true.)
+   end if
+
    Oper(1)%p%has_hyb=.true.
    Oper(2)%p%has_hyb=.true.
    Oper(3)%p%has_hyb=.true.
@@ -3833,6 +3831,102 @@ end subroutine StepGlob
 subroutine StepShiftTau()
 !===============================================================================
 !input
+   type(TTrace),pointer          :: DTrace
+   type(TTrace_pointer)          :: pDTrace
+
+   pDTrace=transfer(ipDTrace,pDTrace)
+   DTrace => pDTrace%ptr
+
+   if (DTrace%NOper == 0) then
+      call StepChangeOuter()
+   else
+      call StepShiftTau_proper()
+   end if
+end subroutine StepShiftTau
+
+!===============================================================================
+subroutine StepChangeOuter()
+!===============================================================================
+!input
+   type(TStates),pointer         :: DStates
+   type(TTrace),pointer          :: DTrace
+   type(TStates_pointer)         :: pDStates
+   type(TTrace_pointer)          :: pDTrace
+
+   real(KINDR), allocatable      :: empty_trace_values(:)
+   integer                       :: iSt, i, j
+   real(KINDR)                   :: accumulator, rand
+
+   pDStates=transfer(ipDStates,pDStates)
+   pDTrace=transfer(ipDTrace,pDTrace)
+   DStates => pDStates%ptr
+   DTrace => pDTrace%ptr
+
+   call save_outer_sst(DTrace)
+1  if (b_statesampling) then
+      ! choose new outer state with probability proportional to the empty trace value
+      ! due to this proposal weight, the Metropolis acceptance probability is 1
+      allocate(empty_trace_values(DTrace%NTruncStates))
+      iSt = 1
+      do i = 1, size(DTrace%States(:, 1))
+         do j = 1, DTrace%States(i, 2)
+            DTrace%outer_sst = DTrace%States(i, 1)
+            DTrace%outer_state = j
+            empty_trace_values(iSt) = trval(get_Trace_EB(DTrace, DStates, global=.true.))
+            iSt = iSt + 1
+         end do
+      end do
+      empty_trace_values = empty_trace_values / sum(empty_trace_values)
+
+      rand = grnd()
+      accumulator = 0._KINDR
+      iSt = 1
+      sstloop: do i = 1, size(DTrace%States(:, 1))
+         do j = 1, DTrace%States(i, 2)
+            DTrace%outer_sst = DTrace%States(i, 1)
+            DTrace%outer_state = j
+            accumulator = accumulator + empty_trace_values(iSt)
+            if (accumulator >= rand .and. (empty_trace_values(iSt) /= 0._KINDR))&
+               exit sstloop
+            iSt = iSt + 1
+         end do
+      end do sstloop
+      deallocate(empty_trace_values)
+   else
+      ! choose new outer superstate with probability proportional to the empty trace value
+      ! due to this proposal weight, the Metropolis acceptance probability is 1
+      allocate(empty_trace_values(size(DTrace%States(:, 1))))
+      do i = 1, size(DTrace%States(:, 1))
+         DTrace%outer_sst = DTrace%States(i, 1)
+         empty_trace_values(i) = trval(get_Trace_EB(DTrace, DStates, global=.true.))
+      end do
+      empty_trace_values = empty_trace_values / sum(empty_trace_values)
+
+      rand = grnd()
+      accumulator = 0._KINDR
+      do i = 1, size(DTrace%States(:, 1))
+         DTrace%outer_sst = DTrace%States(i, 1)
+         accumulator = accumulator + empty_trace_values(i)
+         if (accumulator >= rand .and. (empty_trace_values(i) /= 0._KINDR))&
+            exit
+      end do
+      deallocate(empty_trace_values)
+   end if
+
+   DTrace%Trace = get_Trace_EB(DTrace, DStates, global=.true.)
+   ! the trace should never be 0, but just in case it is
+   if (DTrace%Trace%log < -huge(0.0_KINDR)) go to 1
+   call update_trace_EB(DTrace)
+   ! this should not really be necessary
+   DTrace%BosonicTrace = get_BosonicTrace(DTrace, DStates)
+   DTrace%cfgsign = -get_Sign(DTrace, DStates)
+
+end subroutine StepChangeOuter
+
+!===============================================================================
+subroutine StepShiftTau_proper()
+!===============================================================================
+!input
    type(TStates),pointer         :: DStates
    type(TTrace),pointer          :: DTrace
    type(TStates_pointer)         :: pDStates
@@ -3854,8 +3948,6 @@ subroutine StepShiftTau()
    pDTrace=transfer(ipDTrace,pDTrace)
    DStates => pDStates%ptr
    DTrace => pDTrace%ptr
-
-   if (DTrace%NOper == 0) return
 
    DeltaTau = grnd() * DTrace%beta
    if (DeltaTau == 0_KINDR .or. DeltaTau == DTrace%beta) return
@@ -4034,7 +4126,7 @@ subroutine StepShiftTau()
    end if
 
    deallocate(tau_old)
-end subroutine StepShiftTau
+end subroutine StepShiftTau_proper
 
 !===============================================================================
 subroutine StepFlavourchange_general()
@@ -5121,7 +5213,7 @@ subroutine StepWormReplace(Sector)
    
    !component sampling requires diagonal exchanges only
    if(b_offdiag.and.force_diagonal) then
-     if(OperHyb%Orbital.ne.wb .or. OperHyb%Spin.ne.ws) return
+     if(OperHyb%Orbital.ne.wb .or. OperHyb%Spin.ne.ws) goto 99
    endif
 
    call propose_WormReplace(DTrace,DStates,DTrace%wormContainer(rand)%p,OperHyb,u,vdag,detRat,sgn)
@@ -5144,7 +5236,7 @@ subroutine StepWormReplace(Sector)
    endif
    
    !clean up
-   deallocate(u,vdag)
+99 deallocate(u,vdag)
    
 end subroutine StepWormReplace
 
@@ -6679,11 +6771,12 @@ end subroutine StepGlob_mine
 
 !===============================================================================
 subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
-                       screening_function,Nftau,NBands)
+                       screening_function,iter_no,Nftau,NBands)
 !===============================================================================
    use signals
 
 !input
+   integer                    :: iter_no
    integer                    :: Nftau,NBands
    real(KINDR)                :: u_matrix_in(2*NBands,2*NBands,2*NBands,2*NBands)
    real(KINDR)                :: Ftau(NBands,2,Nftau)
@@ -6730,6 +6823,7 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    call oneparticle_hamiltonian(DH,DStates,DPsis,muimp_full)
    !call print_Operator(DH,DStates) 
    call u_hamiltonian(u_matrix, DH, DStates, DPsis)
+   call force_hermitian(DH, DStates)
    !call print_Operator(DH,DStates) 
    !start now we analyze the hamiltonian for block diagonal form
    if (index(get_String_Parameter("QuantumNumbers"),"All").ne.0) then
@@ -6744,6 +6838,7 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
     !call init_Hamiltonian(DH, DStates, muimp)
     call oneparticle_hamiltonian(DH,DStates,DPsis,muimp_full)
     call u_hamiltonian(u_matrix, DH, DStates, DPsis)
+    call force_hermitian(DH, DStates)
 !    call print_Operator(DH,DStates,102) 
    endif
 ! end of analyzing hamiltonian
@@ -6765,6 +6860,12 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    !call print_states(DStates)
    !write(*,*) "substates"
    !call print_substates(DStates)
+
+   if(simid.eq.0)then
+   if(get_Integer_Parameter("PrintDensityMatrixBasis").ne.0)then
+      call print_densitymatrix_basis(Dstates,iter_no)
+   endif
+   endif
 
    !do i = 0,DStates%NStates-1
       !write (*, *)  Hevalues(i)

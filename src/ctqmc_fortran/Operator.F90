@@ -1016,7 +1016,25 @@ subroutine u_hamiltonian(u_matrix, h, dstates, dpsis)
       enddo
       enddo
 end subroutine
-   
+
+!===============================================================================
+pure subroutine force_hermitian(H, DStates)
+!===============================================================================
+   type(toperator), intent(inout) :: H
+   type(tstates), intent(in)      :: DStates
+
+   integer :: sst, i, j
+
+   do sst = 0, DStates%NSStates - 1
+      do i = 0, size(H%SubOps(sst)%Op, 1) - 2
+         do j = i + 1, size(H%SubOps(sst)%Op, 2) - 1
+            H%SubOps(sst)%Op(i, j) = (H%SubOps(sst)%Op(i, j) + H%SubOps(sst)%Op(j, i))/2.0d0
+            H%SubOps(sst)%Op(j, i) = H%SubOps(sst)%Op(i, j)
+         end do
+      end do
+   end do
+end subroutine force_hermitian
+
 !===============================================================================
 !! This subroutine transforms the PSIS to the basis that is defined by the 
 !! transformation-matrix HEVectors (in this case the eigenbasis of local Hamiltonian).

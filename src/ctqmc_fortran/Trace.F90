@@ -600,7 +600,7 @@ subroutine init_Trace(this,DStates,FTau,FTau_full,screening_function,Nftau,muimp
             do j = 1, this%States(i, 2)
                this%outer_sst = this%States(i, 1)
                this%outer_state = j
-               empty_trace_values(iSt) = trval(get_Trace_EB(this, DStates))
+               empty_trace_values(iSt) = trval(get_Trace_EB(this, DStates, global=.true.))
                iSt = iSt + 1
             end do
          enddo
@@ -629,7 +629,7 @@ subroutine init_Trace(this,DStates,FTau,FTau_full,screening_function,Nftau,muimp
          this%outer_sst_old = -1
          do i = 1, size(this%States(:, 1))
             this%outer_sst = this%States(i, 1)
-            empty_trace_values(i) = trval(get_Trace_EB(this, DStates))
+            empty_trace_values(i) = trval(get_Trace_EB(this, DStates, global=.true.))
          enddo
          empty_trace_values = empty_trace_values / sum(empty_trace_values)
 
@@ -643,7 +643,7 @@ subroutine init_Trace(this,DStates,FTau,FTau_full,screening_function,Nftau,muimp
          deallocate(empty_trace_values)
       end if
 
-      this%Trace=get_Trace_EB(this,DStates)
+      this%Trace=get_Trace_EB(this,DStates, global=.true.)
       if (this%Trace%log < -huge(0.0_KINDR)) stop "Zero trace initial state"
       call update_trace_EB(this)
    else
@@ -5038,12 +5038,12 @@ real(KINDR) function get_BosonicTrace(this,DStates)
       do while(associated(Element1))
          Element2=>Element1%next
          do while(associated(Element2))
-            if(Element2%Orbital.eq.Element1%Orbital)then
+!            if(Element2%Orbital.eq.Element1%Orbital)then
                tau=Element2%tau-Element1%tau
                BWeight(Element1%Orbital)=BWeight(Element1%Orbital)+&
                    (-1d0)**(Element1%CA/2)*(-1d0)**(Element2%CA/2)*&
                    get_lin_screening_function(this,tau,Element1%Orbital,Element1%Spin,Element2%Orbital,Element2%Spin)
-            endif
+!            endif
             Element2=>Element2%next
          enddo
          Element1=>Element1%next

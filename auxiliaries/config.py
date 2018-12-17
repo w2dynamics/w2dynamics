@@ -163,24 +163,30 @@ def interaction_from_cfg(atom_cfg, cfg):
     Uw_Mat = cfg["General"]["Uw_Mat"]
 
     if int_type == "Density":
-        result = interaction.Density(norbitals, float(atom_cfg["Udd"]),
-                        float(atom_cfg["Vdd"]), float(atom_cfg["Jdd"])
-                        )
+
         if Uw == 1:
           _Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(0, zero_umatrix, Uw_Mat, 1)
-          if _Retarded2Shifts.J_shift == None:
+          if _Retarded2Shifts.Uw == False:
+            _Retarded2Shifts.U_shift = [0,0]
+          if _Retarded2Shifts.Jw == False:
             _Retarded2Shifts.J_shift = [0,0]
-          #if _Retarded2Shifts.V_shift == None:
-            #_Retarded2Shifts.V_shift = [0,0]
+          if _Retarded2Shifts.Vw == False:
+            _Retarded2Shifts.V_shift = [0,0]
 
           result = interaction.Density(norbitals, float(atom_cfg["Udd"] + _Retarded2Shifts.U_shift[0]),
                         float(atom_cfg["Vdd"] + _Retarded2Shifts.V_shift[0]), float(atom_cfg["Jdd"] + _Retarded2Shifts.J_shift[0])
                         )
-          print ' '
-          print 'The used interaction potentials in the U(w) implementation are:'
-          print 'U:', float(atom_cfg["Udd"] + _Retarded2Shifts.U_shift[0])
-          print 'J:', float(atom_cfg["Jdd"] + _Retarded2Shifts.J_shift[0])
-          print 'V:', float(atom_cfg["Vdd"] + _Retarded2Shifts.V_shift[0])
+          print ' ==> The shifted interaction potentials in the U(w) implementation are:'
+          print '       U=', float(atom_cfg["Udd"]), ' > U=' , float(atom_cfg["Udd"] + _Retarded2Shifts.U_shift[0])
+          print '       J=', float(atom_cfg["Jdd"]), ' > J=' , float(atom_cfg["Jdd"] + _Retarded2Shifts.J_shift[0])
+          print '       V=', float(atom_cfg["Vdd"]), ' > V=' , float(atom_cfg["Vdd"] + _Retarded2Shifts.V_shift[0])
+          print "         ****************************"
+          print "         **** U(w) Config Message ***"
+          print "         ****************************"
+          print " "
+
+        else:
+          result = interaction.Density( norbitals, float(atom_cfg["Udd"]), float(atom_cfg["Vdd"]), float(atom_cfg["Jdd"]) )
 
     elif int_type == "Kanamori":
         if Uw == 1:
@@ -222,8 +228,13 @@ def interaction_from_cfg(atom_cfg, cfg):
     elif int_type == "ReadNormalUmatrix":
         orb_u_matrix = _input.read_u_matrix(atom_cfg["umatrix"], False)
         if Uw == 1:
-          _Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(0, zero_umatrix, Uw_Mat)
+          _Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(0, zero_umatrix, Uw_Mat,1)
           orb_u_matrix = _Retarded2Shifts.shift_instantaneous_densitydensity_potentials_from_ReadNormalUmatrix_config(orb_u_matrix)
+          print ' ==> The orbital interaction potentials (umatrix entries) were shifted'
+          print "         ****************************"
+          print "         **** U(w) Config Message ***"
+          print "         ****************************"
+          print " "
         result = interaction.CustomSU2Invariant(orb_u_matrix)
 
     else:

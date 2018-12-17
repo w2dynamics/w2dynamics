@@ -380,10 +380,10 @@ for iter_no in range(total_iterations + 1):
                     mccfgcontainer = [mccfgs.pop(0)]
                 else:
                     mccfgcontainer = []
-                result = solver.solve(mccfgcontainer)
+                result = solver.solve(iter_no, mccfgcontainer)
                 mccfgs.append(mccfgcontainer[0])
             else:
-                result = solver.solve()
+                result = solver.solve(iter_no)
             result.postprocessing(siw_method, smom_method)
             giws.append(result.giw)
             siws.append(result.siw)
@@ -465,7 +465,7 @@ for iter_no in range(total_iterations + 1):
             for icomponent in component_list:
                log("Sampling component %d", icomponent)
                solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
-               result, result_aux = solver.solve_component(isector,icomponent,mccfgcontainer)
+               result, result_aux = solver.solve_component(iter_no,isector,icomponent,mccfgcontainer)
 
                #only write result if component returns ne 0
                if np.any([np.any(result.other[ky]["value"])  for ky in result.other.keys()]):

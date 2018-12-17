@@ -61,6 +61,7 @@ NBin 		= integer(default=1)		# # of bins per core
 MaxHisto 	= integer(default=500)		# maximum histogram order
 TaudiffMax      = float(default=-1.0)           # maximum tau difference of operator pairs that may be proposed for insertion or removal
 MeasDensityMatrix = integer(default=0)
+PrintDensityMatrixBasis = integer(default=0)
 MeasExpResDensityMatrix = integer(default=0)
 MeasGiw     = integer(default=0)
 Gtau_mean_step = integer(default=0)             # measure the Monte Carlo-step resolved tau-average of the Green's function

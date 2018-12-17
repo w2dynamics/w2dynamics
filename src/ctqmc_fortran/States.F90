@@ -420,6 +420,51 @@ subroutine print_SubStates(this)
 end subroutine print_SubStates
 
 !===============================================================================
+subroutine print_densitymatrix_basis(this, iter_no)
+!===============================================================================
+   type(TStates)                       :: this
+   integer                             :: iter_no
+!local
+   integer                             :: iSSt,iE
+   character(5)                        :: formatstr
+   CHARACTER(LEN=:), ALLOCATABLE :: fname
+
+   ALLOCATE(CHARACTER(LEN=32)::fname)
+   write(*,*) "iter_no", iter_no
+   if(iter_no.lt.10)then
+      write(fname,'(A25,2H00I1,A4)')'densitymatrix_basis_iter_', iter_no, '.dat'
+   elseif(iter_no.lt.100)then
+      write(fname,'(A25,1H0I2,A4)')'densitymatrix_basis_iter_', iter_no, '.dat'
+   elseif(iter_no.lt.1000)then
+      write(fname,'(A25,I3,A4)')'densitymatrix_basis_iter_', iter_no, '.dat'
+   endif
+
+   write(*,*) "fname", fname
+
+   OPEN(345,file=fname,form='formatted',status='replace')
+
+   do iSSt=0,this%NSStates-1
+   do iE=0,size(this%SubStates(iSSt)%States)-1
+
+      write(345,'("Nt: ",f5.2," , Szt: ",f5.2," , Qzt: ",f12.2," ; NStates: ",I4," , ISSt: ",I4," , integer repr.: ",I4," , state: ")',advance="no")&
+         get_Nt(this,this%SubStates(iSSt)%States(iE)),&
+         get_Szt(this,this%SubStates(iSSt)%States(iE)),&
+         get_Qzt(this,this%SubStates(iSSt)%States(iE)),&
+         this%SubStates(iSSt)%NStates,&
+         iSSt,&
+         this%SubStates(iSSt)%States(iE)
+         formatstr="(A  )"
+         write(formatstr(3:4),'(I2)')len_trim(get_OccStr(this,this%SubStates(iSSt)%States(iE)))
+         write(345,formatstr,advance="yes")get_OccStr(this,this%SubStates(iSSt)%States(iE))
+
+   enddo
+   enddo
+
+   close(345)
+
+end subroutine print_densitymatrix_basis
+
+!===============================================================================
 subroutine dest_States(this)
 !===============================================================================
    type(TStates)                       :: this

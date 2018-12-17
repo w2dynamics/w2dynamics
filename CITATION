@@ -1,0 +1,23 @@
+In any published papers arising from the use of w2dynamics, please cite:
+
+M. Wallerberger, A. Hausoel, P. Gunacker, A. Kowalski, N. Paragh, F. Goth, K. Held, and G. Sangiovanni,
+Comput. Phys. Commun. 235, 2 (2019)
+https://www.sciencedirect.com/science/article/pii/S0010465518303217
+arXiv:1801.10209 https://arxiv.org/abs/1801.10209
+When using additional codes in conjunction with w2dynamics, do not forget
+to give credit to them as well!
+
+Here's a basic bibtex entry for latex users:
+
+@article{w2dynamics,
+title = "w2dynamics: Local one- and two-particle quantities from dynamical mean field theory",
+journal = "Computer Physics Communications",
+volume = "235",
+pages = "388 - 399",
+year = "2019",
+issn = "0010-4655",
+doi = "https://doi.org/10.1016/j.cpc.2018.09.007",
+url = "http://www.sciencedirect.com/science/article/pii/S0010465518303217",
+author = "Markus Wallerberger and Andreas Hausoel and Patrik Gunacker and Alexander Kowalski and Nicolaus Parragh and Florian Goth and Karsten Held and Giorgio Sangiovanni",
+keywords = "(continuous-time) quantum Monte Carlo, Anderson impurity model, Dynamical mean field theory, Green’s functions"
+}

@@ -163,13 +163,13 @@ class DMFTStep:
         self.use_gw_kaverage = GW_KAverage
 
         if self.use_gw == 1:
-          try:
-            dummy_try = self.lattice.nkpoints
-          except:
-            print '********* GW MODULE IS NOT AVAILABLE FOR BETHE LATTICE *********'
-            print '...exiting'''
-            exit()
-          self.gw = gw.GWInclusion(self.lattice.norbitals, natoms, self.lattice.nkpoints, self.my_niwf, self.paramag, self.use_gw_kaverage)
+            try:
+                dummy_try = self.lattice.nkpoints
+            except:
+                print '********* GW MODULE IS NOT AVAILABLE FOR BETHE LATTICE *********'
+                print '...exiting'''
+                exit()
+            self.gw = gw.GWInclusion(self.lattice.norbitals, natoms, self.lattice.nkpoints, self.my_niwf, self.paramag, self.use_gw_kaverage)
 
         self.siw_gw = None
         self.smom_gw = None
@@ -229,7 +229,7 @@ class DMFTStep:
                 self.dc.set(dc_full)
 
         if self.use_gw == 1:
-          self.dc_full = self.dc_full * 0
+            self.dc_full = self.dc_full * 0
 
         # Try to mimic the behaviour of the old code
         if new_run and hartree_start:
@@ -261,9 +261,9 @@ class DMFTStep:
 
         # Fix the distance between selected d-orbitals and the p-manifold to the original distance of the LDA/GW Hamiltonian
         if self.dc_dp == 1:
-          self.dc_full = self.dc_full * 0
-          dp_dc = doublecounting.Fixed_dp_Distance()
-          self.dc_full = -dp_dc.get(self.dc_full, siw_dd, smom_dd, self.iwf, self.natoms, self.dc_dp_orbitals)
+            self.dc_full = self.dc_full * 0
+            dp_dc = doublecounting.Fixed_dp_Distance()
+            self.dc_full = -dp_dc.get(self.dc_full, self.siw_dd, self.smom_dd, self.iwf, self.natoms, self.dc_dp_orbitals)
 
         # not doing mixing for self consistent dc
         # if we do want to mix... simply move this part above the mixing routine
@@ -289,10 +289,10 @@ class DMFTStep:
         self.siw_full += self.dc_full
         self.siw_moments[0] += self.dc_full
 
-        # This is an approximation: really, the paritial densities and Hartree
+        # This is an approximation: really, the partial densities and Hartree
         # self-energy an inter-dependent system. Here, we assume that the
         # partial densities won't change much adding  a static self-energy
-        # shift ...
+        # shift...
         if not (hartree_start and new_run):
             if self.use_hartree:
                 #self.siw2gloc() # computes densities as well
@@ -310,10 +310,8 @@ class DMFTStep:
         self.densities = None
         self.densmatrix = None
 
-        # GW Inclusion
-        if self.use_gw == 1:
-          # Only if the DMFT Self-Energy is non-zero, we add the GW Self-Energy
-          if np.sum(self.siw_full) != 0:        # siw_full is d+p siw_dd is d-only
+        # Only if the DMFT Self-Energy is non-zero, we add the GW Self-Energy
+        if (self.use_gw == 1) and (np.sum(self.siw_full) != 0):        # siw_full is d+p siw_dd is d-only
             self.siw_gw, self.smom_gw = self.gw.get_GW_Sigma(self.beta, self.my_iwf)
             self.siw_gw = self.siw_gw.transpose(1,0,2,3,4,5)
             
@@ -406,13 +404,10 @@ class DMFTStep:
     def gloc2fiw(self):
         self.imp_problems = []
 
-        if self.use_gw == 1:
-          if np.sum(self.siw_full) != 0:
+        if (self.use_gw == 1) and (np.sum(self.siw_full) != 0):
             muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc.real - self.sigma_hartree - np.sum(self.smom_gw, axis=0)/self.lattice.nkpoints)
-          else:
-            muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc.real - self.sigma_hartree)
         else:
-          muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc.real - self.sigma_hartree)
+            muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc.real - self.sigma_hartree)
           
         atom = 0
         for ineq, siw_block, smom_block in zip(self.ineq_list, self.siw_dd, self.smom_dd):
@@ -461,39 +456,21 @@ class DMFTStep:
             # the second moment of the DOS.
             hloc_block = ineq.d_downfold(self.lattice.hloc)
 
-            # GW Inclusion
-            if self.use_gw == 1:
-              norbitals_per_atom = np.int(self.lattice.norbitals/self.natoms)
-              orbits = slice( atom*norbitals_per_atom , (atom+1)*norbitals_per_atom )
-
-              # Inclusion of GW 0th Moment  
-              if np.sum(self.siw_full) != 0:
-                # Distinguish between different methods to substract the local GW part
-
+            # GW Inclusion and Inclusion of GW 0th Moment  
+            if (self.use_gw == 1) and (np.sum(self.siw_full) != 0):
+                norbitals_per_atom = np.int(self.lattice.norbitals/self.natoms)
+                orbits = slice( atom*norbitals_per_atom , (atom+1)*norbitals_per_atom )
                 # => Model based
                 if self.use_gw_kaverage == 0:    
-                  smom_gw2 = np.sum(self.smom_gw[:,orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
-
-                  #C1 = 2* np.sum(self.mu * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
-                  #C2 = 2* np.sum(smom_block * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
-                  ## Double Counting term Sigma_DC (Wallerberger Thesis 137)
-                  #C3 = 2* np.sum(self.dc_full[orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints     
-                  ## Hartree self-energy from the d-p interaction? (Wallerberger Thesis 137)
-                  #C4 = 2* np.sum(self.udp_full[orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints    
-                  fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2)) #+ C1 - C2 - C3 - C4 - smom_gw2  # (-) CORRECT HERE!
-
-                # => K-average based
+                    smom_gw2 = np.sum(self.smom_gw[:,orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
+                    fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2)) #+ C1 - C2 - C3 - C4 - smom_gw2  # (-) CORRECT HERE!
+                    # => K-average based
                 else:                                 
-                  smom_gw2 = np.sum(self.smom_gw[:,orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
-                  fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2)) - smom_gw2    # MINUS SIGN IS CORRECT HERE!
-
-              # No GW in first iteration
-              else:
-                fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2))
-
-            # Standard non-GW 
+                    smom_gw2 = np.sum(self.smom_gw[:,orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
+                    fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2)) - smom_gw2    # MINUS SIGN IS CORRECT HERE!
+            # No GW in first iteration
             else:
-              fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2))
+                fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2))
             
             muimp_block = ineq.d_downfold(muimp)
 
@@ -505,27 +482,14 @@ class DMFTStep:
             fiw_model = fmom1_block/(1j*self.iwf[:,None,None,None,None])
 
             # GW Inclusion 
-            if self.use_gw == 1: 
-              if np.sum(self.siw_full) != 0:
-                if self.use_gw_kaverage == 0:    # => Model based
-                  extension_of = 1
-                  fiw_block_asymptotic, fiw_model_asymptotic, model_mom1 = self.gw.Reach_asymptotics_for_Hybridization(fiw_block, fiw_model, self.iwf, extension_of)
-                  ftau_block = iw_to_tau_fast(fiw_block_asymptotic - fiw_model_asymptotic, self.nftau, self.beta, axis=0) - model_mom1/2.
-                  fmom_block = np.asarray((np.zeros_like(model_mom1), model_mom1))
-
-                else:
-                  ftau_block = iw_to_tau_fast(fiw_block - fiw_model, self.nftau,
-                                              self.beta, axis=0) - fmom1_block/2.
-                  fmom_block = np.asarray((np.zeros_like(fmom1_block), fmom1_block))
-              else:
-                ftau_block = iw_to_tau_fast(fiw_block - fiw_model, self.nftau,
-                                            self.beta, axis=0) - fmom1_block/2.
-                fmom_block = np.asarray((np.zeros_like(fmom1_block), fmom1_block))
+            if (self.use_gw == 1) and (np.sum(self.siw_full) != 0) and (self.use_gw_kaverage == 0):
+                extension_of = 1
+                fiw_block_asymptotic, fiw_model_asymptotic, model_mom1 = self.gw.Reach_asymptotics_for_Hybridization(fiw_block, fiw_model, self.iwf, extension_of)
+                ftau_block = iw_to_tau_fast(fiw_block_asymptotic - fiw_model_asymptotic, self.nftau, self.beta, axis=0) - model_mom1/2.
+                fmom_block = np.asarray((np.zeros_like(model_mom1), model_mom1))
             else:
-              ftau_block = iw_to_tau_fast(fiw_block - fiw_model, self.nftau,
-                                          self.beta, axis=0) - fmom1_block/2.            
-              fmom_block = np.asarray((np.zeros_like(fmom1_block), fmom1_block))
-            # End GW Correction 
+                ftau_block = iw_to_tau_fast(fiw_block - fiw_model, self.nftau, self.beta, axis=0) - fmom1_block/2.
+                fmom_block = np.asarray((np.zeros_like(fmom1_block), fmom1_block))
             
             imp_problem = impurity.ImpurityProblem(
                     self.beta, g0inviw_block, fiw_block, fmom_block, ftau_block,

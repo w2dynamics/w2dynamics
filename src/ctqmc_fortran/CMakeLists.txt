@@ -55,10 +55,28 @@ add_dependencies(CTQMCLIB mtrng)
   set(SWITCHES ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 #  set(EXTERNAL_LIBRARIES ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} ${NFFT_LIBRARIES}  ${FFTW_LIBRARIES})
   if(APPLE)
-    set(SWITCHES "--link-lapack_opt" "--link-fftw")# FIXME: NFFT missing
-else()
-set(myfftw ${FFTW_LIBRARIES})
- endif()
+    set(SWITCHES "--link-lapack_opt" "--link-fftw")
+  endif()
+
+  # hack to not pass .dylib libraries directly because f2py does not accept them as arguments
+  if (FFTW_LIBRARIES)
+    string(TOUPPER ${FFTW_LIBRARIES} FFTW_LIBS_UPPER)
+    if (${FFTW_LIBS_UPPER} MATCHES "\\.DYLIB$")
+      get_filename_component(FFTW_CONTAINING_DIR ${FFTW_LIBRARIES} DIRECTORY)
+      list(APPEND SWITCHES "-L${FFTW_CONTAINING_DIR}" "-lfftw3")
+      set(FFTW_LIBRARIES "")
+    endif ()
+  endif ()
+
+  if (NFFT_LIBRARIES)
+    string(TOUPPER ${NFFT_LIBRARIES} NFFT_LIBS_UPPER)
+    if (${NFFT_LIBS_UPPER} MATCHES "\\.DYLIB$")
+      get_filename_component(NFFT_CONTAINING_DIR ${NFFT_LIBRARIES} DIRECTORY)
+      list(APPEND SWITCHES "-L${NFFT_CONTAINING_DIR}" "-lnfft3")
+      set(NFFT_LIBRARIES "")
+    endif ()
+  endif ()
+
   # Define the command to generate the Fortran to Python interface module. The
   # output will be a shared library that can be imported by python.
     add_custom_command(OUTPUT "${_name}${F2PY_SUFFIX}" COMMAND ${F2PY_EXECUTABLE} --quiet -m ${_name} #-c "${CMAKE_CURRENT_BINARY_DIR}/f2py-${_name}/${_name}.pyf"
@@ -67,7 +85,7 @@ set(myfftw ${FFTW_LIBRARIES})
               ${SWITCHES}
               ${LIB}/libmtrng.a
               ${CPPSTDLIBRARY}
-              ${CMAKE_THREAD_LIBS_INIT} -c ${_inc_opts} ${F2PYOBJS} ${SRCCTQMC}/CTQMC.F90 ${NFFT_LIBRARIES} ${myfftw}
+              ${CMAKE_THREAD_LIBS_INIT} -c ${_inc_opts} ${F2PYOBJS} ${SRCCTQMC}/CTQMC.F90 ${NFFT_LIBRARIES} ${FFTW_LIBRARIES}
       DEPENDS ${SRCCTQMC}/CTQMC.F90 
       WORKING_DIRECTORY ${SRCCTQMC}
 #      WORKING_DIRECTORY ${BIN}/ctqmc

@@ -319,6 +319,7 @@ class Trace(SelfConsistent):
 
 
 
+# Experimental non-benchmarked DC Method!
 class Fixed_dp_Distance():
   def get(self, dc, siw_dd, smom_dd, iwf, natoms, fixed_orbitals=None):
     print "    *** FIXING t2g-p ORBITAL DISTANCE ***"
@@ -326,28 +327,71 @@ class Fixed_dp_Distance():
     if fixed_orbitals == None:
       print '    ==> Fixing standard orbitals: 1, 3, 5'
       fixed_orbitals = np.array([0,2,4])
-
-    no_iwn = np.asarray(siw_dd).shape[1]
-    siw_t2g_real_extrapolated = np.zeros(np.asarray(fixed_orbitals).shape[0])
-
-    for b in range(0,np.asarray(fixed_orbitals).shape[0]):
-      siw_t2g_real_extrapolated[b] = np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals[b],1,fixed_orbitals[b],1]) \
-            - ( np.real(siw_dd[0][int(no_iwn/2)+1,fixed_orbitals[b],1,fixed_orbitals[b],1]) - np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals[b],1,fixed_orbitals[b],1]) ) \
-            / ( iwf[int(no_iwn/2)+1] - iwf[int(no_iwn/2)]) * iwf[int(no_iwn/2)]
-
-    siw_t2g_real_avg = 0
-    print '    ==> Using EXTRAPOLATION!'
-    for b in range(0,np.asarray(fixed_orbitals).shape[0]):
-      siw_t2g_real_avg = siw_t2g_real_avg + siw_t2g_real_extrapolated[b]
-    siw_t2g_real_avg = siw_t2g_real_avg/np.asarray(fixed_orbitals).shape[0]
     
-    ## Alternative p+d DC Method
-    #siw_t2g_real_avg = 0
-    #for b in range(0,np.asarray(fixed_orbitals).shape[0]):
-    #  print '    ==> Using last Sigma value!'
-    #  siw_t2g_real_avg = siw_t2g_real_avg + np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals[b],1,fixed_orbitals[b],1])
-    #siw_t2g_real_avg = siw_t2g_real_avg/np.asarray(fixed_orbitals).shape[0]
-    
+    # SINGLE ORBITAL SELECTION
+    if np.isscalar(fixed_orbitals):
+      print '    Fixing to orbital:', fixed_orbitals
+      no_iwn = np.asarray(siw_dd).shape[1]
+      siw_t2g_real_extrapolated = 0
+      #print '    ==> Using EXTRAPOLATION!'
+      #siw_t2g_real_extrapolated = np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals,1,fixed_orbitals,1]) \
+            #- ( np.real(siw_dd[0][int(no_iwn/2)+1,fixed_orbitals,1,fixed_orbitals,1]) - np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals,1,fixed_orbitals,1]) ) \
+            #/ ( iwf[int(no_iwn/2)+1] - iwf[int(no_iwn/2)]) * iwf[int(no_iwn/2)]
+      #siw_t2g_real_avg = siw_t2g_real_extrapolated
+
+      ## Alternative p+d DC Method
+      #print '    ==> Using first Sigma value!'
+      #siw_t2g_real_avg = np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals,1,fixed_orbitals,1])
+
+      ## Alternative p+d DC Method
+      #print '    ==> Using Sigma oo value!'
+      #siw_t2g_real_avg = np.real(siw_dd[0][int(0),fixed_orbitals,1,fixed_orbitals,1])
+      
+    # MULTIPLE ORBITAL SELECTION
+    else:
+      print '    Fixing to orbitals:', fixed_orbitals
+      no_iwn = np.asarray(siw_dd).shape[1]
+
+      # Variant 1
+      #print '    ==> Using EXTRAPOLATION!'
+      #siw_t2g_real_extrapolated = np.zeros(np.asarray(fixed_orbitals).shape[0])
+      #for b in range(0,np.asarray(fixed_orbitals).shape[0]):
+        #siw_t2g_real_extrapolated[b] = np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals[b],1,fixed_orbitals[b],1]) \
+              #- ( np.real(siw_dd[0][int(no_iwn/2)+1,fixed_orbitals[b],1,fixed_orbitals[b],1]) - np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals[b],1,fixed_orbitals[b],1]) ) \
+              #/ ( iwf[int(no_iwn/2)+1] - iwf[int(no_iwn/2)]) * iwf[int(no_iwn/2)]
+      #siw_t2g_real_avg = 0
+      #for b in range(0,np.asarray(fixed_orbitals).shape[0]):
+        #siw_t2g_real_avg = siw_t2g_real_avg + siw_t2g_real_extrapolated[b]
+      #siw_t2g_real_avg = siw_t2g_real_avg/np.asarray(fixed_orbitals).shape[0]    
+
+      ## Alternative p+d DC Method
+      #siw_t2g_real_avg = 0
+      #for b in range(0,np.asarray(fixed_orbitals).shape[0]):
+      #  print '    ==> Using first Sigma value!'
+      #  siw_t2g_real_avg = siw_t2g_real_avg + np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals[b],1,fixed_orbitals[b],1])
+      #siw_t2g_real_avg = siw_t2g_real_avg/np.asarray(fixed_orbitals).shape[0]
+
+      ## Alternative p+d DC Method
+      #siw_t2g_real_avg = 0
+      #print '    ==> Using Sigma oo value!'
+      #for b in range(0,np.asarray(fixed_orbitals).shape[0]):
+       #siw_t2g_real_avg = siw_t2g_real_avg + np.real(siw_dd[0][int(0),fixed_orbitals[b],1,fixed_orbitals[b],1])
+      #siw_t2g_real_avg = siw_t2g_real_avg/np.asarray(fixed_orbitals).shape[0]
+
+      # Z Factor Method
+      siw_t2g_real_avg = 0
+      for b in range(0,np.asarray(fixed_orbitals).shape[0]):
+       print '    ==> Using first Sigma value times Z-factor!'
+       siw_t2g_real_avg = siw_t2g_real_avg + np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals[b],1,fixed_orbitals[b],1])
+      siw_t2g_real_avg = siw_t2g_real_avg/np.asarray(fixed_orbitals).shape[0]
+
+      for b in range(0,np.asarray(fixed_orbitals).shape[0]):
+        alpha = -( np.real(siw_dd[0][int(no_iwn/2+1),fixed_orbitals[b],1,fixed_orbitals[b],1]) - np.real(siw_dd[0][int(no_iwn/2),fixed_orbitals[b],1,fixed_orbitals[b],1]) ) / ( iwf[int(no_iwn/2+1)] - iwf[int(no_iwn/2)] )
+        Z = 1/(1+alpha)
+        print '    ==> alpha:', alpha, ', Z:', Z
+      siw_t2g_real_avg = Z * siw_t2g_real_avg
+
+
     a=0
     for a in range(0,natoms):
       for b in range(0,np.asarray(siw_dd).shape[2]):

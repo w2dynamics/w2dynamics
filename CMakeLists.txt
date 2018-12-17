@@ -1,16 +1,16 @@
 # CMake project file for ctqmc_fortran
 
 ##################################################
-# Define the project and the depencies that it has
+# Define the project and the dependencies that it has
 ##################################################
 
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.5)
-PROJECT(ctqmc Fortran CXX)
+PROJECT(ctqmc Fortran CXX C)
 
-# Set the FOO version
+# Set the version
 SET(VERSION 1.0)
 
-# Add our local modlues to the module path
+# Set the module path, so that CMake also considers our modules
 SET(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
 # Uncomment if it is required that Fortran 90 is supported
@@ -88,7 +88,7 @@ else ()
   set(NFFT_LIBRARIES "")
 endif ()
 
-find_package(NUMPY 1.2)
+find_package(NUMPY 1.4)
 IF(NOT NUMPY_FOUND)
     MESSAGE(FATAL_ERROR "NumPy NOT found in a recent enough version!")
 ENDIF()
@@ -118,7 +118,7 @@ endif()
 
 find_package(MPI4PY)
 find_package(H5PY)
-find_package(SCIPY 0.6)
+find_package(SCIPY 0.10)
 IF(NOT SCIPY_FOUND)
     MESSAGE(FATAL_ERROR "SciPy NOT found in a recent enough version!")
 ENDIF()
@@ -171,7 +171,9 @@ ADD_CUSTOM_TARGET(distclean
     COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/distclean.cmake
 )
 
-ADD_SUBDIRECTORY(testsuite/mtrng.tests)
-ADD_SUBDIRECTORY(testsuite/maxent.tests)
-ADD_SUBDIRECTORY(testsuite/ctqmc.tests)
-enable_testing()
+if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    ADD_SUBDIRECTORY(testsuite/mtrng.tests)
+    ADD_SUBDIRECTORY(testsuite/maxent.tests)
+    ADD_SUBDIRECTORY(testsuite/ctqmc.tests)
+    enable_testing()
+endif()

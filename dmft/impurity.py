@@ -122,7 +122,7 @@ def reduce_stderr(mpi_comm, qtty_rank):
     # Get the standard error rather than the sample variance. This assumes that
     # the samples are uncorrelated, which is true in practise since they come
     # from completely different MC runs.
-    qttysq_mean /= (mpi_size - 1.)
+    qttysq_mean /= np.sqrt(mpi_size - 1.)
     return qtty_mean, qttysq_mean
 
 
@@ -333,15 +333,26 @@ class CtHybSolver(ImpuritySolver):
 
         self.seed = seed + self.mpi_rank
         self.param_string = self.config_to_pstring(config["QMC"])
-        if config["QMC"]["offdiag"] == 0:
-           self.g_diagonal_only = True
-        else:
-           self.g_diagonal_only = False
+        self.g_diagonal_only = (config["QMC"]["offdiag"] == 0)
         self.Uw = Uw
         self.Uw_Mat = Uw_Mat
         self.epsn = epsn
         ctqmc.init_rnd(seed)
         ctqmc.fancy_prog = interactive
+
+        # START DYNAMICAL U
+        if self.Uw == 1:
+          Nd = config["Atoms"]["1"]["Nd"]
+          beta = config["General"]["beta"]
+          Nftau = config["QMC"]["Nftau"]
+          umatrixdummy = np.zeros((Nd*2,Nd*2,Nd*2,Nd*2))
+          self._Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(beta, umatrixdummy, self.Uw_Mat)
+          screeningdummy = np.zeros((Nd,2,Nd,2,Nftau))
+          self.screening = self._Retarded2Shifts.create_tau_dependent_UV_screening_function(Nftau, beta, screeningdummy)
+          print "         ****************************"
+          print "         ******* U(w) Message *******"
+          print "         ****************************"
+          print " "
 
     def set_problem(self, problem, compute_fourpoint=0):
         # problem
@@ -375,51 +386,58 @@ class CtHybSolver(ImpuritySolver):
         self.umatrix = self.problem.interaction.u_matrix.reshape(
                              self.problem.nflavours, self.problem.nflavours,
                              self.problem.nflavours, self.problem.nflavours)
-        self.screening = self.problem.screening.transpose(1, 2, 3, 4, 0).real
+        if self.Uw == 0:
+            self.screening = self.problem.screening.transpose(1, 2, 3, 4, 0).real
 
         # START DYNAMICAL U
         if self.Uw == 1:
-          print " "
-          print "         ****************************"
-          print "         ****** U(w) is active ******"
-          print "         ****************************"
-          _Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(problem.beta, self.umatrix, self.Uw_Mat)
+            #print " "
+            #print "         ****************************"
+            #print "         ****** U(w) is active ******"
+            #print "         ****************************"
+            ### ===> UPDATE This is now done in the init above.
+            ### ===> UPDATE _Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(problem.beta, self.umatrix, self.Uw_Mat)
 
-          ### ===> UPDATE The umatrix shifting is now performed in config.py.
-          ### ===> UPDATE The umatrix shifting is now performed in config.py.
-          ### ===> # This should be executed for all atoms in the first iteration
-          ### ===> try:
-          ### ===>    self.iteration_ID    # Not defined for first DMFT iteration
-          ### ===> except:
-          ### ===>    self.umatrix_original = copy.copy(self.umatrix)
-          ### ===>    self.iteration_ID = 1
-          ### ===> if (self.umatrix==self.umatrix_original).all():
-          ### ===>    self.umatrix = _Retarded2Shifts.shift_instantaneous_densitydensity_potentials(self.umatrix)
-          ### ===> UPDATE The umatrix shifting is now performed in config.py.
-          ### ===> UPDATE The umatrix shifting is now performed in config.py.
+            ### ===> UPDATE The umatrix shifting is now performed in config.py.
+            ### ===> UPDATE The umatrix shifting is now performed in config.py.
+            ### ===> # This should be executed for all atoms in the first iteration
+            ### ===> try:
+            ### ===>    self.iteration_ID    # Not defined for first DMFT iteration
+            ### ===> except:
+            ### ===>    self.umatrix_original = copy.copy(self.umatrix)
+            ### ===>    self.iteration_ID = 1
+            ### ===> if (self.umatrix==self.umatrix_original).all():
+            ### ===>    self.umatrix = _Retarded2Shifts.shift_instantaneous_densitydensity_potentials(self.umatrix)
+            ### ===> UPDATE The umatrix shifting is now performed in config.py.
+            ### ===> UPDATE The umatrix shifting is now performed in config.py.
 
-          self.screening = _Retarded2Shifts.create_tau_dependent_UV_screening_function(problem.nftau, problem.beta, self.screening)
+            ### ===> UPDATE This is now done in the init above.
+            ### ===> UPDATE self.screening = _Retarded2Shifts.create_tau_dependent_UV_screening_function(problem.nftau, problem.beta, self.screening)
           
-          # Perform chemical potential shift in each DMFT iteration
-          if problem.norbitals == 1 and self.epsn == 0:
-            self.muimp = _Retarded2Shifts.shift_chemical_potential_for_single_band_case(self.muimp, self.umatrix)
-          else:
-            print "  ==> U(w): No shift of mu for mu-search"
-            if problem.norbitals > 1 and self.epsn==0:
-              print "===>>> U(w): mu-Search (epsn > 0) is recommended for the chosen problem."
+            # Perform chemical potential shift in each DMFT iteration
+            if problem.norbitals == 1 and self.epsn == 0:
+                self.muimp = self._Retarded2Shifts.shift_chemical_potential_for_single_band_case(self.muimp, self.umatrix)
+            #else:
+                #print "  ==> U(w): No shift of mu for mu-search"
+                #if problem.norbitals > 1 and self.epsn==0:
+                #print "===>>> U(w): mu-Search (epsn > 0) is recommended for the chosen problem."
         # END DYNAMICAL U
 
 
-    def solve(self, mc_config_inout=None):
+    def solve(self, iter_no, mc_config_inout=None):
         def lattice_convention(qtty):
             return orbspin.promote_diagonal(qtty.transpose(2,0,1))
 
         # Call CT-QMC solver
         ctqmc.simid = self.mpi_rank
         time_qmc = time.clock()
-        ctqmc.init_solver(self.umatrix, self.ftau, self.muimp, self.screening)
+        ctqmc.init_solver(self.umatrix, self.ftau, self.muimp, self.screening, iter_no+1)
+
+        firstrun = True
         if type(mc_config_inout) is list and len(mc_config_inout) > 0:
+            firstrun = False
             mc_config_inout.pop().set_to_ctqmc(ctqmc)
+
         if self.config["QMC"]["segment"] == 0:
             if self.config["QMC"]["TaudiffMax"] <= 0:
                 ctqmc.init_counters()
@@ -438,7 +456,9 @@ class CtHybSolver(ImpuritySolver):
                                                                taudiffmax))
             else:
                 ctqmc.set_taudiffmax(self.config["QMC"]["TaudiffMax"])
-        ctqmc.ctqmc_warmup(self.config["QMC"]["Nwarmups"])
+        ctqmc.ctqmc_warmup(self.config["QMC"]["Nwarmups"]
+                           if firstrun or self.config["QMC"]["Nwarmups2Plus"] < 0
+                           else self.config["QMC"]["Nwarmups2Plus"])
         ctqmc.ctqmc_measure(1,1)
         time_qmc = time.clock() - time_qmc
         if type(mc_config_inout) is list:
@@ -460,11 +480,11 @@ class CtHybSolver(ImpuritySolver):
         # in DMFT self-consistency cycle.
         giw = self.get_giw(self.config, self.problem, result)
         if self.config["QMC"]["offdiag"] == 0:
-           giw = lattice_convention(giw)
+            giw = lattice_convention(giw)
         else:
-           ### this has to be done later in offiagonal case!
-           #giw=giw.transpose(4,0,1,2,3)
-           pass
+            ### this has to be done later in offiagonal case!
+            #giw=giw.transpose(4,0,1,2,3)
+            pass
 
         # Extract improved estimators
         gsigmaiw = self.get_gsigmaiw(self.config, self.problem, result)
@@ -500,14 +520,14 @@ class CtHybSolver(ImpuritySolver):
         ### I have to reshape the giw at the very end, since the shitty mpi will not 
         ### process the giw array in its full form?!
         if self.config["QMC"]["offdiag"] == 1:
-           result.giw=result.giw.reshape(self.problem.norbitals,2,self.problem.norbitals,2,self.problem.niw)
-           result.giw=result.giw.transpose(4,0,1,2,3)
-
+            result.giw=result.giw.reshape(self.problem.norbitals, 2,
+                                          self.problem.norbitals, 2, self.problem.niw)
+            result.giw=result.giw.transpose(4,0,1,2,3)
 
         return result
      
      
-    def solve_component(self,isector,icomponent,mc_config_inout=[]):
+    def solve_component(self,iter_no,isector,icomponent,mc_config_inout=[]):
         """ This solver returns the worm estimator for a given component. 
            This results in several advantages:
            
@@ -540,7 +560,7 @@ class CtHybSolver(ImpuritySolver):
         # Call CT-QMC solver
         ctqmc.simid = self.mpi_rank
         time_qmc = time.clock()
-        ctqmc.init_solver(self.umatrix, self.ftau, self.muimp, self.screening)
+        ctqmc.init_solver(self.umatrix, self.ftau, self.muimp, self.screening, iter_no+1)
         
         if type(mc_config_inout) is list and len(mc_config_inout) > 0:
             mc_config_inout[0].set_to_ctqmc(ctqmc)
@@ -568,7 +588,13 @@ class CtHybSolver(ImpuritySolver):
            ctqmc.ctqmc_warmup(self.config["QMC"]["Nwarmups"])
            mc_config_inout.append(CtHybConfig.get_from_ctqmc(ctqmc))
 
-        ctqmc.ctqmc_worm_warmup(self.config["QMC"]["Nwarmups2Plus"],isector,icomponent)
+        if self.config["QMC"]["Nwarmups2Plus"] < 0:
+           warn("Nwarmups2Plus not set; assuming 0.1*Nwarmups for worm")
+           WormWarmups=0.1*self.config["QMC"]["Nwarmups"]
+        else:
+           WormWarmups=self.config["QMC"]["Nwarmups2Plus"]
+
+        ctqmc.ctqmc_worm_warmup(WormWarmups,isector,icomponent)
         ctqmc.ctqmc_measure(isector,icomponent)
 
         time_qmc = time.clock() - time_qmc
@@ -693,7 +719,7 @@ class CtHybSolver(ImpuritySolver):
         #typ = "legendre"  # FIXME: QMC config does not contain FTtype
         typ = config["General"]["FTType"]
         if config["QMC"]["offdiag"]==1 and typ=="legendre":
-           typ = "legendre_full"
+            typ = "legendre_full"
         if typ == "none":
             giw = -result["giw-meas"]
         elif typ == "none_worm":
@@ -751,7 +777,7 @@ class CtHybSolver(ImpuritySolver):
             gsigmaiw = result["gsigmaiw"]
         if config["QMC"]["WormMeasGSigmaiw"] == 1:
             if gsigmaiw is not None:
-               warn("Worm GSigmaiw overwriting Z GSigmaiw", UserWarning, 2)
+                warn("Worm GSigmaiw overwriting Z GSigmaiw", UserWarning, 2)
 
             gsigmaiw = result["gsigmaiw-worm"]
             gsigmaiw = orbspin.extract_diagonal(gsigmaiw.transpose(4,0,1,2,3)) \

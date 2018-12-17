@@ -218,6 +218,9 @@ compute_fourpnt = cfg["QMC"]["FourPnt"]
 siw_method = cfg["General"]["SelfEnergy"]
 smom_method = cfg["General"]["siw_moments"]
 
+if cfg["QMC"]["ReuseMCConfig"] != 0:
+    mccfgs = []
+
 # Statistic/Worm steps loop
 for iter_no in range(stat_iterations+worm_iterations):
     # figure out type of iteration
@@ -250,7 +253,15 @@ for iter_no in range(stat_iterations+worm_iterations):
           sys.exit()   
 
        solver.set_problem(imp_problem, compute_fourpnt)
-       result = solver.solve()
+       if cfg["QMC"]["ReuseMCConfig"] != 0:
+          if iter_no > 0:
+             mccfgcontainer = [mccfgs.pop(0)]
+          else:
+             mccfgcontainer = []
+          result = solver.solve(iter_no, mccfgcontainer)
+          mccfgs.append(mccfgcontainer[0])
+       else:
+          result = solver.solve(iter_no)
        result.postprocessing(siw_method, smom_method)
        output.write_impurity_result(0, result.other)
        output.write_quantity("giw", [result.giw])
@@ -320,7 +331,7 @@ for iter_no in range(stat_iterations+worm_iterations):
           for icomponent in component_list:
              log("Sampling component %d", icomponent)
              solver.set_problem(imp_problem, compute_fourpnt)
-             result, result_aux = solver.solve_component(isector,icomponent,mccfgcontainer)
+             result, result_aux = solver.solve_component(iter_no,isector,icomponent,mccfgcontainer)
 
              #only write result if component returns ne 0
              if np.any([np.any(result.other[ky]["value"])  for ky in result.other.keys()]):

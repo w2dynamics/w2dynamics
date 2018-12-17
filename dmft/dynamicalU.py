@@ -30,7 +30,7 @@ class Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials:
 # Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials.
 # ================================================================================================================================================================================================
 
-  def __init__(self, beta, umatrix, matsubara_screening_switch):
+  def __init__(self, beta, umatrix, matsubara_screening_switch, fromcfg=None):
     print '********* U(w) MODULE IS NOT AVAILABLE IN PRESENT W2DYNAMICS VERSION *********'
     print '...exiting'''
     exit()

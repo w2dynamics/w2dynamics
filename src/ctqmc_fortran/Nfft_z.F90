@@ -353,7 +353,7 @@ contains
 
         ! Include the overall sign induced by the shift, the beginning of i,j
         ! being wrong do not matter MOD 2, so the condition is OK.
-        forall(i=1:order, j=1:order, mod(i+j,2)==1) &
+        forall(i=1:n2freq, j=1:n2freq, mod(i+j,2)==1) &
             g2iw(i,j) = -g2iw(i,j)
 
         call nfft_finalize(plan)
