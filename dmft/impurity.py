@@ -12,13 +12,13 @@ from warnings import warn
 import numpy as np
 import scipy.optimize as opt
 
-from auxiliaries.CTQMC import mctqmc as ctqmc
-import auxiliaries.transform as tf
-import auxiliaries.postprocessing as postproc
+from ..auxiliaries.CTQMC import mctqmc as ctqmc
+from ..auxiliaries import transform as tf
+from ..auxiliaries import postprocessing as postproc
 import dynamicalU as dynamicalU
 import copy
 
-import dmft.orbspin as orbspin
+import orbspin as orbspin
 
 
 class CtHybConfig:
