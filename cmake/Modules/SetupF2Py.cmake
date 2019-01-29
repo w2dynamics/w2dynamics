@@ -73,12 +73,14 @@ find_program(F2PY_EXECUTABLE NAMES "f2py${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION
 
   # Set f2py compiler options: compiler vendor and path to Fortran77/90 compiler.
   if(F2PY_FCOMPILER)
-    set(_fcompiler_opts "--fcompiler=${F2PY_FCOMPILER}")
-    list(APPEND _fcompiler_opts "--f77exec=${CMAKE_Fortran_COMPILER}" "--f77flags='${CMAKE_Fortran_FLAGS} -DF2PY'")
+    string(REPLACE " " ";" CMAKE_Fortran_FLAGS_LST ${CMAKE_Fortran_FLAGS})
+    set(_fcompiler_opts --fcompiler=${F2PY_FCOMPILER})
+    list(APPEND _fcompiler_opts --f77exec=${CMAKE_Fortran_COMPILER} --f77flags="${CMAKE_Fortran_FLAGS_LST}" -DF2PY)
     if(CMAKE_Fortran_COMPILER_SUPPORTS_F90)
-      list(APPEND _fcompiler_opts "--f90exec=${CMAKE_Fortran_COMPILER}" "--f90flags='${CMAKE_Fortran_FLAGS} -DF2PY'")
+      list(APPEND _fcompiler_opts --f90exec=${CMAKE_Fortran_COMPILER} --f90flags="${CMAKE_Fortran_FLAGS_LST}" -DF2PY)
     endif(CMAKE_Fortran_COMPILER_SUPPORTS_F90)
     if(USE_OPENMP)
-    list(APPEND _fcompiler_opts  "--f90flags='${CMAKE_Fortran_FLAGS} -DF2PY -fopenmp'")
+      list(APPEND CMAKE_Fortran_FLAGS -DF2PY -fopenmp)
+      list(APPEND _fcompiler_opts --f90flags="${CMAKE_Fortran_FLAGS_LST}")
     endif(USE_OPENMP)
   endif(F2PY_FCOMPILER)
