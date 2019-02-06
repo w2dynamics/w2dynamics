@@ -60,7 +60,7 @@ def get_cfg(cfg_file_name="Parameters.in", kvargs={}, err=sys.stderr):
             return validate.is_float_list(value)
 
     # config 
-    configspec = file(find_file('auxiliaries/configspec'),'r')
+    configspec = file(os.path.dirname(__file__) + '/configspec','r')
     cfg = configobj.ConfigObj(infile=file(cfg_file_name, 'r'),
                               configspec=configspec.readlines(),
                               indent_type="\t")
