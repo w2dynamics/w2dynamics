@@ -46,10 +46,11 @@ endif()
   set( _name MAXENT )
   # Define the command to generate the Fortran to Python interface module. The
   # output will be a shared library that can be imported by python.
+  set(ADDITIONAL_OPTS -O3 -fPIC -DLAPACK77_Interface)
     add_custom_command(OUTPUT "${_name}${F2PY_SUFFIX}"
       COMMAND ${F2PY_EXECUTABLE} --quiet -m ${_name} #-c "${CMAKE_CURRENT_BINARY_DIR}/f2py-${_name}/${_name}.pyf"
               --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
-              ${_fcompiler_opts} --opt="-O3 -fPIC -DLAPACK77_Interface" -c ${_inc_opts}
+              ${_fcompiler_opts} --opt="${ADDITIONAL_OPTS}" -c ${_inc_opts}
                                  ${EXTERNAL_LIBRARIES}
                                 ${CMAKE_THREAD_LIBS_INIT} ${MAXENTF2PYOBJS} ${SRCMAXENT}/MaximumEntropy.F90
       DEPENDS ${SRCMAXENT}/MaximumEntropy.F90
