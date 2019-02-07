@@ -10,8 +10,8 @@ from warnings import warn
 #       parallel universe where they actually bothered to write more than just
 #       repeating the name of the respective function.
 
-import auxiliaries.hdfout
-from dmft import doublecounting
+import w2dyn.auxiliaries.hdfout
+from w2dyn.dmft import doublecounting
 
 DEBUG = True
 MPI_COMM_WORLD = mpi.COMM_WORLD

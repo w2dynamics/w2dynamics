@@ -4,13 +4,13 @@ import numpy as np
 import scipy.optimize as opt
 import sys
 
-#import dmft.lattice as latt
-import dmft.impurity as impurity
-import dmft.doublecounting as doublecounting
-import dmft.orbspin as orbspin
-import dmft.gw as gw
+#import w2dyn.dmft.lattice as latt
+import w2dyn.dmft.impurity as impurity
+import w2dyn.dmft.doublecounting as doublecounting
+import w2dyn.dmft.orbspin as orbspin
+import w2dyn.dmft.gw as gw
 
-import auxiliaries.transform as tf
+import w2dyn.auxiliaries.transform as tf
 
 def iw_to_tau_fast(aiw, ntau, beta, axis=-1):
     """Fast Fourier transform from fermionic Matsubara to tau grid [0, beta]

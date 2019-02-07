@@ -11,7 +11,7 @@ try:
 except ImportError:
     print >> err, "error: script requires the h5py package to run"; exit(3)
 
-import auxiliaries.transform as tf
+import w2dyn.auxiliaries.transform as tf
 
 __version__ = "1.1"
 

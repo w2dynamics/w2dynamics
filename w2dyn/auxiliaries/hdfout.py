@@ -4,10 +4,10 @@ from warnings import warn
 import h5py as hdf5
 import numpy as np
 
-import auxiliaries as _aux
-import auxiliaries.transform as _tf
-import dmft.meta as meta
-import dmft.orbspin as orbspin
+import w2dyn.auxiliaries as _aux
+import w2dyn.auxiliaries.transform as _tf
+import w2dyn.dmft.meta as meta
+import w2dyn.dmft.orbspin as orbspin
 
 def _flat_items(d, prefix=""):
     items = []

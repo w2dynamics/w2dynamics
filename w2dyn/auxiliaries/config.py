@@ -8,14 +8,14 @@ import validate
 import numpy as np
 import h5py as hdf5
 
-import input as _input
+import w2dyn.auxiliaries.input as _input
 
-from ..dmft import orbspin as orbspin
-from ..dmft import lattice as lattice
-from ..dmft import atoms as atoms
-from ..dmft import interaction as interaction
-from ..dmft import doublecounting as doublecounting
-from ..dmft import dynamicalU as dynamicalU
+import w2dyn.dmft.orbspin as orbspin
+import w2dyn.dmft.lattice as lattice
+import w2dyn.dmft.atoms as atoms
+import w2dyn.dmft.interaction as interaction
+import w2dyn.dmft.doublecounting as doublecounting
+import w2dyn.dmft.dynamicalU as dynamicalU
 
 def get_cfg(cfg_file_name="Parameters.in", kvargs={}, err=sys.stderr):
     """ Parse a config """

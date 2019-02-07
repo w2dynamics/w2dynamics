@@ -13,8 +13,8 @@ try:
 except ImportError:
     print >> err, "error: script requires the h5py package to run"; exit(3)
 try:
-    import auxiliaries.postprocessing as pp
-    from auxiliaries.compatibility import iter_product
+    import w2dyn.auxiliaries.postprocessing as pp
+    from w2dyn.auxiliaries.compatibility import iter_product
 except ImportError:
     print >> err, "error: script requires w2dynamics"; exit(3)
 

@@ -62,7 +62,7 @@ endif()
   # Therefore we have to move it
   add_custom_command(TARGET ${_name} POST_BUILD 
                     COMMAND ${CMAKE_COMMAND} -E copy
-                    ${SRCMAXENT}/${_name}${F2PY_SUFFIX} ${CMAKE_SOURCE_DIR}/maxent/${_name}${F2PY_SUFFIX})
+                    ${SRCMAXENT}/${_name}${F2PY_SUFFIX} ${CMAKE_SOURCE_DIR}/w2dyn/maxent/${_name}${F2PY_SUFFIX})
                     
   add_dependencies(${_name} MAXENTLIB)
 

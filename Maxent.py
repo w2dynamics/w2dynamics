@@ -6,8 +6,8 @@ import h5py as hdf5
 import sys
 import optparse, copy
 
-from maxent import Solver
-from auxiliaries import quantities as qttys
+from w2dyn.maxent import Solver
+from w2dyn.auxiliaries import quantities as qttys
 
 __version__ = (1,0)
 

@@ -8,10 +8,10 @@ import scipy.optimize
 import scipy.integrate
 from warnings import warn
 
-from ..auxiliaries import transform as tr
+import w2dyn.auxiliaries.transform as tr
 
-import _compat as _linalg
-import orbspin as orbspin
+import w2dyn.dmft._compat as _linalg
+import w2dyn.dmft.orbspin as orbspin
 import h5py
 import copy
 
