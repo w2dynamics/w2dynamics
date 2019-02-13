@@ -3729,10 +3729,10 @@ subroutine StepGlob()
    
 ! adding spin flip for paramagnetic case
    rand=grnd()
-   if(DTrace%ParaMag.eq.1.and.rand.lt.1d-1)then
+   if(rand.lt.4d-1)then
       move_type = 0
       call gen_SpinFlipUpdate(DTrace,DStates)
-   elseif(rand.lt.5d-1.and.get_Integer_Parameter("NSymMove").gt.0)then
+   elseif(rand.lt.7d-1.and.get_Integer_Parameter("NSymMove").gt.0)then
       move_type = 1
       call gen_SymUpdate(DTrace,DStates)
    else
