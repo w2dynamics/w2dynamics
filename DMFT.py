@@ -12,18 +12,18 @@ import warnings
 
 import numpy as np
 
-import auxiliaries as aux
-from auxiliaries import transform as tf
-from auxiliaries import wien2k as wien2k
-from auxiliaries import hdfout
-from auxiliaries import config
+import w2dyn.auxiliaries as aux
+from w2dyn.auxiliaries import transform as tf
+from w2dyn.auxiliaries import wien2k as wien2k
+from w2dyn.auxiliaries import hdfout
+from w2dyn.auxiliaries import config
 
-from dmft import impurity
-from dmft import lattice
-from dmft import atoms
-from dmft import interaction
-from dmft import selfcons
-from dmft import orbspin
+from w2dyn.dmft import impurity
+from w2dyn.dmft import lattice
+from w2dyn.dmft import atoms
+from w2dyn.dmft import interaction
+from w2dyn.dmft import selfcons
+from w2dyn.dmft import orbspin
 
 def git_revision():
     try:
@@ -40,7 +40,7 @@ def git_revision():
 # MPI initialisation
 use_mpi = True
 if use_mpi:
-    from dmft import mpi
+    from w2dyn.dmft import mpi
     mpi_comm = mpi.MPI_COMM_WORLD
     mpi_rank = mpi_comm.Get_rank()
     mpi_size = mpi_comm.Get_size()

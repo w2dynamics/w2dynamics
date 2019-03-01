@@ -9,7 +9,7 @@ import h5py as hdf5
 
 __version__ = "1.0"
 
-from auxiliaries.quantities import *
+from w2dyn.auxiliaries.quantities import *
 
 error = lambda s, *a: sys.exit("hgrep: error: %s\n" % s % a)
 

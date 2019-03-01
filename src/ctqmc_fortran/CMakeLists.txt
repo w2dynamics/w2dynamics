@@ -101,7 +101,7 @@ ENDIF(USE_NFFT AND NOT NFFT_FOUND)
   # Therefore we have to move it
   add_custom_command(TARGET ${_name} POST_BUILD 
                     COMMAND ${CMAKE_COMMAND} -E copy
-                    ${SRCCTQMC}/${_name}${F2PY_SUFFIX} ${CMAKE_SOURCE_DIR}/auxiliaries/${_name}${F2PY_SUFFIX})
+                    ${SRCCTQMC}/${_name}${F2PY_SUFFIX} ${CMAKE_SOURCE_DIR}/w2dyn/auxiliaries/${_name}${F2PY_SUFFIX})
 
 
 IF(WIN32)

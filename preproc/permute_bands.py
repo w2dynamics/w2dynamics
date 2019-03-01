@@ -3,7 +3,7 @@
 #  ./permute_bands.py Hk.dat $(seq 1 5) $(seq 11 28) $(seq 6 10) $(seq 29 46)
 
 import numpy as np
-import auxiliaries.input as inp
+import w2dyn.auxiliaries.input as inp
 import sys
 
 args = sys.argv[1:]

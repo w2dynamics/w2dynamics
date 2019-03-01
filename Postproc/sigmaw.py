@@ -213,7 +213,7 @@ def cformat(fmt, iterable):
 
 if __name__ == "__main__":
     import optparse
-    from auxiliaries.input import read_hamiltonian
+    from w2dyn.auxiliaries.input import read_hamiltonian
     import sys, re
     
     parser = optparse.OptionParser(version="1.0",

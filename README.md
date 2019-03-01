@@ -100,13 +100,13 @@ quick analysis of the data:
 Files and directories
 ---------------------
 
-  - `auxiliaries/`: auxiliary python routines (in/output, config files, etc.)
+  - `w2dyn/auxiliaries/`: auxiliary python routines (in/output, config files, etc.)
+  - `w2dyn/dmft/`: python package for DMFT self-consistency loop
+  - `w2dyn/maxent/`: Python wrapper for maximum entropy analytic continuation
   - `clusters/`: template submission scripts for different clusters
   - `cmake/`: cmake custom modules
-  - `dmft/`: python package for DMFT self-consistency loop
   - `doc/`: documentation files
   - `documentation`: doxygen configuration
-  - `maxent/`: Python wrapper for maximum entropy analytic continuation
   - `Postproc/`: postprocessing scripts
   - `preproc/`: preprocessing scripts
   - `src/`: compiled modules loaded from python

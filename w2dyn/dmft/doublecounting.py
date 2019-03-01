@@ -3,11 +3,11 @@
 from __future__ import division
 import numpy as np
 
-#import dmft.lattice as latt
-import dmft.orbspin as orbspin
-import dmft.atoms as atoms
-import dmft.lattice as lattice
-import auxiliaries.transform as tf
+#import w2dyn.dmft.lattice as latt
+import w2dyn.dmft.orbspin as orbspin
+import w2dyn.dmft.atoms as atoms
+import w2dyn.dmft.lattice as lattice
+import w2dyn.auxiliaries.transform as tf
 from itertools import islice
 
 class DoubleCounting:

@@ -12,7 +12,7 @@ except ImportError:
     print >> err, "error: script requires the h5py package to run"; exit(3)
 
 try:
-    import auxiliaries.transform as tf
+    import w2dyn.auxiliaries.transform as tf
 except ImportError:
     print >> err, "error: script cannot discover w2dynamics libraries"; exit(3)
     

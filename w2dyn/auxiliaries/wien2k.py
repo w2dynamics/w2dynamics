@@ -5,7 +5,7 @@ Provides methods for charge selfconsistency with Wien2k
 import os
 import numpy        as np
 import numpy.linalg as la
-import auxiliaries.CTQMC as CTQMC
+import w2dyn.auxiliaries.CTQMC as CTQMC
 
 def init(cfg, kpoints, notify=open(os.devnull, 'w')):
     global klist

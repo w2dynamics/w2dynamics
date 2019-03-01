@@ -19,10 +19,10 @@ try:
 except ImportError:
     print >> sys.stderr, "error: script requires the h5py package to run"; sys.exit(3)
 
-import auxiliaries.wien2k as wien2k
-import auxiliaries.config as config
-import auxiliaries.input as _input
-import dmft.orbspin as orbspin 
+import w2dyn.auxiliaries.wien2k as wien2k
+import w2dyn.auxiliaries.config as config
+import w2dyn.auxiliaries.input as _input
+import w2dyn.dmft.orbspin as orbspin 
 
 __version__ = "0.2"
 

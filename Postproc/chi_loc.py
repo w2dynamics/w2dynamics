@@ -21,8 +21,8 @@ import scipy.optimize
 import itertools as itt
 import optparse
 
-import auxiliaries.postprocessing as pp
-import auxiliaries.quantities as qttys
+import w2dyn.auxiliaries.postprocessing as pp
+import w2dyn.auxiliaries.quantities as qttys
 
 __version__ = 1, 0
 

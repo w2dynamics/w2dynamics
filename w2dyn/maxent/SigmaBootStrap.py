@@ -14,7 +14,7 @@ import h5py as hdf5
 import sys
 import optparse, copy
 
-import auxiliaries.quantities as qttys
+import w2dyn.auxiliaries.quantities as qttys
 import scikits.bootstrap as boot
 
 __version__ = (1,0)
