@@ -157,6 +157,8 @@ implicit none
    real(KINDR),allocatable    :: rho2(:,:,:,:)  ! 4 contracted orbitals and spins
    real(KINDR),allocatable    :: double_occ(:,:,:,:) ! o1, s1, o2, s2  ??? we have to exchange double_occ and single_occ in the old matrix functions
    real(KINDR),allocatable    :: single_occ(:,:) ! o1, s1 
+   real(KINDR),allocatable    :: Ssquare(:) ! # electrons
+   real(KINDR),allocatable    :: Ssquare_operator(:,:) ! size(Hilbert space), size(Hilbert space)
    real(KINDR),allocatable    :: rho1(:,:)  ! 2 contracted orbitals and spins
    real(KINDR),allocatable    :: DensityMatrix(:,:)
    real(KINDR),allocatable    :: ExpResDensityMatrix(:,:,:,:,:)
@@ -224,7 +226,7 @@ implicit none
    integer            :: WormphConv, ZphConv, g4ph, g4pp, nfft_mode_g4iw
    integer            :: Nbatchsize_nfft_worm
    
-   logical :: b_Eigenbasis, b_Densitymatrix,b_meas_susz,b_segment
+   logical :: b_Eigenbasis, b_Densitymatrix, b_meas_susz, b_segment, b_Ssquare
    logical :: b_meas_susz_mat
    logical :: b_Giw_lookup
    logical :: b_statesampling
@@ -718,6 +720,7 @@ subroutine init_CTQMC()
    allocate(occ(NBands, 2,NBands, 2))
    allocate(double_occ(NBands, 2, NBands, 2))
    allocate(single_occ(NBands, 2))
+   if (b_Ssquare) allocate(Ssquare(0:NBands*2))
    
    if(allocated(densitymatrix))then
      write(*,*)"densitymatrix already allocated"
@@ -729,6 +732,8 @@ subroutine init_CTQMC()
       allocate(rho2(2*NBands,2*NBands,2*NBands,2*NBands))
    end if
     
+   if (b_Ssquare) allocate(Ssquare_operator(NStates,NStates))
+
    if(get_Integer_Parameter("MeasExpResDensityMatrix").ne.0)&
      allocate(ExpResDensityMatrix(NBands,2,0:get_Integer_Parameter("MaxHisto"),NStates,NStates))
 
@@ -781,6 +786,7 @@ subroutine init_CTQMC()
    occ=0d0
    double_occ=0d0
    single_occ=0d0
+   if (allocated(Ssquare)) Ssquare=0d0
    
    call init_counters()
    
@@ -789,6 +795,7 @@ subroutine init_CTQMC()
       rho1=0d0
       rho2=0d0
    end if
+   if(allocated(Ssquare_operator)) Ssquare_operator=0d0
    if(allocated(ExpResDensityMatrix)) ExpResDensityMatrix=0d0
    
    
@@ -920,9 +927,11 @@ subroutine dest_CTQMC()
    if(allocated(Occ))deallocate(Occ)
    if(allocated(double_occ))deallocate(double_occ)
    if(allocated(single_occ))deallocate(single_occ)
+   if(allocated(Ssquare))deallocate(Ssquare)
    if(allocated(rho1))deallocate(rho1)
    if(allocated(rho2))deallocate(rho2)
    if(allocated(DensityMatrix))deallocate(DensityMatrix)
+   if(allocated(Ssquare_operator))deallocate(Ssquare_operator)
    if(allocated(ExpResDensityMatrix))deallocate(ExpResDensityMatrix)
 !   if(allocated(LegendreGrid))deallocate(LegendreGrid)
    if(allocated(GLeg))deallocate(GLeg)
@@ -2742,6 +2751,83 @@ subroutine MeasGtau4PntLeg()
     !write (*,*) 'Trace size:', DTrace%NOper, ' Ins:', nins
 end subroutine MeasGtau4PntLeg
 
+
+! transforms <S^2> = <S_x^2> + <S_y^2> + <S_z^2> into a matrix of
+! size(Hilbert space) x size(Hilbert space), same shape as densitymatrix
+!===============================================================================
+subroutine create_ssquare_full()
+!===============================================================================
+
+    !real(kindr), allocatable  :: tempmat(:, :)
+    integer                   :: iSSt, offset, NStates_sst
+    !real(kindr) :: Nelectrons
+
+    do iSSt=0,DStates%NSStates-1
+
+       !!! be careful, this assumes, that the number of electrons is a conserved quantity!
+       !Nelectrons = get_Nt(DStates,DStates%SubStates(iSSt)%States(0))
+
+       !!! no contribution if no electrons
+       !if(Nelectrons.eq.0) cycle
+
+       offset = DStates%SubStates(iSSt)%offset + 1
+       NStates_sst = DStates%Substates(iSSt)%NStates
+
+       !allocate(tempmat(NStates_sst, NStates_sst))
+
+       Ssquare_operator(offset:offset+NStates_sst-1, offset:offset+NStates_sst-1) &
+         = DStates%SubStates(isst)%S2
+
+       !!!! calculate rho * S^2
+       !call DGEMM('N', 'N', NStates_sst, NStates_sst, NStates_sst,&
+                  !1.0d0, densitymatrix(offset, offset), NStates,&
+                  !DStates%SubStates(isst)%S2, NStates_sst,&
+                  !0.0d0, tempmat, NStates_sst)
+
+       !!!! trace over it
+       !do iSt = 1, NStates_sst
+          !Ssquare(Nelectrons) = Ssquare(Nelectrons)&
+             !+ tempmat(iSt, iSt)
+       !enddo
+       !deallocate(tempmat)
+    enddo
+
+end subroutine create_ssquare_full
+
+! measures <S^2> = <S_x^2> + <S_y^2> + <S_z^2>
+!===============================================================================
+subroutine MeasureS2_from_densitymatrix()
+!===============================================================================
+
+    real(kindr), allocatable  :: tempmat(:, :)
+    integer                   :: iSSt, iSt, offset, NStates_sst
+    real(kindr) :: Nelectrons
+
+    do iSSt=0,DStates%NSStates-1
+
+       !!! be careful, this assumes, that the number of electrons is a conserved quantity!
+       Nelectrons = get_Nt(DStates,DStates%SubStates(iSSt)%States(0))
+
+       offset = DStates%SubStates(iSSt)%offset + 1
+       NStates_sst = DStates%Substates(iSSt)%NStates
+
+       allocate(tempmat(NStates_sst, NStates_sst))
+
+       !!! calculate rho * S^2
+       call DGEMM('N', 'N', NStates_sst, NStates_sst, NStates_sst,&
+                  1.0d0, densitymatrix(offset, offset), NStates,&
+                  DStates%SubStates(isst)%S2, NStates_sst,&
+                  0.0d0, tempmat, NStates_sst)
+
+       !!! trace over it
+       do iSt = 1, NStates_sst
+          Ssquare(Nelectrons) = Ssquare(Nelectrons)&
+             + tempmat(iSt, iSt)
+       enddo
+       deallocate(tempmat)
+    enddo
+
+end subroutine MeasureS2_from_densitymatrix
 
 subroutine MeasSingleOcc_from_Densitymatrix()
 
@@ -7907,6 +7993,7 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    integer                    :: orb1, orb2, orb3, orb4
    integer, allocatable       :: states2substates(:)
    integer                    :: nsubstates
+   type(TOperator)            :: DS2
    
    allocate(u_matrix(2*NBands,2*NBands,2*NBands,2*NBands))
    allocate(u_matrix_antisymm_1(2*NBands,2*NBands,2*NBands,2*NBands))
@@ -7996,6 +8083,15 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    !call print_states(DStates)
    !write(*,*) "substates"
    !call print_substates(DStates)
+   b_Ssquare = .false.
+   if (get_Integer_Parameter("MeasSsquare") /= 0) b_Ssquare = .true.
+
+   if (b_Ssquare) then
+      !!! create S^2 operator
+      call init_S2alt2(DS2,DStates,DPsis)
+      !!! write it into DStates structure
+      call set_S2(ds2,DStates)
+   end if
 
    if(simid.eq.0)then
    if(get_Integer_Parameter("PrintDensityMatrixBasis").ne.0)then
@@ -8020,6 +8116,16 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    call dest_TOperator(HEVectors)
 
    call init_CTQMC()
+
+   if (b_Ssquare) then
+      !!! create full matrix representation of S^2
+      call create_ssquare_full()
+      !!! transform it to the eigenbasis
+      call transform_S2(DStates,DS2)
+      !!! write eigenbasis S^2 into DStates structure
+      call set_S2(ds2,DStates)
+      call dest_TOperator(DS2)
+   end if
 
    do i = 0, DStates%NSStates - 1
       StatesSuperstates(DStates%SubStates(i)%Offset:&
@@ -8676,6 +8782,7 @@ subroutine ctqmc_measure(iSector,iComponent)
          call Meas_rho2_from_Densitymatrix()
          call MeasSingleOcc_from_Densitymatrix()
          call MeasDoubleOcc_from_Densitymatrix()
+         if (b_Ssquare) call MeasureS2_from_densitymatrix()
          call Transform_DensityMatrix_EB_to_OCCB()
       endif
 

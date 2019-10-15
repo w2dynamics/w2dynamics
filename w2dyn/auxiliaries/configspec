@@ -175,6 +175,8 @@ MeasSusz=integer(default=0)
 Percentage4OperatorMove = float(min=0,max=1,default=0.000)     # percentage of global moves
                                                               # default=0 (14), otherwise (23)
 
+MeasSsquare           = integer(default=0)                  # write S^2; note that due to planned changes this parameter may become unnecessary and be removed in a future version
+
 #this section contains all other parameters
 [General]
 #DOS flat/semicirc/ReadIn/Bethe/Bethe_in_tau

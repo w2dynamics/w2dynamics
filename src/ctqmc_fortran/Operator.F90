@@ -558,7 +558,11 @@ subroutine init_S2alt2(this,DStates,DPsis)
    real(KINDR)                            :: sm1(2,2),sm2(2,2)
    real(KINDR),pointer                    :: temp1(:,:),temp2(:,:),temp3(:,:),temp4(:,:)
 
-! allocate the necessary space
+   nullify(temp1)
+   nullify(temp2)
+   nullify(temp3)
+   nullify(temp4)
+
    call init_TOperator(this,DStates)
 ! generate the operator using creation/annihilation operators
    do xyz=1,3
@@ -795,6 +799,46 @@ subroutine set_HEvec(this,DStates)
 !      enddo
    enddo
 end subroutine set_HEvec
+
+!===============================================================================
+subroutine transform_S2(DStates,DS2)
+!===============================================================================
+!input
+   type(TStates)              :: DStates
+   type(TOperator)            :: DS2
+   integer                    :: isst
+
+   do isst=0, DStates%NSStates-1
+
+      !apply unitary basis transformation to S2:
+      !          S2'=U^\dagger S2 U
+
+      DS2%SubOps(isst)%Op=&
+      matmul(transpose(DStates%SubStates(isst)%Evec),&
+      matmul(DS2%SubOps(isst)%Op,DStates%Substates(isst)%EVec))
+
+   enddo
+
+end subroutine transform_S2
+
+
+! setting the S2 operator
+!===============================================================================
+subroutine set_S2(this,DStates)
+!===============================================================================
+   type(TOperator)                           :: this
+!input
+   type(TStates)                             :: DStates
+!local
+   integer                                   :: iSSt,i,j,NStates
+   do iSSt=0,DStates%NSStates-1
+      NStates=DStates%SubStates(iSSt)%NStates
+      if(.not.associated(DStates%SubStates(iSSt)%S2)) then
+          allocate(DStates%SubStates(iSSt)%S2(0:NStates-1,0:NStates-1))
+      endif
+      DStates%SubStates(iSSt)%S2=this%SubOps(iSSt)%Op
+   enddo
+end subroutine set_S2
 
 !===============================================================================
 subroutine print_Psi(this,DStates)

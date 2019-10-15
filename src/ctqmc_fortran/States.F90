@@ -50,6 +50,7 @@ use MAusgabe
       type(TSparseMatrix),pointer      :: Hamiltonian=>null()
       real(KINDR),pointer              :: EVal(:)=>null()
       real(KINDR),pointer              :: EVec(:,:)=>null()
+      real(KINDR),pointer              :: S2(:,:)=>null()
    end type TSubStates
 
 contains
@@ -480,6 +481,8 @@ subroutine dest_States(this)
             deallocate(this%SubStates(iSS)%EVal)
          if(associated(this%SubStates(iSS)%EVec))&
             deallocate(this%SubStates(iSS)%EVec)
+         if(associated(this%SubStates(iSS)%S2))&
+            deallocate(this%SubStates(iSS)%S2)
          if(associated(this%SubStates(iSS)%Hamiltonian))then
             call dest_SparseMatrix(this%SubStates(iSS)%Hamiltonian)
             deallocate(this%SubStates(iSS)%Hamiltonian)

@@ -240,6 +240,10 @@ QUANTITIES = {
         axes=["ineq", "state", "state"],
         desc="Density matrix in occupation number basis measured at beta/2"
         ),
+    "ssquare-operator": dict(
+        axes=["ineq", "state", "state"],
+        desc="S^2 in the full many-body basis; same order of states as densitymatrix"
+        ),
     "expresdensitymatrix": dict(
         axes=["ineq", "band" , "spin", "traceorder", "state", "state"],
         desc="density matrix resolved by expansion order"
@@ -416,6 +420,10 @@ QUANTITIES = {
     "siw-cov": dict(
         axes=["ineq", "band", "spin", "pos-iw", "part", "pos-iw", "part"],
         desc="covariance of diagonal self-energy in matsubara expansion"
+        ),
+    "s2": dict(
+        axes=["ineq", "occ"],
+        desc="<S^2> = <S_x^2> + <S_y^2> + <S_z^2> electron number resolved"
         ),
     "sigma-hartree": dict(
         axes=["band1", "spin1", "band2", "spin2"],

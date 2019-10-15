@@ -1229,6 +1229,8 @@ class CtHybSolver(ImpuritySolver):
             "time-simulation": ctqmc.time_sim,
             "time-sampling": ctqmc.time_sim_steps,
         }
+        if qmc_config["MeasSsquare"] != 0:
+            result["ssquare-operator"] = ctqmc.ssquare_operator
         if qmc_config["Gtau_mean_step"] != 0:
             result["gtau-mean-step"] = ctqmc.gtau_mean_step
         if qmc_config["Gtau_mid_step"] != 0:
@@ -1245,6 +1247,9 @@ class CtHybSolver(ImpuritySolver):
             result["densitymatrix"] = ctqmc.densitymatrix
             result["rho2"] = ctqmc.rho2.reshape((norbitals, 2)*4)
             result["rho1"] = ctqmc.rho1.reshape((norbitals, 2)*2)
+        if qmc_config["MeasSsquare"] != 0 and (qmc_config["MeasDensityMatrix"] != 0
+                                               or qmc_config["Eigenbasis"] != 0):
+            result["s2"] = ctqmc.ssquare
         if qmc_config["MeasExpResDensityMatrix"] != 0:
             result["expresdensitymatrix"] = ctqmc.expresdensitymatrix
         if qmc_config["FourPnt"] & 1:
