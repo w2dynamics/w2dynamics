@@ -5741,11 +5741,9 @@ subroutine StepAdd_mine()
       endif
 
    endif
-   
-   if(.not.b_full_offdiag)then
-      deallocate(Q,R)
-   endif
-   
+
+   if (.not. (b_offdiag .and. b_full_offdiag)) deallocate(Q,R)
+
 end subroutine StepAdd_mine
 
 
