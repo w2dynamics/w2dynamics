@@ -49,7 +49,7 @@ implicit none
    complex(KINDC),allocatable :: Giw_lookup_M(:,:,:)
    integer,allocatable        :: Giw_lookup_row(:,:)
    integer                    :: NLookup_nfft
-   complex(KINDC),allocatable :: GSigmaiw(:,:,:) !o,s,iw
+!   complex(KINDC),allocatable :: GSigmaiw(:,:,:) !o,s,iw
    complex(KINDC),allocatable :: G2iw(:,:,:,:)  !o,s,iw,iw'
    complex(KINDC),allocatable :: G4iw(:,:,:,:,:,:,:) !o1,s1,o2,s2,iw,iw',iW
    complex(KINDC),allocatable :: G4iw_pp(:,:,:,:,:,:,:) !o1,s1,o2,s2,iw,iw',iW
@@ -483,8 +483,9 @@ subroutine init_CTQMC()
    endif
    
    if( get_integer_parameter("MeasGSigmaiw") /= 0) then
-      allocate(GSigmaiw(NBands,2,-NGiw:NGiw-1))
-      GSigmaiw = cmplx(0, kind=KINDC)
+      write (*, *) "WARNING: MeasGSigmaiw /= 0: Measuring GSigmaiw in Z sampling is not currently supported!"
+      ! allocate(GSigmaiw(NBands,2,-NGiw:NGiw-1))
+      ! GSigmaiw = cmplx(0, kind=KINDC)
    endif
    
    if( get_integer_parameter("WormMeasGSigmaiw") /=0) then
@@ -800,7 +801,7 @@ subroutine dest_CTQMC()
    if(allocated(Giw)) deallocate(Giw)
    if(allocated(Giw_worm)) deallocate(Giw_worm)
    if(allocated(Gtau_worm)) deallocate(Gtau_worm)
-   if(allocated(GSigmaiw)) deallocate(GSigmaiw)
+!   if(allocated(GSigmaiw)) deallocate(GSigmaiw)
    if(allocated(GSigmaiw_worm)) deallocate(GSigmaiw_worm)
    if (allocated(Giw_lookup_tau)) deallocate(Giw_lookup_tau)
    if (allocated(Giw_lookup_M)) deallocate(Giw_lookup_M)
@@ -850,19 +851,19 @@ subroutine measure_giw_nfft()
 
    do iorb = 1, NBands
       do ispin = 1, 2
-         if(allocated(GSigmaiw)) then
-            ! Measure improved estimators
-            if(debug) write(0,"(I1,'/',I1,100ES10.2)") iorb, ispin, DTrace%urho(iorb,ispin)%v
-            this_giw = get_giw( &
-                size(DTrace%Minv(iorb,ispin)%Mat,1), DTrace%Minv(iorb,ispin)%Mat, &
-                DTrace%tau_c(iorb,ispin)%v, DTrace%tau_a(iorb,ispin)%v, &
-                m_prefactors=DTrace%urho(iorb,ispin)%v)
-            GSigmaiw(iorb,ispin,:) = GSigmaiw(iorb,ispin,:) + this_giw(:,2)
-         else
+         ! if(allocated(GSigmaiw)) then
+         !    ! Measure improved estimators
+         !    if(debug) write(0,"(I1,'/',I1,100ES10.2)") iorb, ispin, DTrace%urho(iorb,ispin)%v
+         !    this_giw = get_giw( &
+         !        size(DTrace%Minv(iorb,ispin)%Mat,1), DTrace%Minv(iorb,ispin)%Mat, &
+         !        DTrace%tau_c(iorb,ispin)%v, DTrace%tau_a(iorb,ispin)%v, &
+         !        m_prefactors=DTrace%urho(iorb,ispin)%v)
+         !    GSigmaiw(iorb,ispin,:) = GSigmaiw(iorb,ispin,:) + this_giw(:,2)
+         ! else
             this_giw = get_giw( &
                 size(DTrace%Minv(iorb,ispin)%Mat,1), DTrace%Minv(iorb,ispin)%Mat, &
                 DTrace%tau_c(iorb,ispin)%v, DTrace%tau_a(iorb,ispin)%v)
-         endif
+         ! endif
          Giw(iorb,ispin,:) = Giw(iorb,ispin,:) + this_giw(:,1)
       enddo
    enddo
@@ -7350,12 +7351,12 @@ subroutine ctqmc_measure(iSector,iComponent)
                call MeasGtauRem(GtauDetRat)
             endif
 
-            if(allocated(giw) .or. allocated(gsigmaiw) .or. &
-               allocated(g4iw) .or. allocated(g4iw_pp)) then
+            if(allocated(giw)&  ! .or. allocated(gsigmaiw) .or. &
+               .or. allocated(g4iw) .or. allocated(g4iw_pp)) then
                call minv_matching_taus(DTrace,DTrace%MInv)
             endif
 !           if(allocated(gsigmaiw)) call urho_contracted(u_matrix, dtrace, dstates)
-            if(.not. b_Giw_lookup .and. (allocated(giw) .or. allocated(gsigmaiw))) then
+            if(.not. b_Giw_lookup .and. allocated(giw)) then  ! .or. allocated(gsigmaiw))) then
                call measure_giw_nfft()
             endif
             if ((b_Eigenbasis .eqv. .true.) .and. .not. b_segment) then
@@ -7575,9 +7576,9 @@ subroutine ctqmc_measure(iSector,iComponent)
         Giw(:,:,:) = Giw(:,:,:) * zScaling/DTrace%beta
       endif
 
-      if( allocated(gsigmaiw) ) then
-        gsigmaiw(:,:,:) = gsigmaiw(:,:,:) * zScaling/DTrace%beta
-      endif
+      ! if( allocated(gsigmaiw) ) then
+      !   gsigmaiw(:,:,:) = gsigmaiw(:,:,:) * zScaling/DTrace%beta
+      ! endif
       
       if(iSector==2) wormNorm=4d0/DTrace%beta !(2^2 for spin)
       if(iSector==3) wormNorm=32d0/(DTrace%beta) !(2^5 for spin)
