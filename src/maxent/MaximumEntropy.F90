@@ -265,8 +265,10 @@ SUBROUTINE w2maxent ( specFunc, specModel, specGrid, NSpec, &
   
   WRITE(logMsg,*) '### Init spectral function : randomize (0,1]'
   DO i=1,NSpec
-    specFunc(i)=grnd()                    !initially randomize spectral function
-    IF(specFunc(i) .EQ. 0D0) CYCLE        !explicitely avoid 0D0 from MMersenneTwister
+    NONZERO: DO
+      specFunc(i)=grnd()                     !initially randomize spectral function
+      IF(specFunc(i) .GT. 0D0) EXIT NONZERO  !explicitely avoid 0D0 from MMersenneTwister
+    END DO NONZERO
   END DO
   
   !*** define grid Units --> spectral weights for numerical integration
