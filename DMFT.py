@@ -189,6 +189,8 @@ if cfg["General"]["equiv"] is not None:
         parser.error("wrong order of array equiv; they have to be in ascending order!")
 
     log("Forcing equivalence to: %s", equiv_new)
+    equiv = equiv_new[:]
+
 
 
 log("Checking if d-d blocks are diagonal in spin and orbital ...")
