@@ -746,7 +746,8 @@ class NanoLattice(KspaceHamiltonian):
         return KspaceHamiltonian.gloc(self, iw, mu, arg)
 
 
-    def trace(self, iw, siw, smom, strategy='local'):
+    def trace(self, iw, siw, smom, strategy='local',
+              use_gw=False, siw_gw=None, smom_gw=None):
         # FIXME (@Giorgio) does the moment also need to be corrected?!
         # Giorgio: see Angelo's PhD thesis Eq. B23: the V^2-like moment 
         # of leadsiw enters at the same level of the 1/iw_n moment of Sigma. 
