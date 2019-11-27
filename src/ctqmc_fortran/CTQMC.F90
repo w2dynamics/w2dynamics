@@ -2330,11 +2330,6 @@ subroutine MeasDensityMatrix_beta_half()
          !     norm = 1 / DTrace%Trace
          ! remains
 
-         ! after this rearranging, braket and parttrace cancel, but it
-         ! is probably still not a good idea to add contributions from
-         ! configuration parts with zero weight contribution
-         if (trval(dtrace%parttrace(trst)) == 0.0_KINDR) cycle
-
          do st1 = 1, size(dtrace%bra_b2(:, vec_outer_ind))
             factor = dtrace%bra_b2(st1, vec_outer_ind)&
                      / trval(DTrace%Trace /&
@@ -2450,11 +2445,6 @@ subroutine MeasExpResDensityMatrix()
          ! up to numerical differences, so only
          !     norm = 1 / DTrace%Trace
          ! remains
-
-         ! after this rearranging, braket and parttrace cancel, but it
-         ! is probably still not a good idea to add contributions from
-         ! configuration parts with zero weight contribution
-         if (trval(dtrace%parttrace(trst)) == 0.0_KINDR) cycle
 
          do st1 = 1, size(dtrace%bra_b2(:, vec_outer_ind))
             factor = dtrace%bra_b2(st1, vec_outer_ind)&
