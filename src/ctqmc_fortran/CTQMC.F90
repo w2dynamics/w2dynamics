@@ -5287,7 +5287,7 @@ subroutine findEta(iSector,iComponent,tol,Nfix,maxIter)
 
    !determine if off_diagonal one-particle worm
    worm_offdiag=.false.
-   if(iSector .eq. 2) then
+   if(b_offdiag .and. iSector .eq. 2) then
       call index2component_general(Nbands, 2, iComponent, bs, b, s)
       if(bs(1).ne.bs(2)) worm_offdiag=.true.
    endif
@@ -7190,7 +7190,7 @@ subroutine ctqmc_measure(iSector,iComponent)
 
    !determine if off_diagonal one-particle worm
    worm_offdiag=.false.
-   if(iSector .eq. 2) then
+   if(b_offdiag .and. iSector .eq. 2) then
       call index2component_general(Nbands, 2, iComponent, bs, b, s)
       if(bs(1).ne.bs(2)) worm_offdiag=.true.
    endif
