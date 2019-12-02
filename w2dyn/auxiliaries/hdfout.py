@@ -61,22 +61,27 @@ class HdfOutput:
 
     def __init__(self, config, git_revision=None, start_time=None, 
                  ineq_list=None, mpi_comm=None):
-        # generate name for HDF5 file
-        if start_time is None: start_time = time.localtime()
-        runstring = time.strftime("%Y-%m-%d-%a-%H-%M-%S", start_time)
-        self.filename = "%s-%s.hdf5" % (config["General"]["FileNamePrefix"],
-                                        runstring)
-
         if mpi_comm is not None:
             self.is_writer = mpi_comm.Get_rank() == 0
         else:
             self.is_writer = True
 
         if self.is_writer:
+            # generate prefix-time file name for HDF5 output file
+            if start_time is None:
+                start_time = time.localtime()
+            runstring = time.strftime("%Y-%m-%d-%a-%H-%M-%S", start_time)
+            self.filename = "%s-%s.hdf5" % (config["General"]["FileNamePrefix"],
+                                            runstring)
+            self.filename = mpi_comm.bcast(self.filename, root=0)
+
             self.file = hdf5.File(self.filename, "w-")
             self.iter = self._ready_file(self.file, config, git_revision,
                                          start_time)
         else:
+            self.filename = ""
+            self.filename = mpi_comm.bcast(self.filename, root=0)
+
             self.file = None
             self.iter = None
 

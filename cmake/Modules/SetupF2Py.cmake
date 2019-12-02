@@ -7,6 +7,7 @@ if (NOT F2PY_SUFFIX)
   execute_process(COMMAND "${PYTHON_EXECUTABLE}" -c "import distutils.sysconfig; print(distutils.sysconfig.get_config_var('EXT_SUFFIX') or distutils.sysconfig.get_config_var('SO'))"
                   OUTPUT_VARIABLE PYTHON_EXT_SUFFIX
                   RESULT_VARIABLE FOUND_PYTHON_EXT_SUFFIX)
+  string(STRIP "${PYTHON_EXT_SUFFIX}" PYTHON_EXT_SUFFIX)
   if (NOT ${FOUND_PYTHON_EXT_SUFFIX} EQUAL 0)
     set (F2PY_SUFFIX "" CACHE STRING "Suffix added by F2Py to the module name to get the output file name." )
     message(FATAL_ERROR "Unable to determine file extension of compiled Python modules - specify it with F2PY_SUFFIX")

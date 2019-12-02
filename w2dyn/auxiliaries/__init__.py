@@ -13,8 +13,8 @@ BANNER = r"""
   \ \ |\| |____/X| | \ \\  /| \ \| |
    \ \\ \ /XXXXXX| |_/ // / | |\ \ |   Authors: M Wallerberger, A Hausoel,
     \__\__|X/____|____//_/  |_| \__|   P Gunacker, A Kowalski, N Parragh, F Goth,
-                                                 K Held, G Sangiovanni
-         |XXXXXXXX|                    Version %s, %s
+         |XXXXXXXX|                              K Held, G Sangiovanni
+                                       Version %s, %s
 """
 
 CODE_VERSION = 1, 0, "0"

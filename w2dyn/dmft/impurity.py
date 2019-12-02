@@ -773,8 +773,8 @@ class CtHybSolver(ImpuritySolver):
     @classmethod
     def get_gsigmaiw(cls, config, problem, result):
         gsigmaiw = None
-        if config["QMC"]["MeasGSigmaiw"] == 1:
-            gsigmaiw = result["gsigmaiw"]
+        # if config["QMC"]["MeasGSigmaiw"] == 1:
+        #     gsigmaiw = result["gsigmaiw"]
         if config["QMC"]["WormMeasGSigmaiw"] == 1:
             if gsigmaiw is not None:
                 warn("Worm GSigmaiw overwriting Z GSigmaiw", UserWarning, 2)

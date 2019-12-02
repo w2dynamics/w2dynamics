@@ -244,7 +244,7 @@ use MCompoundIndex
 
       type(alloc_vector), allocatable  :: tau_c(:,:)  !< minv creation op taus
       type(alloc_vector), allocatable  :: tau_a(:,:)  !< minv annihilation op taus
-      type(alloc_vector), allocatable  :: urho(:,:)  !< stores U x rho^(1)
+      ! type(alloc_vector), allocatable  :: urho(:,:)  !< stores U x rho^(1)
 !> types for segment
       !!! index: band,spin
       logical,allocatable :: outerstate_tmp(:,:)
@@ -652,7 +652,7 @@ subroutine init_Trace(this,DStates,FTau,FTau_full,screening_function,Nftau,muimp
 
    allocate(this%tau_c(DStates%NBands,2))
    allocate(this%tau_a(DStates%NBands,2))
-   allocate(this%urho(DStates%NBands,2))
+   ! allocate(this%urho(DStates%NBands,2))
    allocate(this%MInv(DStates%NBands,2))
    if(associated(this%MInv))then
       do iB=1,size(this%MInv(:,1))
@@ -768,7 +768,7 @@ subroutine dest_Trace(this)
    if (allocated(this%States)) deallocate(this%States)   
    if (allocated(this%sst_to_statesindex)) deallocate(this%sst_to_statesindex)
    if (allocated(this%tparttrace)) deallocate(this%tparttrace)
-   if (allocated(this%urho)) deallocate(this%urho)
+   ! if (allocated(this%urho)) deallocate(this%urho)
    !if (allocated(this%omega0)) deallocate(this%omega0)
    !if (allocated(this%g_phonon)) deallocate(this%g_phonon) 
 end subroutine dest_Trace

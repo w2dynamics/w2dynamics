@@ -83,10 +83,10 @@ def readHdf2Dat(tag,fin,outprefix,efunc,paramag=False,niter=-1,iiw=-1):
    
    #we refer to tau or iw array as ximag in the following
    if tag == "gtau":
-      ximag = hf[("axes", ".axes")[file_version[0]-1]]["taubin"].value
+      ximag = hf[("axes", ".axes")[file_version[0]-1]]["taubin"][()]
    
    if tag == "giw-meas":
-      ximag = hf[("axes", ".axes")[file_version[0]-1]]["iw"].value
+      ximag = hf[("axes", ".axes")[file_version[0]-1]]["iw"][()]
    
    #selecting the iteration
    if(niter==-1):
@@ -135,8 +135,8 @@ def readHdf2Dat(tag,fin,outprefix,efunc,paramag=False,niter=-1,iiw=-1):
             for i in xrange(gtaumean.shape[0]):
                if tag == "gtau":
                   print >> fdat, ximag[i], gtaumean[i], gtauerr[i]
-               if tag == "giw-meas": 
-                  print >> fdat, ximag[i], gtaumean[i].real, gtaumean[i].imag, gtauerr[i]
+               if tag == "giw-meas":
+                  print >> fdat, ximag[i], -gtaumean[i].real, -gtaumean[i].imag, gtauerr[i]
    return outlist
 
 if __name__ == "__main__":
