@@ -479,9 +479,6 @@ for iter_no in range(total_iterations + 1):
                       "\nWARNING: Ignoring auxiliary entries for multiple worm estimators.\n\n")
 
             log("Done with component")
-
-      #after worm-sampling we terminate all loops
-      break 
     
     iter_time2=time.time()
     log("Time of iteration no. %d: %g sec",iter_no+1,iter_time2-iter_time1)
