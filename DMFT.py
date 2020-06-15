@@ -538,6 +538,15 @@ for iter_no in range(total_iterations + 1):
             imp_electrons_err += (orbspin.trace(result.other["occ"].var())
                                   * len(ineq_list[iimp]))
 
+            if cfg["QMC"]["WriteCovMeanGiw"]:
+                output.write_impurity_result(iimp,
+                                             {'giw-cov':
+                                              diagonal_covariance(result.giw)})
+            if cfg["QMC"]["WriteCovMeanSigmaiw"]:
+                output.write_impurity_result(iimp,
+                                             {'siw-cov':
+                                              diagonal_covariance(result.siw)})
+
             output.write_impurity_result(iimp, result.other)
             # write quantities not contained in result.other after
             # pulling band and spin dimensions to the front
@@ -552,15 +561,6 @@ for iter_no in range(total_iterations + 1):
                  })
             if result_worm is not None:
                 output.write_impurity_result(iimp, result_worm.other)
-
-            if cfg["QMC"]["WriteCovMeanGiw"]:
-                output.write_impurity_result(iimp,
-                                             {'giw-cov':
-                                              diagonal_covariance(result.giw)})
-            if cfg["QMC"]["WriteCovMeanSigmaiw"]:
-                output.write_impurity_result(iimp,
-                                             {'siw-cov':
-                                              diagonal_covariance(result.siw)})
 
         output.write_quantity("giw", giws)
         output.write_quantity("siw", siws)
