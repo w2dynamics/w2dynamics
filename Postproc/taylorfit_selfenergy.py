@@ -4,6 +4,8 @@
 Computes the Taylor fit to the real-axis self energy and writes it
 back to the HDF5 file as new quantity "sfreal".
 """
+from __future__ import print_function
+import sys
 from sys import exit, stderr as err
 import optparse, re
 ##pw
@@ -37,8 +39,12 @@ def difffunc(param,targetval,iw):
 try:
     import numpy as np
     import h5py as hdf5
+    h5ustrs = hdf5.special_dtype(vlen=(str
+                                       if sys.version_info >= (3, )
+                                       else unicode))
+
 except ImportError:
-    print >> err, "Error: script requires the h5py package to run"
+    print("Error: script requires the h5py package to run", file=err)
     exit(3)
     
 usage, _dummy, desc = __doc__.split("\n", 2)
@@ -53,10 +59,10 @@ try:
     hf = hdf5.File(filename, "r+")
 except IndexError:
     parser.print_usage()
-    print >> err, "Error: no file specified"
+    print("Error: no file specified", file=err)
     exit(2)
-except IOError, e:
-    print >> err, "Error: unable to open HDF5 output file `%s'." % filename
+except IOError:
+    print("Error: unable to open HDF5 output file `%s'." % filename, file=err)
     exit(2)
 
 
@@ -65,11 +71,11 @@ cfg = ConfigObj(list(hf["configfile"].value))
 
 # get desired iteration
 iterpat = re.compile(r"^(?:dmft|stat)-\d+$")
-iterations = sorted([k for k in hf.iterkeys() if iterpat.match(k)])
+iterations = sorted([k for k in hf.keys() if iterpat.match(k)])
 try:
     iter = hf[iterations[options.iter]]
 except IndexError:
-    print >> err, "Error: iteration not present (or no iterations at all)"
+    print("Error: iteration not present (or no iterations at all)", file=err)
     exit(2)
 
 # get desired quantities 
@@ -89,7 +95,7 @@ w=np.arange(-wmax,wmax,dw)
 Sfreal = np.zeros((nat,norb,2,w.size),dtype=complex)
 iwpos = iwin.compress((iwin>0).flat) #positive frequency axis
 tiw = iwpos[0:nf]
-#idx1 = 	(iwin>0).nonzero()
+#idx1 =         (iwin>0).nonzero()
 
 #plt.figure()
 
@@ -98,36 +104,36 @@ for iat in range(0,nat):
     for iorb in range(0,norb):
       
         for isp in range(0,1):
-	    #print iat
-	    locdc = dc[iat,iorb,isp]
-	    #print siw[iat,iorb,isp,1]
-	    #print iwin[1]
-	    #print locdc
-	    siwpos =  siw[iat,iorb,isp,:].compress((iwin>0).flat)+locdc
-	    #fit the real part of the Matsubara self energy
-	    tval = siwpos[0:nf].real
-	    param = [tval[0], 0, 0, 0]  
-	    poptr = leastsq(difffunc, param, args=(tval, tiw))
-	    diffr = difffunc(poptr[0],tval,tiw)
-	    #fit the imaginary part of the Matsubara self energy
-	    tval = siwpos[0:nf].imag
-	    param = [0, tval[0]/tiw[0], 0, 0]
-	    popti = leastsq(difffunc, param, args=(tval, tiw))
-	    #print popti[0]
-	    diffi = difffunc(popti[0],tval,tiw)
-	#print sum(diffr),sum(diffi)
-	    if sum(diffr)+sum(diffi) > 10**(-8):
-		print "Warning: leastsq-fit for Taylor expansion returned with larger error than threshold"
-		print "Error[real fit,imag fit]: ",sum(diffr),sum(diffi)
-	    Sfreal[iat,iorb,isp,:] = analyt_cont(w,poptr[0],popti[0])
-	    #this can be used to plot the fit
-	    #riw = tiw
-	    #riw = np.insert(riw, 0, 0)
-	    #fval = pol_expand(riw,poptr[0])
-	    #plt.plot(tiw,tval,'x',riw,fval,'--')
-	    #this can be used for plotting the real self energy
-	    #if iat == 0 and isp==0:
-		  #plt.plot(w,Sfreal[iat,iorb,isp,:].real,'-',w,Sfreal[iat,iorb,isp,:].imag,'--')
+            #print iat
+            locdc = dc[iat,iorb,isp]
+            #print siw[iat,iorb,isp,1]
+            #print iwin[1]
+            #print locdc
+            siwpos =  siw[iat,iorb,isp,:].compress((iwin>0).flat)+locdc
+            #fit the real part of the Matsubara self energy
+            tval = siwpos[0:nf].real
+            param = [tval[0], 0, 0, 0]
+            poptr = leastsq(difffunc, param, args=(tval, tiw))
+            diffr = difffunc(poptr[0],tval,tiw)
+            #fit the imaginary part of the Matsubara self energy
+            tval = siwpos[0:nf].imag
+            param = [0, tval[0]/tiw[0], 0, 0]
+            popti = leastsq(difffunc, param, args=(tval, tiw))
+            #print popti[0]
+            diffi = difffunc(popti[0],tval,tiw)
+        #print sum(diffr),sum(diffi)
+            if sum(diffr)+sum(diffi) > 10**(-8):
+                print("Warning: leastsq-fit for Taylor expansion returned with larger error than threshold")
+                print("Error[real fit,imag fit]: ",sum(diffr),sum(diffi))
+            Sfreal[iat,iorb,isp,:] = analyt_cont(w,poptr[0],popti[0])
+            #this can be used to plot the fit
+            #riw = tiw
+            #riw = np.insert(riw, 0, 0)
+            #fval = pol_expand(riw,poptr[0])
+            #plt.plot(tiw,tval,'x',riw,fval,'--')
+            #this can be used for plotting the real self energy
+            #if iat == 0 and isp==0:
+                  #plt.plot(w,Sfreal[iat,iorb,isp,:].real,'-',w,Sfreal[iat,iorb,isp,:].imag,'--')
 
 #plt.legend(['Orb1 - Re Sf','Orb1 - Im Sf','Orb2 - Re Sf','Orb2 - Im Sf','Orb3 - Re Sf','Orb3 - Im Sf',\
             #'Orb4 - Re Sf','Orb4 - Im Sf','Orb5 - Re Sf','Orb5 - Im Sf'])
@@ -136,7 +142,8 @@ for iat in range(0,nat):
 # re-introduce into hdf5 file
 iter.require_group("sfreal")
 iter["sfreal"].attrs["desc"] = "Taylor-fitted self energy on real axis" 
-iter["sfreal"].attrs["axes"] = ["ineq", "band", "spin", "wreal"]
+iter["sfreal"].attrs.create("axes", ["ineq", "band", "spin", "wreal"],
+                            dtype=h5ustrs)
 
 hf.require_dataset("axes/wreal", shape=w.shape,dtype=float,data=w)
 iter.require_dataset("sfreal/value", shape=Sfreal.shape,dtype=complex,data=Sfreal)
@@ -145,17 +152,17 @@ iter.require_dataset("sfreal/value", shape=Sfreal.shape,dtype=complex,data=Sfrea
 ## cleanup
 hf.close()
 for j in range(0,w.size):
-      print '%12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f' % \
-                                         (w[j],Sfreal[0,0,0,j].real,Sfreal[0,0,0,j].imag, \
-                                               Sfreal[0,1,0,j].real,Sfreal[0,1,0,j].imag, \
-                                               Sfreal[0,2,0,j].real,Sfreal[0,2,0,j].imag, \
-                                               Sfreal[0,3,0,j].real,Sfreal[0,3,0,j].imag, \
-                                               Sfreal[0,4,0,j].real,Sfreal[0,4,0,j].imag,  \
- 					       Sfreal[0,0,0,j].real,Sfreal[0,0,0,j].imag, \
-                                               Sfreal[0,1,0,j].real,Sfreal[0,1,0,j].imag, \
-                                               Sfreal[0,2,0,j].real,Sfreal[0,2,0,j].imag, \
-                                               Sfreal[0,3,0,j].real,Sfreal[0,3,0,j].imag, \
-                                               Sfreal[0,4,0,j].real,Sfreal[0,4,0,j].imag  )
+        print('%12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f %12f' %
+              (w[j],Sfreal[0,0,0,j].real,Sfreal[0,0,0,j].imag,
+               Sfreal[0,1,0,j].real,Sfreal[0,1,0,j].imag,
+               Sfreal[0,2,0,j].real,Sfreal[0,2,0,j].imag,
+               Sfreal[0,3,0,j].real,Sfreal[0,3,0,j].imag,
+               Sfreal[0,4,0,j].real,Sfreal[0,4,0,j].imag,
+               Sfreal[0,0,0,j].real,Sfreal[0,0,0,j].imag,
+               Sfreal[0,1,0,j].real,Sfreal[0,1,0,j].imag,
+               Sfreal[0,2,0,j].real,Sfreal[0,2,0,j].imag,
+               Sfreal[0,3,0,j].real,Sfreal[0,3,0,j].imag,
+               Sfreal[0,4,0,j].real,Sfreal[0,4,0,j].imag  ))
       #print '%2f %3f %4d' % (x, x*x, x*x*x)
 
 

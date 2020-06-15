@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 """Interface for the MaxEnt Solver"""
-
+from __future__ import absolute_import, print_function, unicode_literals
 import numpy as np
 import h5py as hdf5
 import sys
-import optparse, copy
+import optparse
+import copy
 
 from w2dyn.maxent import Solver
 from w2dyn.auxiliaries import quantities as qttys
@@ -35,7 +36,7 @@ def readDat2Solver(fname,solver,offset):
    
    line_iter = iter(generateData(fname))
    #exhausting generator to offset
-   for i in xrange(offset):
+   for i in range(offset):
       next(line_iter)
       
    for i, data in enumerate(line_iter, start=0):
@@ -116,9 +117,10 @@ def readHdf2Dat(tag,fin,outprefix,efunc,paramag=False,niter=-1,iiw=-1):
             
             outlist.append(suffix)
             
-            fdat = file(outprefix+suffix, "w")
-            print >> fdat, " "
-            print >> fdat, "# beta = %s, iter = %s, ineq = %s, band = %s, spin = %s" % (beta[0], niter, iineq, iband, ispin)
+            fdat = open(outprefix+suffix, "w")
+            print(" ", file=fdat)
+            print("# beta = %s, iter = %s, ineq = %s, band = %s, spin = %s" %
+                  (beta[0], niter, iineq, iband, ispin), file=fdat)
             
             gtaumean = all_gtaumean[iband,ispin]
 
@@ -132,11 +134,13 @@ def readHdf2Dat(tag,fin,outprefix,efunc,paramag=False,niter=-1,iiw=-1):
             gtauerr[...] = efunc(ximag, gtaumean, gtauerr)
             
             
-            for i in xrange(gtaumean.shape[0]):
+            for i in range(gtaumean.shape[0]):
                if tag == "gtau":
-                  print >> fdat, ximag[i], gtaumean[i], gtauerr[i]
+                  print(ximag[i], gtaumean[i], gtauerr[i], file=fdat)
                if tag == "giw-meas":
-                  print >> fdat, ximag[i], -gtaumean[i].real, -gtaumean[i].imag, gtauerr[i]
+                  print(ximag[i],
+                        -gtaumean[i].real, -gtaumean[i].imag, gtauerr[i],
+                        file=fdat)
    return outlist
 
 if __name__ == "__main__":
@@ -191,19 +195,19 @@ if __name__ == "__main__":
 
    #loop over all hdf5 input filenames
    for filename in args:
-      print "Processing file:", filename
+      print("Processing file:", filename)
       
       if options.ftype == "hdf5":
          try:
             hf = hdf5.File(filename,"r")
-         except IOError, e:
+         except IOError as e:
             parser.error("invalid HDF5 output file: %s" % filename)
             
          file_version = tuple(hf.attrs["outfile-version"])
          beta, paramag, magnetism = qttys.MetaQttyContainer("config", hf, file_version) \
                   .select(qttys.SelectorPool(qttys.Selector("*beta", "ParaMag", "general.magnetism"))) \
                   .values()
-         print "beta = %s, paramag = %s, magnetism = %s" % (beta, paramag, magnetism)
+         print("beta = %s, paramag = %s, magnetism = %s" % (beta, paramag, magnetism))
          
          paramag = paramag or magnetism == 'para'  
          efunc = eval("lambda x, v, e: (%s)" % options.gerror)
@@ -220,7 +224,7 @@ if __name__ == "__main__":
          outprefix = tag + "_"
          
          outlist = readHdf2Dat(tag,filename,outprefix,efunc,paramag,niter=options.niter,iiw=options.iiw)
-         print outlist
+         print(outlist)
          
          #only print gtau/giw, no maxent
          if options.gonly: continue
@@ -252,10 +256,10 @@ if __name__ == "__main__":
             w1 = options.wmin + wrange/3
             w2 = options.wmax - wrange/3
             if options.wcount % 6 != 1:
-              print 'Warning: wcount should be a 6*n+1, e.g. 7,13,19'
+              print('Warning: wcount should be a 6*n+1, e.g. 7,13,19')
               wcount_old=options.wcount
               options.wcount=1+6*(options.wcount//6 + 1) 
-              print 'Changing wcount from',wcount_old,'to',options.wcount
+              print('Changing wcount from', wcount_old, 'to', options.wcount)
 
             solver = Solver.Green2Aw(kernelMode=options.kmode,beta=beta,Ncorr=lines-offset,\
                                     NGrid1=options.wcount//3,NGrid2=options.wcount//3+1,NGrid3=options.wcount//3,\
@@ -264,7 +268,7 @@ if __name__ == "__main__":
          elif options.kmode == 10 or options.kmode == 11:    
             #FIXME: currently we use the internal default values, since they differ from the parser default values
             #at some point it will be necessary to play around with these values a bit
-            print >> sys.stderr, "ignoring input grid/frequency parameters"
+            print("ignoring input grid/frequency parameters", file=sys.stderr)
             solver = Solver.Chi2Aw(kernelMode=options.kmode,beta=beta,Ncorr=lines-offset,logprefix=outprefix+suffix)
          else:
             raise NotImplementedError("specified kernelMode unknown")

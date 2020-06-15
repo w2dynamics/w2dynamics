@@ -1,8 +1,10 @@
 """Package abstracting partition of the Hamiltonian into atoms as well as
    up- and downfolding between the impurity and the lattice picture.
 """
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import numpy as np
-import interaction
+from . import interaction
 
 class Atom:
     def __init__(self, ntotal_orbitals, start_orbital, nd, dd_interaction,
@@ -95,7 +97,7 @@ def check_equivalence(equiv_prev, atoms, criterion):
     # by the condition inside the loop, so we can return equiv
     return equiv
 
-def construct_ufull(atom_list):
+def construct_ufull(atom_list, Uw=0, Uw_Mat=0):
     ntotal = atom_list[0].ntotal
     udd_full = np.zeros((ntotal, 2, ntotal, 2))
     udp_full = udd_full.copy()
@@ -103,18 +105,19 @@ def construct_ufull(atom_list):
 
     # set density part of intra-atom U (d-d/p-p)
     for iatom1, atom1 in enumerate(atom_list):
-        udd_full[atom1.dslice, :, atom1.dslice, :] = atom1.dd_int.get_udens()
+        udd_full[atom1.dslice, :, atom1.dslice, :] = \
+            atom1.dd_int.get_udens(Uw, Uw_Mat)
         udp_full[atom1.dslice, :, atom1.pslice, :] = \
-                                    atom1.dp_int.get_udens(atom1, atom1)
+            atom1.dp_int.get_udens(atom1, atom1)
         upp_full[atom1.pslice, :, atom1.pslice, :] = \
-                                    atom1.pp_int.get_udens(atom1, atom1)/2.
+            atom1.pp_int.get_udens(atom1, atom1)/2.
         for atom2 in atom_list[iatom1+1:]:
             # set upper triangle of inter-atom U (d-p), but use double the value
             # such that the symmetrisation below yields the right thing
             udp_full[atom1.dslice, :, atom2.pslice, :] = \
-                                    atom1.dp_int.get_udens(atom1, atom2)
+                atom1.dp_int.get_udens(atom1, atom2)
             upp_full[atom1.pslice, :, atom2.pslice, :] = \
-                                    atom1.pp_int.get_udens(atom1, atom2)
+                atom1.pp_int.get_udens(atom1, atom2)
 
     # set lower triangle: in d-p, the diagonal terms are obviously zero, in p-p
     # the diagonal is halved above.
@@ -129,6 +132,9 @@ class InequivalentAtom(Atom):
     def __init__(self, atoms):
         self.template = atoms[0]
         self.clones = atoms[1:]
+
+    def __len__(self):
+        return 1 + len(self.clones)
 
     def d_setpart(self, x, part):
         self.template.d_setpart(x, part)

@@ -1,9 +1,11 @@
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 from warnings import warn
 
 try:
-    import CTQMC
+    from . import CTQMC
 except:
-    warn("CTQMC.so binary module not found. Run make in ctqmcf")
+    warn("CTQMC binary module failed to load. Please make sure to correctly build the compiled components of w2dynamics using the cmake build system.")
 
 
 BANNER = r"""
@@ -17,7 +19,7 @@ BANNER = r"""
                                        Version %s, %s
 """
 
-CODE_VERSION = 1, 0, "0"
+CODE_VERSION = 1, 1, "0"
 CODE_VERSION_STRING = ".".join(map(str,CODE_VERSION))
-CODE_DATE = "July 2018"
+CODE_DATE = "June 2020"
 OUTPUT_VERSION = 2, 2

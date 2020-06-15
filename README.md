@@ -1,6 +1,5 @@
 w2dynamics - Wien/Wuerzburg strong coupling solver
 ==================================================
-
 w2dynamics is a hybridization-expansion continuous-time quantum Monte Carlo
 package, developed jointly in Wien and Würzburg. 
 
@@ -10,8 +9,7 @@ package, developed jointly in Wien and Würzburg.
    Comput. Phys. Commun. 235, 2 (2019)  
    <https://www.sciencedirect.com/science/article/pii/S0010465518303217>  
    arXiv:1801.10209 <https://arxiv.org/abs/1801.10209>  
-   When using additional codes in  conjunction with w2dynamics, do not forget  
-   to give credit to them as well.  
+   When using additional codes in  conjunction with w2dynamics, do not forget to give credit to them as well.  
 
 w2dynamics contains:
 
@@ -41,16 +39,16 @@ Installation
 
 Requirements:
 
-  - Python (>= 2.4)
+  - Python (>= 2.6)
   - Fortran 90 compiler
   - C++11 compiler
   - cmake (>= 2.8.5)
-  - HDF5 (preferably installed via your systems package manager)
 
 Further dependencies (automatically installed if not found):
 
   - Python packages: numpy >= 1.4, scipy >= 0.10, h5py, mpi4py, configobj
   - NFFT3
+  - HDF5
 
 To get the code use `git`:
 

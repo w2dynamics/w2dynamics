@@ -1,8 +1,8 @@
-# - FindConfigObj
+# - FindCONFIGOBJ
 # By Florian Goth, fgoth@physik.uni-wuerzburg.de
 # Find ConfigObj
 # This module defines:
-# ConfigObj_FOUND
+# CONFIGOBJ_FOUND
 # CONFIGOBJ_VERSION
 # CONFIGOBJ_VERSION_MAJOR
 # CONFIGOBJ_VERSION_MINOR
@@ -21,7 +21,7 @@ endif()
       OUTPUT_STRIP_TRAILING_WHITESPACE)
 
 if(NOT CONFIGOBJ_FOUND AND PYTHONINTERP_FOUND)
-#    if(NOT ConfigObj_COMMAND_RESULT MATCHES 0)
+#    if(NOT CONFIGOBJ_COMMAND_RESULT MATCHES 0)
 #        message("ConfigObj import failure:\n${_H5PY_ERROR_VALUE}")
 #    endif()
     if(CONFIGOBJ_COMMAND_RESULT MATCHES 0)

@@ -1,7 +1,9 @@
+from __future__ import absolute_import, print_function, unicode_literals
 import numpy as np
 import scipy.misc as misc
 import re
 import sys
+import w2dyn.dmft.dynamicalU as dynamicalU
 
 def udensity_values(nbands=1, u=0., v=0., j=0.):
     """Creates the U matrix for the density-density interaction"""
@@ -15,6 +17,39 @@ def udensity_values(nbands=1, u=0., v=0., j=0.):
     udens[band, :, band, :] = np.array(((0, u), (u, 0)))
     return udens
 
+def screenedudensity_values(nbands=1, Uw_Mat=0, u=0., v=0., j=0.):
+    """Creates the screened U matrix for the density-density interaction"""
+    udens = np.zeros((nbands, 2, nbands, 2))
+    zero_umatrix = np.zeros((nbands*2,nbands*2,nbands*2,nbands*2))
+    _Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(0, zero_umatrix, Uw_Mat, 1)
+    
+    for i in range(0,nbands):
+      udens[i,1,i,0] = u + _Retarded2Shifts.U_shift[i]
+      udens[i,0,i,1] = u + _Retarded2Shifts.U_shift[i]
+
+    n = 0
+    for i in range(0,nbands):
+      for l in range(i+1,nbands):
+        if (_Retarded2Shifts.Vw is True):
+          v_s = v + _Retarded2Shifts.V_shift[n]
+        else:
+          v_s = v
+        udens[i,:,l,:] = v_s
+        udens[l,:,i,:] = v_s
+        n+=1
+
+    for i in range(0,nbands):
+      for l in range(i+1,nbands):
+        if (_Retarded2Shifts.Jw is True):
+          j_s = j + _Retarded2Shifts.J_shift[n]
+        else:
+          j_s = j
+        udens[i,1,l,1] -= j_s
+        udens[i,0,l,0] -= j_s
+        udens[l,1,i,1] -= j_s
+        udens[l,0,i,0] -= j_s
+        n+=1
+    return udens
 
 def udensity_from_ufull(ufull):
     r"""Extracts  the density-density part from a full U-matrix
@@ -66,7 +101,7 @@ class Interaction:
       """Abstract Method to fill U-matrix with arbitrary interaction"""
       raise Exception('Abstract method, please override')
 
-   def get_udens(self):
+   def get_udens(self, Uw=0, Uw_Mat=0):
       """Abstract Method to get density-density part of interaction"""
       raise Exception('Abstract method, please override')
 
@@ -95,8 +130,8 @@ class Interaction:
    def dump(self,f=sys.stderr):
       """Dumping the U-matrix in the format required by readin."""
 
-      print >> f,  '# Non-zeros of interaction matrix U_ijkl'
-      print >> f, self.norbitals, 'BANDS'
+      print('# Non-zeros of interaction matrix U_ijkl', file=f)
+      print(self.norbitals, 'BANDS', file=f)
 
       #extracting non-zero elements
       tmp = np.nonzero(self.u_matrix)
@@ -114,7 +149,7 @@ class Interaction:
                ind_2 += str(self._spin_char(val))
                ind_2 += " "
 
-         print >> f, ind_2, self.u_matrix[ind]
+         print(ind_2, self.u_matrix[ind], file=f)
 
    def _char_spin(self, char):
       """Converting u,d spin to 0 or 1."""
@@ -143,9 +178,9 @@ class Density(Interaction):
 
    def set_u_matrix(self):
       """Adding the density-density interaction to the U-matrix."""
-      for b1 in xrange(self.norbitals):
+      for b1 in range(self.norbitals):
          self.u_matrix[b1,(0,1),b1,(1,0),b1,(0,1),b1,(1,0)] = self.u
-         for b3 in xrange(self.norbitals):
+         for b3 in range(self.norbitals):
             if b3 != b1:
                self.u_matrix[b1,(0,0,1,1),b3,(0,1,0,1),b1,(0,0,1,1),b3,(0,1,0,1)] = self.v
                self.u_matrix[b1,(0,1),b3,(0,1),b3,(0,1),b1,(0,1)] = self.j
@@ -154,9 +189,9 @@ class Density(Interaction):
       """Adding crossing symmetric density-density U-matrix."""
       self.u_matrix=0.
       self.set_u_matrix()
-      for b1 in xrange(self.norbitals):
+      for b1 in range(self.norbitals):
          self.u_matrix[b1,(0,1),b1,(1,0),b1,(1,0),b1,(0,1)] += -self.u
-         for b3 in xrange(self.norbitals):	
+         for b3 in range(self.norbitals):	
             if b3 != b1:
                self.u_matrix[b1,(0,0,1,1),b3,(0,1,0,1),b3,(0,1,0,1),b1,(0,0,1,1)] += -self.v
                self.u_matrix[b1,(0,1),b3,(0,1),b1,(0,1),b3,(0,1)] += -self.j
@@ -166,8 +201,11 @@ class Density(Interaction):
    def __str__(self):
        return "<d-d: U=%g U'=%g J=%g>" % (self.u, self.v, self.j)
 
-   def get_udens(self):
-      return udensity_values(self.norbitals, self.u, self.v, self.j)
+   def get_udens(self, Uw=0, Uw_Mat=0):
+      if Uw==1:
+        return screenedudensity_values(self.norbitals, Uw_Mat, self.u, self.v, self.j)
+      else:
+        return udensity_values(self.norbitals, self.u, self.v, self.j)
 
    def __eq__(self, other):
       """Comparing two U-Matrices by value."""
@@ -193,8 +231,8 @@ class Kanamori(Interaction):
 
       self.u_matrix = Density(self.norbitals, self.u, self.v, self.j).u_matrix
 
-      for b1 in xrange(self.norbitals):
-         for b2 in xrange(self.norbitals):
+      for b1 in range(self.norbitals):
+         for b2 in range(self.norbitals):
             if b1 != b2:
                self.u_matrix[b1,(0,1),b1,(1,0),b2,(0,1),b2,(1,0)] = self.j # pair hopping
                self.u_matrix[b1,(0,1),b2,(1,0),b2,(0,1),b1,(1,0)] = self.j # spin flip
@@ -203,9 +241,9 @@ class Kanamori(Interaction):
       """Adding crossing symmetric density-density U-matrix."""
       self.u_matrix=0.
       self.set_u_matrix()
-      for b1 in xrange(self.norbitals):
+      for b1 in range(self.norbitals):
          self.u_matrix[b1,(0,1),b1,(1,0),b1,(1,0),b1,(0,1)] += -self.u
-         for b3 in xrange(self.norbitals):
+         for b3 in range(self.norbitals):
             if b3 != b1:
                self.u_matrix[b1,(0,0,1,1),b3,(0,1,0,1),b3,(0,1,0,1),b1,(0,0,1,1)] += -self.v
                self.u_matrix[b1,(0,1),b3,(0,1),b1,(0,1),b3,(0,1)] += -self.j
@@ -220,7 +258,7 @@ class Kanamori(Interaction):
     def __str__(self):
        return "<Kan: U=%g U'=%g J=%g>" % (self.u, self.v, self.j)
 
-    def get_udens(self):
+    def get_udens(self, Uw=0, Uw_Mat=0):
        return udensity_values(self.norbitals, self.u, self.v, self.j)
 
     def __eq__(self, other):
@@ -287,7 +325,7 @@ class Coulomb(Interaction):
    def aFak(self,k, l, m1, m2, m3, m4):
        a = 0.
 
-       for q in xrange(-k,k+1):
+       for q in range(-k,k+1):
            a += (self.CG(l, m3, k, q, l, m1)*
                  self.CG(l, m2, k, q, l, m4))
 
@@ -302,7 +340,7 @@ class Coulomb(Interaction):
        l = (self.norbitals - 1)//2
        uuCub = np.zeros(shape=(self.norbitals,self.norbitals,self.norbitals,self.norbitals),dtype=complex)
        uuSph = np.zeros(shape=(self.norbitals,self.norbitals,self.norbitals,self.norbitals))
-       mList = xrange(-l,l+1)
+       mList = range(-l,l+1)
        for m1 in mList:
            for m2 in mList:
                for m3 in mList:
@@ -380,7 +418,7 @@ class Coulomb(Interaction):
    def __str__(self):
       return "<Coul: Fn=%g, %g, %g, %g>" % (self.f0, self.f2, self.f4, self.f6)
 
-   def get_udens(self):
+   def get_udens(self, Uw=0, Uw_Mat=0):
       return udensity_from_ufull(self.uuCub) 
 
    def __eq__(self, other):
@@ -405,7 +443,7 @@ class CustomFull(Interaction):
       """Setting values of the U-matrix based on a file."""
       pass
 
-   def get_udens(self):
+   def get_udens(self, Uw=0, Uw_Mat=0):
       return udensity_from_spindep_ufull(self.u_matrix)
 
    def __eq__(self, other):
@@ -431,7 +469,7 @@ class CustomSU2Invariant(CustomFull):
       self.u_matrix[:, 1, :, 0, :, 1, :, 0] = self.orbital_u_matrix
       self.u_matrix[:, 1, :, 1, :, 1, :, 1] = self.orbital_u_matrix
 
-   def get_udens(self):
+   def get_udens(self, Uw=0, Uw_Mat=0):
       return udensity_from_ufull(self.orbital_u_matrix)
 
 def _close(a,b,rtol=1.e-05,atol=1e-16):

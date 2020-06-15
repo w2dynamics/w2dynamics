@@ -5,7 +5,7 @@
 !***    which is obtained by Bayes' theorem maximizing the posteriori probability distribution
 !***    for the spectral function, A(w), given a spectral model, m(w): 
 !***    Pr(A|G)=Pr(G|A)*Pr(A), where Pr(G|A) is the likelihood function of the data 
-!***    (greenFunc -> Pr(G|A)=DEXP(-chi²/2)) given the spectral function.
+!***    (greenFunc -> Pr(G|A)=DEXP(-chi^2/2)) given the spectral function.
 !***    Pr(A) is the prior knowledge about the spectral function concerning the model m
 !***    in an entropic like fashion (DEXP(alpha*S)), where S=-integral(A-m-A*DLOG(A/m))dw 
 !***    is the entropy (Ref[1,2,3]).
@@ -174,7 +174,7 @@ SUBROUTINE w2maxent ( specFunc, specModel, specGrid, NSpec, &
   !*** Green's Function Variables ***
   INTEGER,                       INTENT(IN) :: NGreen          ! number of grid points for Green's function
   COMPLEX(KINDC),  DIMENSION(Ngreen), INTENT(IN) :: greenFunc       ! Green's function from DEXPeriment / CT-QMC
-  REAL(KINDR),     DIMENSION(Ngreen), INTENT(IN) :: greenInverseCov ! inverse covariance matrix (1/sigma(i)²), assumed to be diagonal
+  REAL(KINDR),     DIMENSION(Ngreen), INTENT(IN) :: greenInverseCov ! inverse covariance matrix (1/sigma(i)^2), assumed to be diagonal
   REAL(KINDR),     DIMENSION(Ngreen), INTENT(IN) :: greenGrid       ! grid for Green's function
 
   INTEGER                                   :: maxentNCorr
@@ -710,17 +710,17 @@ END SUBROUTINE initKernel
 !*** 
 !*** Here the curvature-tensor of the loglikelihood function w.r.t. the spectral
 !*** function, A(i), is calculated:
-!***   d² L(i,j) / (dA(i)dA(j))
+!***   d^2 L(i,j) / (dA(i)dA(j))
 !***
 !*** The quantity enters in the determination of alpha in the subroutine 
 !*** BayesianInverence(..) via Eq. 4.8 in Ref[1]:
-!***   Lambda_ij ~ DSQRT(A(i)) * d² L(i,j) / (dA(i)dA(j)) * DSQRT(A(j))
+!***   Lambda_ij ~ DSQRT(A(i)) * d^2 L(i,j) / (dA(i)dA(j)) * DSQRT(A(j))
 !***
 !*** The curvature-tensor won't change in calculation (see Eq. 4.9 in Ref[1]):
-!***   d² L(i,j) / (dA(i)dA(j)) = SUM_kl( kernel(k,i)*greenInverseCov(k,l)*kernel(l,j) )
+!***   d^2 L(i,j) / (dA(i)dA(j)) = SUM_kl( kernel(k,i)*greenInverseCov(k,l)*kernel(l,j) )
 !*** 
 !*** PARAMETERS:
-!***  likelihoodCurvature is the curvature tensor d² L(i,j) / (dA(i)dA(j)).
+!***  likelihoodCurvature is the curvature tensor d^2 L(i,j) / (dA(i)dA(j)).
 !***  specUnit is the spectral grid-weight for numerical integration
 !***  kernel defines the dependency between spectral function and the Green's function 
 !***         and should be of the form SUBROUTINE initKernel(..).
@@ -741,7 +741,7 @@ SUBROUTINE initLikelihoodCurvature(likelihoodCurvature,specUnit,NSpec,NGreen)
   !*** Green's Function Variables ***
 
   !*** Maximum Entropy (Bayesian) Parameter ***
-  REAL(KINDR),DIMENSION(Nspec,Nspec), INTENT(OUT) :: likelihoodCurvature ! is the curvature tensor d² L(i,j) / (dA(i)dA(j)).
+  REAL(KINDR),DIMENSION(Nspec,Nspec), INTENT(OUT) :: likelihoodCurvature ! is the curvature tensor d^2 L(i,j) / (dA(i)dA(j)).
   !*** Maximum Entropy (Bayesian) Parameter ***
 
   !*** Local Helpers ***
@@ -816,9 +816,9 @@ SUBROUTINE bayesianInverence (bayesTrace, bayesPostExponent, converged, alpha, &
   REAL(KINDR),                       INTENT(IN)  :: chiSquared   ! chiSquared value for logging
   REAL(KINDR),DIMENSION(Nspec,Nspec),INTENT(IN)  :: likelihoodCurvature ! the curvaturetensor of the DLOG-likelihood function w.r.t. specFunc
   REAL(KINDR),DIMENSION(Nspec,Nspec)             :: lambdaMatrix ! enters the convergence criterion, defined in Eq. 4.8 in Ref[1]
-  REAL(KINDR),DIMENSION(Nspec,Nspec)             :: gammaMatrix  ! is the curvature-tensor of the DLOG-posteriori pdf, Q=alpha*S-chi²/2 and also enters the
+  REAL(KINDR),DIMENSION(Nspec,Nspec)             :: gammaMatrix  ! is the curvature-tensor of the DLOG-posteriori pdf, Q=alpha*S-chi^2/2 and also enters the
                                                             !    convergence criterion     -2alpha*S = Trace( lambdaMatrix_ij * (gammaMatrix_ij)^-1 )
-                                                            !    gammaMatrix = DSQRT(Ai) * d²Q/(dAi*dAj) * DSQRT(Aj) = alpha*1_ij + Lambda_ij
+                                                            !    gammaMatrix = DSQRT(Ai) * d^2Q/(dAi*dAj) * DSQRT(Aj) = alpha*1_ij + Lambda_ij
                                                             !    see Eq. 4.4 and the definition of Gamma_ij above Eq. 4.8 in Ref[1]
   REAL(KINDR)                                    :: entropy      ! the entropy of the spectral function w.r.t. the model, also referenced as S 
   REAL(KINDR),                       INTENT(OUT) :: bayesTrace   ! Trace( lambdaMatrix_ij * (gammaMatrix_ij)^-1 )

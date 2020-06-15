@@ -14,6 +14,7 @@
 #include CXX11RANDOM_HEADER
 using CXX11RANDOM_NAMESPACE::mt19937;
 using CXX11RANDOM_NAMESPACE::uniform_real_distribution;
+using CXX11RANDOM_NAMESPACE::uniform_int_distribution;
 
 /**
  * Wrapper around C++11 standard Mersenne twister random source.
@@ -34,7 +35,9 @@ public:
 
     void seed(unsigned seed) { engine_.seed(seed); }
 
-    double operator() () { return distrib_(engine_); }
+    double rand () { return distrib_(engine_); }
+
+    int randint (int min, int max) { uniform_int_distribution<int> dist(min, max); return dist(engine_); }
 
     unsigned raw() { return engine_(); }
 
@@ -93,9 +96,15 @@ public:
 
     void seed(unsigned seed) { srand(seed); }
 
-    double operator() () {
+    double rand () {
         assert(current != NULL && "class is a singleton");
         return rand()/(RAND_MAX + 1.0);
+    }
+
+    int randint (int min, int max) {
+        assert(current != NULL && "class is a singleton");
+	int res = min + (int)(((double)(max + 1 - min)) * this->rand());
+	return (res <= max ? res : max);
     }
 };
 
@@ -124,7 +133,11 @@ void seed_random(void *rng, unsigned seed) {
 }
 
 double get_random(void *rng) {
-    return ((DefaultRandom *)rng)->operator()();
+    return ((DefaultRandom *)rng)->rand();
+}
+
+int get_randint(void *rng, int min, int max) {
+    return ((DefaultRandom *)rng)->randint(min, max);
 }
 
 }

@@ -2,13 +2,12 @@
 
 Provides methods for annotation and post-processing of QMC output scripts.
 """
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import numpy as np
-import sys
-import operator
-import itertools
+import inspect
 from functools import wraps
 import math
-import scipy.misc as sp
 
 def divide(enum, denom, enum_err=None, denom_err=None):
     """divides and propagates the uncertainty, assuming no covariance"""
@@ -91,7 +90,7 @@ def unwind_dim(dim):
 
 def dia_slice(A, *dims):
     """ Returns a slicing object to be used for A that extracts diagonals """
-    ndim = len(dims)/2
+    ndim = len(dims)//2
     dims = np.reshape(dims, (ndim, 2))
     slices = [slice(None)] * A.ndim
     for idim, (dim1, dim2) in enumerate(dims):
@@ -132,7 +131,7 @@ def lattice_electrons(gdensnew, gdensnew_err=None):
      
 def sigmaiw_improved(gsigmaiw, giw, gsigmaiw_err=None, giw_err=None):
     """self energy in Matsubara expansion from improved estimators"""
-    return divide(gsigmaiw, -giw, gsigmaiw_err, giw_err)
+    return divide(gsigmaiw, giw, gsigmaiw_err, giw_err)
 
 @unwind_dim(5)
 def moment(occ, occ_err=None):
@@ -149,17 +148,91 @@ def sigmaiw_short(iw, sigmaiw):
     sl = fslice(iw, 0, 20)
     return iw[sl], sigmaiw[...,sl]
 
+def get_tauint(data):
+    """Bias-corrected logarithmic binning analysis"""
+    # See arXiv:1810.05079v2, Sec. III.B
+    ndat, nm = data.shape
+    m = 2**np.arange(nm)
+    lbap = m[None,:-1] * (4 * data[:,1:] - data[:,:-1]) / data[:,:1]
+    tauint = (lbap - 1)/2
+    return tauint
+
+def get_spectrum(data, tau=None):
+    """Perform logarithmic spectral analysis"""
+    import scipy.optimize as sp_opt
+
+    # See arXiv:1810.05079v2, Sec. IV.B
+    def corr_wedge_conv(tau, m):
+        alpha = np.exp(-1/tau)
+        return alpha/(1 - alpha)**2 * (1 - alpha**m)**2/m
+
+    # Cut away infinite variance points
+    trusted = np.isfinite(data).all(0).nonzero()[0].max() + 1
+    data = data[:,:trusted]
+    # get grid: Eq. (33)
+    ndat, nm = data.shape
+    m = 2**np.arange(nm)
+    if tau is None: tau = m[:-1].copy()
+    # set up GLS: Eqs. (29) & (30)
+    A = corr_wedge_conv(tau[None,:], m[:-1,None])
+    b = m[None,:-1] * (2 * data[:,1:] - data[:,:-1])
+    sigma_invsqrt = (m[:-1])**(-0.5)
+    # GLS to OLS: Eq. (36)
+    A = sigma_invsqrt[:,None] * A
+    b = sigma_invsqrt[None,:] * b
+    # Use NNLS: Eq. (36)
+    x = np.array([sp_opt.nnls(A, bi)[0] for bi in b])
+    # Divide by norm to pass from autocov to autocorr spectra
+    x /= x.sum(1)[:,None]
+    return x
+
+def spec_tau_est(x, tau=None):
+    """Compute tauint estimate from spectrum"""
+    def corr_sum(tau):
+        alpha = np.exp(-1/tau)
+        return (1 + alpha)/(1 - alpha)
+
+    ndat, ntau = x.shape
+    if tau is None: tau = 2**np.arange(ntau)
+    tauint_comp = corr_sum(tau)
+    tauint = x.dot(tauint_comp)
+    tauint = (tauint - 1) / 2
+    return tauint
+
+def gtau_lbap(gtau_blocks, gtau_blocks_err=None):
+    """Bias-corrected logarithmic binning analysis for G(tau)"""
+    # See arXiv:1810.05079v2, Sec. III.B
+    nm = gtau_blocks.shape[-1]
+    gtau_flat = gtau_blocks.reshape(-1, nm)
+    lbap = get_tauint(gtau_flat)
+    return lbap.reshape(gtau_blocks.shape[:-1] + (nm-1,))
+
+def gtau_spec(gtau_blocks, gtau_blocks_err=None):
+    """Logarithmic autocorrelation spectrum for G(tau)"""
+    nm = gtau_blocks.shape[-1]
+    gtau_flat = gtau_blocks.reshape(-1, nm)
+    spectrum = get_spectrum(gtau_flat)
+    return spectrum.reshape(gtau_blocks.shape[:-1] + spectrum.shape[-1:])
+
+def gtau_tauint(gtau_blocks, gtau_blocks_err=None):
+    """Integrated autocorrelation time estimate for G(tau)"""
+    nm = gtau_blocks.shape[-1]
+    gtau_flat = gtau_blocks.reshape(-1, nm)
+    tauint = spec_tau_est(get_spectrum(gtau_flat))
+    tauint = tauint.reshape(gtau_blocks.shape[:-1])
+    return tauint
+
 def meta_from_func(func, axes, fields=["value"], base=None):
     """Returns a meta dictionary based on a function"""
     meta = {}
     meta["axes"] = axes
     meta["fields"] = fields
     meta["func"] = func
-    meta["desc"] = func.func_doc
+    meta["desc"] = inspect.getdoc(func)
     if base is None:
         base = []
         error_mode = False
-        for arg in func.func_code.co_varnames[:func.func_code.co_argcount]:
+        for arg in inspect.getargspec(func).args:
             if arg.endswith("_err"): 
                 error_mode = True
                 continue
@@ -249,7 +322,7 @@ def get_ggstraight_pp(giw, g4iw_pp_shape):
     nneq = g4iw_pp_shape[0]
     N = g4iw_pp_shape[-3]
     K = g4iw_pp_shape[-1]
-    KhpNm1 = + K/2 - N + 1
+    KhpNm1 = + K//2 - N + 1
     # TODO slow
     chi0_pp = np.zeros(shape=g4iw_pp_shape, dtype=complex)
     #chi0_pp[...] = np.nan
@@ -265,7 +338,7 @@ def get_ggstraight_pp(giw, g4iw_pp_shape):
 @unwind_dim(4)
 def get_chi_pp(giw, g4iw_pp, giw_err=None, g4iw_pp_err=None):
     """generalised susceptibility (particle-particle channel)"""
-    iw4st = (giw.shape[-1] - g4iw_pp.shape[-2])/2
+    iw4st = (giw.shape[-1] - g4iw_pp.shape[-2])//2
     iw4sl = slice(iw4st, -iw4st)
     chi0_pp = get_ggstraight_pp(giw[...,iw4sl], g4iw_pp.shape)
     return g4iw_pp - chi0_pp
@@ -275,7 +348,7 @@ def get_siw_mom(u_matrix, rho1, rho2):
    """Calculates the high frequency moments of the self-energy"""
 
    # reshape the arrays to contracted band and spin indices
-   nbands=u_matrix.shape[0]/2
+   nbands=u_matrix.shape[0]//2
 
    rho1_contracted=rho1.reshape((nbands*2),(nbands*2))
    rho2_contracted=rho2.reshape((nbands*2),(nbands*2),(nbands*2),(nbands*2))
@@ -313,10 +386,11 @@ def get_siw_mom(u_matrix, rho1, rho2):
 
 
 def fix_the_legendre(legs, siw_mom_inf, siw_mom_1, nleg_order, beta, muimp):
+   from scipy.misc import factorial
 
    np.set_printoptions(threshold='nan')
    nleg=legs.shape[2]
-   nbands = siw_mom_inf.shape[0]/2
+   nbands = siw_mom_inf.shape[0]//2
 
    #print "nleg_order"
    #print nleg_order
@@ -336,7 +410,7 @@ def fix_the_legendre(legs, siw_mom_inf, siw_mom_1, nleg_order, beta, muimp):
 
    fakultaeten=np.arange(nleg+5,dtype=np.int64)
    fakultaeten[0]=1
-   fakultaeten=sp.factorial(fakultaeten)
+   fakultaeten=factorial(fakultaeten)
 
    coefficient_t=np.zeros((4,nleg))
 
@@ -462,31 +536,31 @@ def klebe_siw(siw,niw,matsubara,siw_mom):
       return abs(array-value_array).argmin()
 
 
-   print "siw_mom"
-   print siw_mom
+   print("siw_mom")
+   print(siw_mom)
 
-   print "siw[0][0][niw/2]" # this is the value of the self energy at the first matsubara frequency
-   print siw[0][0][niw/2]
+   print("siw[0][0][niw//2]") # this is the value of the self energy at the first matsubara frequency
+   print(siw[0][0][niw//2])
 
-   print "matsubara[niw/2]" # first positive matsubara frequency
-   print matsubara[niw/2]
+   print("matsubara[niw//2]") # first positive matsubara frequency
+   print(matsubara[niw//2])
    
-   print "matsubara.shape"
-   print matsubara.shape
+   print("matsubara.shape")
+   print(matsubara.shape)
 
    mat_50=find_index_nearest(matsubara,40)
-   print "mat_50"
-   print mat_50
-   print matsubara[mat_50]
+   print("mat_50")
+   print(mat_50)
+   print(matsubara[mat_50])
    
-   index_min=find_index_nearest(matsubara[niw/2:mat_50],5)
-   index_max=find_index_nearest(matsubara[niw/2:mat_50],10)
+   index_min=find_index_nearest(matsubara[niw//2:mat_50],5)
+   index_max=find_index_nearest(matsubara[niw//2:mat_50],10)
 
-   print "find_nearest(siw[0][0][:],5)"
-   print index_min
-   print matsubara[niw/2+index_min]
-   print index_max
-   print matsubara[niw/2+index_max]
+   print("find_nearest(siw[0][0][:],5)")
+   print(index_min)
+   print(matsubara[niw//2+index_min])
+   print(index_max)
+   print(matsubara[niw//2+index_max])
 
    high_freq=np.zeros_like(siw)
    
@@ -497,14 +571,14 @@ def klebe_siw(siw,niw,matsubara,siw_mom):
       #x=(x-lower)/(lower-upper)/2-0.5
       #return 0.5*(1+math.cos(2*math.pi*x))
 
-   for iB in range(0,siw_mom.shape[0]/2):
-      for iS in range(0,siw_mom.shape[1]/2):
+   for iB in range(0,siw_mom.shape[0]//2):
+      for iS in range(0,siw_mom.shape[1]//2):
 
-         lower=2*siw[iB][iS][niw/2:niw].argmin()
+         lower=2*siw[iB][iS][niw//2:niw].argmin()
          upper=4*lower
          
-         lower_mat=matsubara[niw/2+lower]
-         upper_mat=matsubara[niw/2+upper]
+         lower_mat=matsubara[niw//2+lower]
+         upper_mat=matsubara[niw//2+upper]
 
          if siw[iB][iS][lower]<-10: 
             lower_mat=4
@@ -553,6 +627,10 @@ def get_sztau_sz0(ntau_n0,ntau):
          sztau_sz0[:]=sztau_sz0[:]+(ntau_n0[b1,0,b2,0,:]+ntau_n0[b1,1,b2,1,:]-ntau_n0[b1,1,b2,0,:]-ntau_n0[b1,0,b2,1,:])
 
    return sztau_sz0
+
+def get_Ntau_N0(ntau_n0,ntau):
+   "< N(tau) N(0) > full"
+   return np.sum(ntau_n0, axis=(0, 1, 2, 3))
 
 def get_sztau_sz0_orb_resolved(ntau_n0,ntau):
    "< S_z(tau) S_z(0) > orbital resolved"
@@ -632,5 +710,28 @@ derived_quantities = {
                         ['ineq', 'tausus',],
                         ['value'],
                         ['ntau-n0']
+                        ),
+    "denstau-dens0": meta_from_func(get_Ntau_N0,
+                        ['ineq', 'tausus'],
+                        ['value'],
+                        ['ntau-n0']
+                        ),
+    "gtau-tauint": meta_from_func(
+                        gtau_tauint,
+                        ["ineq","band","spin","taubin"],
+                        ["value"],
+                        ["gtau-blocks"]
+                        ),
+    "gtau-spec": meta_from_func(
+                        gtau_spec,
+                        ["ineq","band","spin","taubin","m"],
+                        ["value"],
+                        ["gtau-blocks"]
+                        ),
+    "gtau-lbap": meta_from_func(
+                        gtau_lbap,
+                        ["ineq","band","spin","taubin","m"],
+                        ["value"],
+                        ["gtau-blocks"]
                         ),
     }

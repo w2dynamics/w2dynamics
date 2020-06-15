@@ -244,7 +244,7 @@ use MCompoundIndex
 
       type(alloc_vector), allocatable  :: tau_c(:,:)  !< minv creation op taus
       type(alloc_vector), allocatable  :: tau_a(:,:)  !< minv annihilation op taus
-      ! type(alloc_vector), allocatable  :: urho(:,:)  !< stores U x rho^(1)
+!      type(alloc_vector), allocatable  :: urho(:,:)  !< stores U x rho^(1)
 !> types for segment
       !!! index: band,spin
       logical,allocatable :: outerstate_tmp(:,:)
@@ -317,6 +317,18 @@ pure elemental real(KINDR) function wrat(trrat, detrat)
    type(TLogDet), intent(in) :: detrat
    wrat = exp(trrat%log + detrat%log)
 end function wrat
+
+! flavor comparison function
+! op1: pointer to operator
+! op2: pointer to operator
+!
+! returns: true if flavors are equal, false otherwise
+pure logical function flaveq(op1, op2)
+   type(TOper), pointer, intent(in) :: op1, op2
+
+   flaveq = op1%Orbital == op2%Orbital .and. op1%Spin == op2%Spin
+end function flaveq
+
 
 !===============================================================================
 !> The following subroutine initialises the type trace. It has to do a lot more
@@ -565,7 +577,7 @@ subroutine init_Trace(this,DStates,FTau,FTau_full,screening_function,Nftau,muimp
    end if
 
 
-   allocate(this%gu(-2*DStates%NBands:DStates%NBands*2))
+   allocate(this%gu(0:DStates%NBands*2))
    this%gu=0
    allocate(this%NOSOper(DStates%NBands,2))
    this%NOSOper(:,:)=0
@@ -652,7 +664,7 @@ subroutine init_Trace(this,DStates,FTau,FTau_full,screening_function,Nftau,muimp
 
    allocate(this%tau_c(DStates%NBands,2))
    allocate(this%tau_a(DStates%NBands,2))
-   ! allocate(this%urho(DStates%NBands,2))
+!   allocate(this%urho(DStates%NBands,2))
    allocate(this%MInv(DStates%NBands,2))
    if(associated(this%MInv))then
       do iB=1,size(this%MInv(:,1))
@@ -768,7 +780,7 @@ subroutine dest_Trace(this)
    if (allocated(this%States)) deallocate(this%States)   
    if (allocated(this%sst_to_statesindex)) deallocate(this%sst_to_statesindex)
    if (allocated(this%tparttrace)) deallocate(this%tparttrace)
-   ! if (allocated(this%urho)) deallocate(this%urho)
+!   if (allocated(this%urho)) deallocate(this%urho)
    !if (allocated(this%omega0)) deallocate(this%omega0)
    !if (allocated(this%g_phonon)) deallocate(this%g_phonon) 
 end subroutine dest_Trace
@@ -1062,16 +1074,13 @@ end function get_lin_screening_function
 subroutine rand_perm(arr,n)
 !===============================================================================
 !local
-   integer :: i,j,k,n,t
-   integer                             :: arr(n)
-
-   k=n
+   integer :: i,j,n,t
+   integer :: arr(n)
 
    !!! algorithm "Random permutation of k out of n objects", Green 1963
-   do j=1,k
-      i=int(float(n-j+1)*grnd())+j
-      !!! fix rare cases were grand() gives exactly 1
-      if(i>n) i=n
+   do j=1,n
+      i=randint(j, n)
+
       !!! exchange
       t=arr(j)
       arr(j)=arr(i)
@@ -1081,50 +1090,51 @@ subroutine rand_perm(arr,n)
 end subroutine rand_perm
 
 !===============================================================================
-!> Generate a random global update, new function.
-logical function gen_GlobalUpdate_new(this,DStates)
+!> Generate a random global update
+subroutine gen_GlobalUpdate_new(this,DStates)
 !===============================================================================
    type(TTrace)                        :: this
 !input
    type(TStates)                       :: DStates
 !local
-   integer                             :: i,gu(DStates%NBands*2)
- 
-   !!! initialize gu array to actual configuration
+   integer                             :: i, gu(DStates%NBands*2)
+
+   ! initialize gu array to set of flavor numbers
    do i=1,DStates%NBands*2
       gu(i)=i
    enddo
 
-   !!! permute the numbers in array
+   ! permute the array randomly
    call rand_perm(gu,DStates%NBands*2)
    this%gu(1:)=gu
 
-   gen_GlobalUpdate_new=.true.
+   ! choose randomly whether to flip creators and annihilators
+   this%gu(0) = randint(0, 1)
 
-end function gen_GlobalUpdate_new
+end subroutine gen_GlobalUpdate_new
 
-!===============================================================================
-!> Generate a random global update.
-logical function gen_GlobalUpdate(this,DStates)
-!===============================================================================
-   type(TTrace)                        :: this
-!input
-   type(TStates)                       :: DStates
-!local
-   integer                             :: i,gucheck(-DStates%NBands*2:DStates%NBands*2)
+! !===============================================================================
+! !> Generate a random global update. (obsolete, apparently permutations not uniform)
+! logical function gen_GlobalUpdate(this,DStates)
+! !===============================================================================
+!    type(TTrace)                        :: this
+! !input
+!    type(TStates)                       :: DStates
+! !local
+!    integer                             :: i,gucheck(-DStates%NBands*2:DStates%NBands*2)
  
-   do i=-DStates%NBands*2,DStates%NBands*2
-      gucheck(i)=i
-   enddo
-   this%gu=gucheck
-!   do while(all(this%gu.eq.gucheck))
-      do i=1,DStates%NBands*2-1
-         this%gu(i:DStates%NBands*2)=cshift(this%gu(i:DStates%NBands*2),int(grnd()*dble(DStates%NBands-i)))
-      enddo
-      this%gu(0)=nint(grnd())
-      gen_GlobalUpdate=.not.all(this%gu.eq.gucheck)
-!   enddo
-end function gen_GlobalUpdate
+!    do i=-DStates%NBands*2,DStates%NBands*2
+!       gucheck(i)=i
+!    enddo
+!    this%gu=gucheck
+! !   do while(all(this%gu.eq.gucheck))
+!       do i=1,DStates%NBands*2-1
+!          this%gu(i:DStates%NBands*2)=cshift(this%gu(i:DStates%NBands*2),int(grnd()*dble(DStates%NBands-i)))
+!       enddo
+!       this%gu(0)=nint(grnd())
+!       gen_GlobalUpdate=.not.all(this%gu.eq.gucheck)
+! !   enddo
+! end function gen_GlobalUpdate
 
 !===============================================================================
 !> Generate a spin flip update.
@@ -1137,7 +1147,7 @@ subroutine gen_SpinFlipUpdate(this,DStates)
    integer                             :: i
  
    this%gu=0
-   this%gu(0)=0
+
    do i=1,DStates%NBands
       this%gu(i)=i+DStates%NBands
    enddo
@@ -1156,11 +1166,27 @@ subroutine gen_SymUpdate(this,DStates)
 !local
    integer                             :: isym
  
-   this%gu(:)=0
-   this%gu(0)=0
-   isym = max(1, (ceiling(grnd() * 2 * this%NSymMove)))
+   this%gu=0
+
+   isym = randint(1, 2 * this%NSymMove)
    this%gu(1:DStates%NBands*2)=this%SymMoves(isym,:)
 end subroutine gen_SymUpdate
+
+!===============================================================================
+!> Prepare global update array for creator/annihilator flip.
+subroutine gen_CAFlip(this,DStates)
+!===============================================================================
+   type(TTrace)                        :: this
+!input
+   type(TStates)                       :: DStates
+!local
+   integer                             :: i
+
+   this%gu(0) = 1
+   do i = 1, 2 * DStates%NBands
+      this%gu(i) = i
+   end do
+end subroutine gen_CAFlip
 
 !===============================================================================
 !> Generate an inverse update to reconstruct the original state. Used when the
@@ -1171,7 +1197,8 @@ subroutine gen_InverseGlobalUpdate(this,DStates)
 !input
    type(TStates)                       :: DStates
 !local
-   integer                             :: i,tgu(-2*DStates%NBands:DStates%NBands*2)
+   integer                             :: i,tgu(0:DStates%NBands*2)
+
    tgu=this%gu
    do i=1,DStates%NBands*2
      tgu(this%gu(i))=i
@@ -1267,7 +1294,7 @@ end function check_sst_sequence
 
 !===============================================================================
 !> Perform spin-flip update and return probability factor (0 if qn violation, else 1).
-real(KINDR) function check_spinflip(this, DStates)
+real(KINDR) function perform_spinflip_check_qn(this, DStates)
 !===============================================================================
    type(TTrace)        :: this
 !input
@@ -1284,10 +1311,10 @@ real(KINDR) function check_spinflip(this, DStates)
    this%outer_sst = DStates%StatesSStates(new_state, 2)
    call globalUpdate(this, DStates)
    if (this%sst_to_statesindex(this%outer_sst) == -1) then
-      check_spinflip = 0._KINDR
+      perform_spinflip_check_qn = 0._KINDR
    else if (check_sst_sequence(this, DStates, nullptr, nullptr, this%outer_sst, this%outer_sst)) then
       if (this%b_statesampling) then
-         check_spinflip = WeightedOuterStateChoice(this, DStates,&
+         perform_spinflip_check_qn = WeightedOuterStateChoice(this, DStates,&
                                                    this%beta - this%last%tau + this%first%tau,&
                                                    this%beta - this%last%tau + this%first%tau,&
                                                    this%outer_sst_old,&
@@ -1295,18 +1322,18 @@ real(KINDR) function check_spinflip(this, DStates)
                                                    (/ this%outer_sst_old /),&
                                                    (/ this%outer_sst /))
       else
-         check_spinflip = 1._KINDR
+         perform_spinflip_check_qn = 1._KINDR
       end if
    else
-      check_spinflip = 0._KINDR
+      perform_spinflip_check_qn = 0._KINDR
    endif
-end function check_spinflip
+end function perform_spinflip_check_qn
 
 !===============================================================================
 !> Select a random new outer superstate of those compatible with all
 !  quantum numbers after performing the global update and return the
 !  acceptance probability factor.
-real(KINDR) function check_qn_global(this, DStates)
+real(KINDR) function perform_global_check_qn(this, DStates)
 !===============================================================================
    type(TTrace)             :: this
 !input
@@ -1319,62 +1346,22 @@ real(KINDR) function check_qn_global(this, DStates)
 
    ! quantum number checking for current configuration (needed for
    ! acceptance probability)
-   ssts_old = this%States(:, 1)
-   possible_ssts_old = size(ssts_old)
-   Element => this%first
-   do i = 1, this%NOper
-      do k = 1, size(ssts_old)
-         if (ssts_old(k) == -1) cycle
-         ssts_old(k) = DStates%SubStates(ssts_old(k))&
-                              %Connect(Element%Orbital, Element%Spin, Element%CA)
-         if (ssts_old(k) == -1) possible_ssts_old = possible_ssts_old - 1
-      enddo
-      Element => Element%next
-   enddo
-   do k = 1, size(ssts_old)
-      if (ssts_old(k) == -1) cycle
-      if (ssts_old(k) /= this%States(k, 1)) then
-         ssts_old(k) = -1
-         possible_ssts_old = possible_ssts_old - 1
-      end if
-   enddo
+   possible_ssts_old = check_qn_all_ssts(this, DStates, ssts_old)
    if (possible_ssts_old <= 0) then
-      stop "unreachable: impossible old configuration in check_qn_global"
+      stop "unreachable: impossible old configuration in perform_global_check_qn"
    endif
 
    call globalUpdate(this, DStates)
 
    ! quantum number checking for potential new configurations
-   ssts_new = this%States(:, 1)
-   possible_ssts = size(ssts_new)
-   Element => this%first
-   do i = 1, this%NOper
-      do k = 1, size(ssts_new)
-         if (ssts_new(k) == -1) cycle
-         ssts_new(k) = DStates%SubStates(ssts_new(k))&
-                              %Connect(Element%Orbital, Element%Spin, Element%CA)
-         if (ssts_new(k) == -1) possible_ssts = possible_ssts - 1
-      enddo
-      if (possible_ssts <= 0) then
-         check_qn_global = 0._KINDR
-         return
-      endif
-      Element => Element%next
-   enddo
-   do k = 1, size(ssts_new)
-      if (ssts_new(k) == -1) cycle
-      if (ssts_new(k) /= this%States(k, 1)) then
-         ssts_new(k) = -1
-         possible_ssts = possible_ssts - 1
-      end if
-   enddo
+   possible_ssts = check_qn_all_ssts(this, DStates, ssts_new)
    if (possible_ssts <= 0) then
-      check_qn_global = 0._KINDR
+      perform_global_check_qn = 0._KINDR
       return
    endif
 
    if (this%b_statesampling) then
-      check_qn_global = WeightedOuterStateChoice(this, DStates,&
+      perform_global_check_qn = WeightedOuterStateChoice(this, DStates,&
                            this%beta - this%last%tau + this%first%tau,&
                            this%beta - this%last%tau + this%first%tau,&
                            this%outer_sst,&
@@ -1382,9 +1369,9 @@ real(KINDR) function check_qn_global(this, DStates)
                            ssts_old,&
                            ssts_new)
    else
-      check_qn_global = real(possible_ssts, KINDR)/possible_ssts_old
+      perform_global_check_qn = real(possible_ssts, KINDR)/possible_ssts_old
 
-      k = ceiling(grnd()*dble(possible_ssts))
+      k = randint(1, possible_ssts)
       do i = 1, size(ssts_new)
          if (ssts_new(i) /= -1) then
             k = k - 1
@@ -1395,7 +1382,46 @@ real(KINDR) function check_qn_global(this, DStates)
          endif
       enddo
    end if
-end function check_qn_global
+end function perform_global_check_qn
+
+!===============================================================================
+!> Perform quantum number checking for all superstates from 0 to beta.
+!
+!  Returns the number of superstates for which the check passes and
+!  writes -1 into array elements of ssts corresponding to superstates
+!  for which it does not pass.
+function check_qn_all_ssts(this, DStates, ssts) result(possible_ssts)
+!===============================================================================
+   type(TTrace), intent(in)  :: this
+   type(TStates), intent(in) :: DStates
+   integer, intent(out)      :: ssts(1:size(this%States(:, 1)))
+   integer                   :: possible_ssts, i, k
+   type(TOper), pointer      :: Element
+
+   ssts = this%States(:, 1)
+   possible_ssts = size(ssts)
+   Element => this%first
+   do i = 1, this%NOper
+      do k = 1, size(ssts)
+         if (ssts(k) == -1) cycle
+         ssts(k) = DStates%SubStates(ssts(k))&
+                          %Connect(Element%Orbital, Element%Spin, Element%CA)
+         if (ssts(k) == -1) possible_ssts = possible_ssts - 1
+      end do
+      if (possible_ssts <= 0) then
+         possible_ssts = 0
+         return
+      end if
+      Element => Element%next
+   end do
+   do k = 1, size(ssts)
+      if (ssts(k) == -1) cycle
+      if (ssts(k) /= this%States(k, 1)) then
+         ssts(k) = -1
+         possible_ssts = possible_ssts - 1
+      end if
+   end do
+end function check_qn_all_ssts
 
 !===============================================================================
 !> Save current outer superstate (to be used every time before it might be restored)
@@ -2095,7 +2121,7 @@ subroutine globalUpdate(this,DStates)
    type(TStates)                       :: DStates
 !local
    type(TOper),pointer                 :: Element
-   integer                             :: i
+   integer                             :: i, j
    integer                             :: TNOSOper(size(this%NOSOper(:,1)),2)
    integer                             :: TNOSCAOper(size(this%NOSCAOper(:,1, 1)),2, 2)
    integer                             :: PreWinFCount_temp(DStates%NBands, 2, 2)
@@ -2109,8 +2135,7 @@ subroutine globalUpdate(this,DStates)
    
    Element=>this%first
    do while(associated(Element))
-      do i=-DStates%NBands*2,DStates%NBands*2
-         if(i.eq.0)cycle
+      do i = 1, DStates%NBands*2
          if(mod((i-1),DStates%NBands)+1.eq.Element%Orbital.and.&
             (i-1)/DStates%NBands+1.eq.Element%Spin)then
             Element%Orbital=abs(mod(this%gu(i)-1,DStates%NBands)+1)
@@ -2125,16 +2150,25 @@ subroutine globalUpdate(this,DStates)
    do i=1,DStates%NBands*2
       TNOSOper(mod(this%gu(i)-1,DStates%NBands)+1,(this%gu(i)-1)/DStates%Nbands+1)=&
          this%NOSOper(mod((i-1),DStates%NBands)+1,(i-1)/DStates%NBands+1)
-      TNOSCAOper(mod(this%gu(i)-1,DStates%NBands)+1,(this%gu(i)-1)/DStates%Nbands+1, :)=&
-         this%NOSCAOper(mod((i-1),DStates%NBands)+1,(i-1)/DStates%NBands+1, :)
       ffirst_temp(mod(this%gu(i)-1, DStates%NBands) + 1, (this%gu(i)-1)/DStates%NBands + 1)=&
          this%ffirst(mod((i-1), DStates%NBands) + 1, (i-1)/DStates%NBands + 1)
       flast_temp(mod(this%gu(i)-1, DStates%NBands) + 1,(this%gu(i)-1)/DStates%NBands + 1)=&
          this%flast(mod((i-1), DStates%NBands) + 1, (i-1)/DStates%NBands + 1)
       fprewin_temp(mod(this%gu(i)-1, DStates%NBands) + 1,(this%gu(i)-1)/DStates%NBands + 1)=&
          this%fprewin(mod((i-1), DStates%NBands) + 1, (i-1)/DStates%NBands + 1)
-      PreWinFCount_temp(mod(this%gu(i)-1, DStates%NBands) + 1,(this%gu(i)-1)/DStates%NBands + 1, :)=&
-         this%PreWinFCount(mod((i-1), DStates%NBands) + 1, (i-1)/DStates%NBands + 1, :)
+      if (this%gu(0) == 0) then
+         PreWinFCount_temp(mod(this%gu(i)-1, DStates%NBands) + 1,(this%gu(i)-1)/DStates%NBands + 1, :)=&
+            this%PreWinFCount(mod((i-1), DStates%NBands) + 1, (i-1)/DStates%NBands + 1, :)
+         TNOSCAOper(mod(this%gu(i)-1,DStates%NBands)+1,(this%gu(i)-1)/DStates%Nbands+1, :)=&
+            this%NOSCAOper(mod((i-1),DStates%NBands)+1,(i-1)/DStates%NBands+1, :)
+      else
+         do j = 1, 2
+            PreWinFCount_temp(mod(this%gu(i)-1, DStates%NBands) + 1,(this%gu(i)-1)/DStates%NBands + 1, j)=&
+               this%PreWinFCount(mod((i-1), DStates%NBands) + 1, (i-1)/DStates%NBands + 1, 3 - j)
+            TNOSCAOper(mod(this%gu(i)-1,DStates%NBands)+1,(this%gu(i)-1)/DStates%Nbands+1, j)=&
+               this%NOSCAOper(mod((i-1),DStates%NBands)+1,(i-1)/DStates%NBands+1, 3 - j)
+         end do
+      end if
    enddo
    this%NOSOper = TNOSOper
    this%NOSCAOper = TNOSCAOper
@@ -2179,9 +2213,9 @@ logical function propose_flavourexchange_general(this,oper)
 
 
    ! choose operator to be changed with lesser tau
-   pos1 = max(1, ceiling(grnd() * real(N - 1, KINDR)))
+   pos1 = randint(1, N - 1)
    ! with greater tau, position as pos1 + pos2
-   pos2 = max(1, ceiling(grnd() * real(N - pos1, KINDR)))
+   pos2 = randint(1, N - pos1)
 
 
    ! find operators
@@ -3647,10 +3681,8 @@ subroutine pair_OperAdd(this,NBands,Oper,N,taudiff_factor,force_diagonal)
          Element%Orbital=Oper(i-1)%p%Orbital
          Element%Spin=Oper(i-1)%p%Spin
       else
-         Element%Orbital=ceiling(grnd()*dble(NBands))
-         Element%Spin=ceiling(grnd()*dble(2))
-         if(Element%Orbital.eq.0)Element%Orbital=1
-         if(Element%Spin.eq.0)Element%Spin=1
+         Element%Orbital=randint(1, NBands)
+         Element%Spin=randint(1, 2)
       endif     
   enddo
       
@@ -3676,8 +3708,7 @@ subroutine unrestricted_pair_OperAdd(beta,NBands,Oper,N,force_diagonal)
   do i=1,size(Oper)
       Element=>Oper(i)%p
       Element%CA=mod(i,2)+1
-      Element%CA=ceiling(grnd()*dble(2))
-      if(Element%CA.eq.0)Element%CA=1
+      Element%CA=randint(1, 2)
 
       Element%tau=grnd()*beta
 
@@ -3685,10 +3716,8 @@ subroutine unrestricted_pair_OperAdd(beta,NBands,Oper,N,force_diagonal)
          Element%Orbital=Oper(i-1)%p%Orbital
          Element%Spin=Oper(i-1)%p%Spin
       else
-         Element%Orbital=ceiling(grnd()*dble(NBands))
-         Element%Spin=ceiling(grnd()*dble(2))
-         if(Element%Orbital.eq.0)Element%Orbital=1
-         if(Element%Spin.eq.0)Element%Spin=1
+         Element%Orbital=randint(1, NBands)
+         Element%Spin=randint(1, 2)
       endif
   enddo
 end subroutine unrestricted_pair_OperAdd
@@ -3742,10 +3771,8 @@ subroutine density_OperAdd(beta,equal_time_offset,NBands,Oper,N,force_diagonal)
       
       if(mod(i,2).eq.1) then
          Element%tau=grnd()*beta
-         Element%Orbital=ceiling(grnd()*dble(NBands))
-         Element%Spin=ceiling(grnd()*dble(2))
-         if(Element%Orbital.eq.0)Element%Orbital=1
-         if(Element%Spin.eq.0)Element%Spin=1
+         Element%Orbital=randint(1, NBands)
+         Element%Spin=randint(1, 2)
       else
          !make the density
          Element%tau=Oper(i-1)%p%tau+equal_time_offset
@@ -3753,10 +3780,8 @@ subroutine density_OperAdd(beta,equal_time_offset,NBands,Oper,N,force_diagonal)
             Element%Orbital=Oper(i-1)%p%Orbital
             Element%Spin=Oper(i-1)%p%Spin
          else
-            Element%Orbital=ceiling(grnd()*dble(NBands))
-            Element%Spin=ceiling(grnd()*dble(2))
-            if(Element%Orbital.eq.0)Element%Orbital=1
-            if(Element%Spin.eq.0)Element%Spin=1
+            Element%Orbital=randint(1, NBands)
+            Element%Spin=randint(1, 2)
          endif
       endif
   enddo
@@ -3798,40 +3823,87 @@ end subroutine set_OperFlavor
 !> additional dangling index of the umatrix
 !> the 'inner' three operators are set randomly, as they are not
 !> controlled by component sampling
-subroutine set_IEOperFlavor(Oper,N,Nbands,flavor,u_o,u_s)
+subroutine set_IEOperFlavor(Oper,N,Nbands,flavor,u_o,u_s,Sector)
 !===============================================================================
 !input
     integer, intent(in)                 :: Nbands, N
     integer, intent(in)                 :: flavor
-    integer, intent(out)                 :: u_o,u_s
+    integer,intent(in)                  :: Sector
 !output
+    integer, intent(out)                 :: u_o(4),u_s(4)
     type(TOperPointer)                  :: Oper(N)
 !local
     type(TOper),pointer                 :: Element
     integer                             :: i, bs(N), b(N), s(N), Nred
-
-    !number of flavors determined by 'flavor' N-3+1
-    Nred=N-2
-
+    
+    
+    if(Sector==SectorGSigma &
+      .or. Sector==SectorQQ) Nred=2
+    if(Sector==SectorH4 &
+      .or. Sector==SectorQ4 &
+      .or. Sector==SectorNQQdag &
+      .or. Sector==SectorQQdd &
+      .or. Sector==SectorUcaca &
+      .or. Sector==SectorUccaa &
+      .or. Sector==SectorQUDdag) Nred=4
+    
     !convert flavor index to band spin pattern of length Nred
     call index2component_general(Nbands, Nred, flavor, bs, b, s)
 
-    !dangling index
-    u_o=b(1)
-    u_s=s(1)
+    !set to out-of-bounds to throw error for wrong use
+    u_o=0
+    u_s=0
+
+    if(Sector==SectorGSigma &
+      .or. Sector==SectorH4) then 
+    !only first index belongs to umatrix
+       u_o(1)=b(1)
+       u_s(1)=s(1)
+    elseif(Sector==SectorQQ &
+      .or. Sector==SectorQ4 &
+      .or. Sector==SectorNQQdag &
+      .or. Sector==SectorQQdd &
+      .or. Sector==SectorUcaca &
+      .or. Sector==SectorUccaa &
+      .or. Sector==SectorQUDdag) then
+    !all free indices belong to umatrix
+       do i=1,Nred
+          u_o(i)=b(i)
+          u_s(i)=s(i)
+       enddo
+    endif
 
     do i=1,N
        Element=>Oper(i)%p
        Element%CA=mod(i,2)+1
     
-       if(i .le. 3) then
-         Element%Orbital=ceiling(grnd()*Nbands)
-         Element%Spin=ceiling(grnd()*2)
-         if(Element%Orbital.eq.0) Element%Orbital=1
-         if(Element%Spin.eq.0) Element%Spin=1
-       else !i-3+1
-          Element%Orbital=b(i-2)
-          Element%Spin=s(i-2)
+       !inner operators of symmetric ie
+       if(Sector==SectorQQ &
+         .or. Sector==SectorQ4 &
+         .or. Sector==SectorNQQdag &
+         .or. Sector==SectorQQdd &
+         .or. Sector==SectorUcaca &
+         .or. Sector==SectorUccaa &
+         .or. Sector==SectorQUDdag) then 
+
+         Element%Orbital=randint(1, Nbands)
+         Element%Spin=randint(1, 2)
+
+       !inner operators of asymmetric ie
+       elseif(Sector==SectorGSigma &
+         .or. Sector==SectorH4) then
+
+         if(i.le.3) then 
+            Element%Orbital=randint(1, Nbands)
+            Element%Spin=randint(1, 2)
+          !outer operators of asymetric ie
+          else
+             Element%Orbital=b(i-2)
+             Element%Spin=s(i-2)
+          endif
+
+       else
+          stop 'attempting to set IE times for non-ie sector'
        endif
     enddo
 
@@ -3871,7 +3943,9 @@ subroutine set_OperTime(Oper,N,beta,equal_time_offset,Sector)
 
    !N operators with N random times 
    !--> Sector 1,2,4 (Z,1P-GF,2P-GF)
-   if(Sector .eq. 1 .or. Sector .eq. 2 .or. Sector .eq. 4) then
+   if(Sector .eq. SectorZ &
+     .or. Sector .eq. SectorG &
+     .or. Sector .eq. SectorG4) then
 
       do i=1,N
          Element=>Oper(i)%p
@@ -3885,7 +3959,7 @@ subroutine set_OperTime(Oper,N,beta,equal_time_offset,Sector)
   
    !N operators with N-2 random times
    !--> Sector 3,5 (1P-IE,2P-IE)
-   elseif(Sector .eq. 3 .or. Sector .eq. 5) then
+   elseif(Sector .eq. SectorGSigma .or. Sector .eq. SectorH4) then
 
       do i=1,N
          Element=>Oper(i)%p
@@ -3901,7 +3975,7 @@ subroutine set_OperTime(Oper,N,beta,equal_time_offset,Sector)
 
    !4 operators with 2 random times
    !--> Sector 6,7 (P2,P2PP)
-   elseif(Sector .eq. 6 .or. Sector .eq. 7) then
+   elseif(Sector .eq. SectorP2 .or. Sector .eq. SectorP2pp) then
 
       Oper(1)%p%tau=grnd()*beta
       Oper(4)%p%tau=grnd()*beta
@@ -3910,7 +3984,7 @@ subroutine set_OperTime(Oper,N,beta,equal_time_offset,Sector)
       if(Oper(1)%p%tau .lt. equal_time_offset) Oper(1)%p%tau=equal_time_offset
       if(Oper(4)%p%tau .gt. beta-equal_time_offset) Oper(4)%p%tau=beta-equal_time_offset
 
-      if(Sector .eq. 6) then
+      if(Sector .eq. SectorP2) then
          Oper(2)%p%tau=Oper(1)%p%tau-equal_time_offset
          Oper(3)%p%tau=Oper(4)%p%tau+equal_time_offset
       else
@@ -3920,7 +3994,7 @@ subroutine set_OperTime(Oper,N,beta,equal_time_offset,Sector)
       
    !4 operators with 3 random times
    !--> Sector 8,9 (P3,P3PP)
-   elseif(Sector .eq. 8 .or. Sector .eq. 9) then
+   elseif(Sector .eq. SectorP3 .or. Sector .eq. SectorP3pp) then
 
       Oper(1)%p%tau=grnd()*beta
       Oper(4)%p%tau=grnd()*beta
@@ -3928,7 +4002,7 @@ subroutine set_OperTime(Oper,N,beta,equal_time_offset,Sector)
       !catching rare events close to end of trace      
       if(Oper(4)%p%tau .gt. beta-equal_time_offset) Oper(4)%p%tau=beta-equal_time_offset
 
-      if(Sector .eq. 8) then 
+      if(Sector .eq. SectorP3) then 
          Oper(2)%p%tau=grnd()*beta
          Oper(3)%p%tau=Oper(4)%p%tau+equal_time_offset
       else
@@ -3936,9 +4010,164 @@ subroutine set_OperTime(Oper,N,beta,equal_time_offset,Sector)
          Oper(3)%p%tau=grnd()*beta
       endif
 
+   elseif(Sector .eq. SectorQQ) then
+
+      do i=1,N
+         Element=>Oper(i)%p
+         Element%tau=grnd()*beta
+      enddo
+
+      !catching rare events close to beginning of trace      
+      if(Oper(2)%p%tau .lt. 2d0*equal_time_offset) Oper(2)%p%tau=2d0*equal_time_offset
+      
+      if(Oper(6)%p%tau .lt. 2d0*equal_time_offset) Oper(6)%p%tau=2d0*equal_time_offset
+
+      !equal time object 1
+      Oper(3)%p%tau=Oper(2)%p%tau-equal_time_offset
+      Oper(1)%p%tau=Oper(2)%p%tau-2d0*equal_time_offset
+      
+      !equal time object 2
+      Oper(4)%p%tau=Oper(6)%p%tau-equal_time_offset
+      Oper(5)%p%tau=Oper(6)%p%tau-2d0*equal_time_offset
+    
+   elseif(Sector .eq. SectorQ4) then
+
+      do i=1,N
+         Element=>Oper(i)%p
+         Element%tau=grnd()*beta
+      enddo
+
+      !catching rare events close to beginning of trace      
+      if(Oper(2)%p%tau .lt. 2d0*equal_time_offset) Oper(2)%p%tau=2d0*equal_time_offset
+      if(Oper(6)%p%tau .lt. 2d0*equal_time_offset) Oper(6)%p%tau=2d0*equal_time_offset
+      if(Oper(8)%p%tau .lt. 2d0*equal_time_offset) Oper(8)%p%tau=2d0*equal_time_offset
+      if(Oper(12)%p%tau .lt. 2d0*equal_time_offset) Oper(12)%p%tau=2d0*equal_time_offset
+
+      !equal time object 1
+      Oper(3)%p%tau=Oper(2)%p%tau-equal_time_offset
+      Oper(1)%p%tau=Oper(2)%p%tau-2d0*equal_time_offset
+      
+      !equal time object 2
+      Oper(4)%p%tau=Oper(6)%p%tau-equal_time_offset
+      Oper(5)%p%tau=Oper(6)%p%tau-2d0*equal_time_offset
+      
+      !equal time object 3
+      Oper(9)%p%tau=Oper(8)%p%tau-equal_time_offset
+      Oper(7)%p%tau=Oper(8)%p%tau-2d0*equal_time_offset
+      
+      !equal time object 4
+      Oper(10)%p%tau=Oper(12)%p%tau-equal_time_offset
+      Oper(11)%p%tau=Oper(12)%p%tau-2d0*equal_time_offset
+    
+    elseif(Sector .eq. SectorNQQdag) then
+
+      Oper(2)%p%tau = grnd() * beta
+      Oper(4)%p%tau = grnd() * beta
+      Oper(8)%p%tau = grnd() * beta
+
+      !catching rare events close to beginning of trace      
+      if(Oper(2)%p%tau .lt. 2d0*equal_time_offset) Oper(2)%p%tau=2d0*equal_time_offset
+      if(Oper(4)%p%tau .lt. 2d0*equal_time_offset) Oper(4)%p%tau=2d0*equal_time_offset
+      if(Oper(8)%p%tau .lt. equal_time_offset) Oper(8)%p%tau=equal_time_offset
+
+      !equal time object 1
+      Oper(3)%p%tau=Oper(2)%p%tau-equal_time_offset
+      Oper(1)%p%tau=Oper(2)%p%tau-2d0*equal_time_offset
+      
+      !equal time object 2
+      Oper(6)%p%tau=Oper(4)%p%tau-equal_time_offset
+      Oper(5)%p%tau=Oper(4)%p%tau-2d0*equal_time_offset
+      
+      !equal time object 3
+      Oper(7)%p%tau=Oper(8)%p%tau - equal_time_offset ! or maybe the other way round?
+      !  7:  annih          8: creat
+
+    elseif(Sector .eq. SectorQQdd) then
+
+      Oper(2)%p%tau = grnd() * beta
+      Oper(4)%p%tau = grnd() * beta
+      Oper(6)%p%tau = grnd() * beta
+
+
+      !catching rare events close to beginning of trace      
+      if(Oper(2)%p%tau .lt. 2d0*equal_time_offset) Oper(2)%p%tau=2d0*equal_time_offset
+      if(Oper(4)%p%tau .lt. 2d0*equal_time_offset) Oper(4)%p%tau=2d0*equal_time_offset
+      if(Oper(6)%p%tau .lt. equal_time_offset) Oper(6)%p%tau=equal_time_offset
+
+      !equal time object 1
+      Oper(3)%p%tau=Oper(2)%p%tau-equal_time_offset
+      Oper(1)%p%tau=Oper(2)%p%tau-2d0*equal_time_offset
+      
+      !equal time object 2
+      Oper(7)%p%tau=Oper(4)%p%tau-equal_time_offset
+      Oper(5)%p%tau=Oper(4)%p%tau-2d0*equal_time_offset
+      
+      !equal time object 3
+      Oper(8)%p%tau=Oper(6)%p%tau - equal_time_offset 
+
+    elseif(Sector .eq. SectorUcaca) then
+
+      Oper(2)%p%tau = grnd() * beta
+      Oper(4)%p%tau = grnd() * beta
+
+      ! catching rare events close to beginning of trace
+      if(Oper(2)%p%tau .lt. equal_time_offset) Oper(2)%p%tau = equal_time_offset
+      if(Oper(4)%p%tau .lt. equal_time_offset) Oper(4)%p%tau = equal_time_offset
+
+      ! equal time object 1
+      Oper(1)%p%tau = Oper(2)%p%tau - equal_time_offset
+
+      ! equal time object 2
+      Oper(3)%p%tau = Oper(4)%p%tau - equal_time_offset
+
+    elseif(Sector .eq. SectorUccaa) then
+
+      Oper(2)%p%tau = grnd() * beta
+      Oper(3)%p%tau = grnd() * beta
+
+      ! catching rare events close to beginning of trace
+      if(Oper(2)%p%tau .lt. equal_time_offset) Oper(2)%p%tau = equal_time_offset
+      if(Oper(3)%p%tau .lt. equal_time_offset) Oper(3)%p%tau = equal_time_offset
+
+      ! equal time object 1
+      Oper(1)%p%tau = Oper(3)%p%tau - equal_time_offset
+
+      ! equal time object 2
+      Oper(4)%p%tau = Oper(2)%p%tau - equal_time_offset
+      
+   elseif(Sector .eq. SectorQUDdag) then
+     
+     Oper(2)%p%tau = grnd() * beta
+     Oper(4)%p%tau = grnd() * beta
+
+      ! catching rare events close to beginning of trace
+     if(Oper(2)%p%tau .lt. 2d0*equal_time_offset) Oper(2)%p%tau = 2d0*equal_time_offset
+     if(Oper(4)%p%tau .lt. equal_time_offset) Oper(4)%p%tau = equal_time_offset
+
+      ! equal time object 1
+     Oper(3)%p%tau = Oper(2)%p%tau - equal_time_offset
+     Oper(1)%p%tau = Oper(2)%p%tau - 2d0*equal_time_offset
+
    endif
 
+
+
 end subroutine set_OperTime
+
+function array_nonzero_elements(array)
+  implicit none
+  real(KINDR) :: array(:)
+  integer     :: in1,array_nonzero_elements
+
+  array_nonzero_elements = 0
+
+  do in1 = 1,size(array) 
+     if (array(in1) /= 0.0_KINDR ) array_nonzero_elements = array_nonzero_elements + 1
+  end do
+
+  return
+end function
+
 
 
 !===============================================================================
@@ -3952,39 +4181,81 @@ logical function check_EqualTime(this,Sector)
    check_EqualTime = .false. 
 
    !no equal time in Z and GF spaces
-   if(Sector .eq. 1 .or. Sector .eq. 2 .or. Sector .eq. 4) then
+   if(Sector .eq. SectorZ &
+     .or. Sector .eq. SectorG &
+     .or. Sector .eq. SectorG4) then
       check_EqualTime = .true.
 
    !N operators with N-2 random times
    !--> Sector 3,5 (1P-IE,2P-IE)
-   elseif(Sector .eq. 3 .or. Sector .eq. 5) then
+   elseif(Sector .eq. SectorGSigma .or. Sector .eq. SectorH4) then
       
        if((associated(this%wormContainer(2)%p%prev,this%wormContainer(3)%p)).and.&
           (associated(this%wormContainer(3)%p%prev,this%wormContainer(1)%p))) check_EqualTime = .true.
 
    !4 operators with 2 random times
    !--> Sector 6,7 (P2,P2PP)
-   elseif(Sector .eq. 6) then
+   elseif(Sector .eq. SectorP2) then
    
        if((associated(this%wormContainer(1)%p%prev,this%wormContainer(2)%p)).and.&
           (associated(this%wormContainer(3)%p%prev,this%wormContainer(4)%p))) check_EqualTime = .true.
    
-   elseif(Sector .eq. 7) then
+   elseif(Sector .eq. SectorP2pp) then
 
        if((associated(this%wormContainer(1)%p%prev,this%wormContainer(3)%p)).and.&
           (associated(this%wormContainer(2)%p%prev,this%wormContainer(4)%p))) check_EqualTime = .true.
    
    !4 operators with 3 random times
    !--> Sector 8,9 (P3,P3PP)
-   elseif(Sector .eq. 8) then
+   elseif(Sector .eq. SectorP3) then
 
        if(associated(this%wormContainer(3)%p%prev,this%wormContainer(4)%p)) check_EqualTime = .true.
    
-   elseif(Sector .eq. 9) then
+   elseif(Sector .eq. SectorP3pp) then
        
        if(associated(this%wormContainer(2)%p%prev,this%wormContainer(4)%p)) check_EqualTime = .true.
-  
+   
+   elseif(Sector .eq. SectorQQ) then
+      
+       if((associated(this%wormContainer(2)%p%prev,this%wormContainer(3)%p)).and.&
+          (associated(this%wormContainer(3)%p%prev,this%wormContainer(1)%p)).and.&
+          (associated(this%wormContainer(6)%p%prev,this%wormContainer(4)%p)).and.&
+          (associated(this%wormContainer(4)%p%prev,this%wormContainer(5)%p))) check_EqualTime = .true.
+
+   elseif(Sector .eq. SectorQ4) then
+      !TODO: make this faster
+       if((associated(this%wormContainer(2)%p%prev,this%wormContainer(3)%p)).and.&
+          (associated(this%wormContainer(3)%p%prev,this%wormContainer(1)%p)).and.&
+          (associated(this%wormContainer(6)%p%prev,this%wormContainer(4)%p)).and.&
+          (associated(this%wormContainer(4)%p%prev,this%wormContainer(5)%p)).and.&
+          (associated(this%wormContainer(8)%p%prev,this%wormContainer(9)%p)).and.&
+          (associated(this%wormContainer(9)%p%prev,this%wormContainer(7)%p)).and.&
+          (associated(this%wormContainer(12)%p%prev,this%wormContainer(10)%p)).and.&
+          (associated(this%wormContainer(10)%p%prev,this%wormContainer(11)%p))) check_EqualTime = .true.
+    elseif(Sector .eq. SectorNQQdag) then
+      if((associated(this%wormContainer(2)%p%prev, this%wormContainer(3)%p)).and.&
+         (associated(this%wormContainer(3)%p%prev, this%wormContainer(1)%p)).and.&
+         (associated(this%wormContainer(4)%p%prev, this%wormContainer(6)%p)).and.&
+         (associated(this%wormContainer(6)%p%prev, this%wormContainer(5)%p)).and.&
+         (associated(this%wormContainer(8)%p%prev, this%wormContainer(7)%p))) check_EqualTime = .true.
+    elseif(Sector .eq. SectorQQdd) then
+      if((associated(this%wormContainer(2)%p%prev, this%wormContainer(3)%p)).and.&
+         (associated(this%wormContainer(3)%p%prev, this%wormContainer(1)%p)).and.&
+         (associated(this%wormContainer(4)%p%prev, this%wormContainer(7)%p)).and.&
+         (associated(this%wormContainer(7)%p%prev, this%wormContainer(5)%p)).and.&
+         (associated(this%wormContainer(6)%p%prev, this%wormContainer(8)%p))) check_EqualTime = .true.
+     elseif(Sector .eq. SectorUcaca) then
+       if((associated(this%wormContainer(2)%p%prev, this%wormContainer(1)%p)).and.&
+          (associated(this%wormContainer(4)%p%prev, this%wormContainer(3)%p))) check_EqualTime = .true.
+     elseif(Sector .eq. SectorUccaa) then
+       if((associated(this%wormContainer(2)%p%prev, this%wormContainer(4)%p)).and.&
+          (associated(this%wormContainer(3)%p%prev, this%wormContainer(1)%p))) check_EqualTime = .true.
+     elseif(Sector .eq. SectorQUDdag) then
+       if((associated(this%wormContainer(2)%p%prev, this%wormContainer(3)%p)).and. &
+          (associated(this%wormContainer(3)%p%prev, this%wormContainer(1)%p))) check_EqualTime = .true.
    endif
+
+   if (.not. check_EqualTime) write(*,*) 'equal time check yields FALSE'
 
 end function check_EqualTime
 
@@ -4545,7 +4816,7 @@ subroutine insert_Oper(this,Oper)
    end do
    
    !NOper goes over all operators including worms
-   this%NOper=this%NOper+2
+   this%NOper = this%NOper + size(Oper)
    
    !we only count NOSOper over hybridization operators
    do i = 1, size(Oper)
@@ -4594,7 +4865,7 @@ logical function gen_OperRemove(this,Oper,FPos,N,hybpairremfactor,with_hyb)
 
       call ensure_valid_PreWinFCount(this)
 
-      NPair = max(1, ceiling(grnd() * this%NPairs))
+      NPair = randint(1, this%NPairs)
 
       if (associated(this%prewin)) then
          Element => this%prewin%next
@@ -4757,8 +5028,7 @@ logical function gen_OperRemove_global(this,DStates,Oper,FPos,N,with_hyb)
    do i=1,N
       !TODO: select creation/annihilation operator pair to avoid trivial rejects
       !making sure randomly chosen operators are not worms
-      iPos=ceiling(grnd()*dble(Ntmp))
-      if(iPos.eq.0)iPos=1
+      iPos=randint(1, Ntmp)
       !correcting for worm position
       if(with_hyb) then
          if(allocated(this%wormContainer)) then
@@ -6519,6 +6789,50 @@ subroutine fresh_oper(this, oper)
 end subroutine fresh_oper
 
 !===============================================================================
+subroutine duplicate_oper(this, opera, operb)
+!===============================================================================
+   type(TTrace)                      :: this
+!output
+   type(TOper), pointer, intent(in)  :: opera
+   type(TOper), pointer, intent(out) :: operb
+
+   call fresh_oper(this, operb)
+   operb%next => opera%next
+   operb%fnext => opera%fnext
+   operb%prev => opera%prev
+   operb%fprev => opera%fprev
+   operb%tau = opera%tau
+   operb%Orbital = opera%Orbital
+   operb%Spin = opera%Spin
+   operb%CA = opera%CA
+   operb%has_hyb = opera%has_hyb
+   operb%calc_new = opera%calc_new
+   operb%following_sst = opera%following_sst
+   operb%preceding_sst = opera%preceding_sst
+   operb%cache_post_sst = opera%cache_post_sst
+   operb%cache_pre_sst = opera%cache_pre_sst
+   operb%ket_state = opera%ket_state
+   operb%ket_cache = opera%ket_cache
+   operb%cache_written = opera%cache_written
+   if (associated(opera%state)) then
+      allocate(operb%state(size(opera%state, dim=1), size(opera%state, dim=2)))
+      operb%state = opera%state
+   end if
+   if (associated(opera%cache)) then
+      allocate(operb%cache(size(opera%cache, dim=1), size(opera%cache, dim=2)))
+      operb%cache = opera%cache
+   end if
+   if (associated(opera%slogmax)) then
+      allocate(operb%slogmax(size(opera%slogmax, dim=1)))
+      operb%slogmax = opera%slogmax
+   end if
+   if (associated(opera%clogmax)) then
+      allocate(operb%clogmax(size(opera%clogmax, dim=1)))
+      operb%clogmax = opera%clogmax
+   end if
+end subroutine duplicate_oper
+
+!===============================================================================
 subroutine recycle_oper(this, oper)
 !===============================================================================
    type(TTrace)                     :: this
@@ -6847,13 +7161,9 @@ subroutine propose_insert(this,DStates,oper)
 
    rand=grnd()
    Oper(1)%p%tau=rand*this%beta
-   rand=grnd()
-   Oper(1)%p%orbital=ceiling(rand*dble(DStates%NBands))
-   rand=grnd()
-   Oper(1)%p%spin=ceiling(rand*dble(2))
+   Oper(1)%p%orbital=randint(1, DStates%NBands)
+   Oper(1)%p%spin=randint(1, 2)
    Oper(1)%p%ca=1
-   if(Oper(1)%p%orbital.eq.0)Oper(1)%p%orbital=1
-   if(Oper(1)%p%spin.eq.0)Oper(1)%p%spin=1
 
    rand=grnd()
    Oper(2)%p%tau=rand*this%beta
@@ -7122,10 +7432,8 @@ logical function propose_insert_seg(this,DStates,oper,lmax,seg,overbeta,check_qn
    
    !!! randomly coose properties of operators
    Oper(1)%p%tau=grnd()*this%beta
-   Oper(1)%p%orbital=ceiling(grnd()*dble(DStates%NBands))
-   Oper(1)%p%spin=ceiling(grnd()*dble(2))
-   if(Oper(1)%p%orbital.eq.0)Oper(1)%p%orbital=1
-   if(Oper(1)%p%spin.eq.0)Oper(1)%p%spin=1
+   Oper(1)%p%orbital=randint(1, DStates%NBands)
+   Oper(1)%p%spin=randint(1, 2)
    orb=Oper(1)%p%orbital
    spin=Oper(1)%p%spin
 
@@ -7574,10 +7882,8 @@ logical function propose_remove_seg(this,DStates,Oper,N,lmax,seg,overbeta)
    this%outerstate_empty=.false.
 
    !!! randomly choose flavour
-   orb=ceiling(grnd()*dble(DStates%NBands))
-   spin=ceiling(grnd()*dble(2))
-   if(orb.eq.0)orb=1
-   if(spin.eq.0)spin=1
+   orb=randint(1, DStates%NBands)
+   spin=randint(1, 2)
 
    nosoper=this%nosoper(orb,spin)
 
@@ -7605,8 +7911,7 @@ logical function propose_remove_seg(this,DStates,Oper,N,lmax,seg,overbeta)
    endif
 
    !!! randomly choose position of segment
-   ipos=ceiling(grnd()*float(nosoper)/2.0)
-   if(ipos.eq.0)ipos=1
+   ipos=randint(1, nosoper/2)
 
    if(seg.eqv..true.)then
       !!! remove segment

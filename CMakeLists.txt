@@ -6,6 +6,9 @@
 
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8.5)
 PROJECT(ctqmc Fortran CXX C)
+if(POLICY CMP0074)
+  cmake_policy(SET CMP0074 NEW)
+endif(POLICY CMP0074)
 
 # Set the version
 SET(VERSION 1.0)
@@ -48,15 +51,11 @@ SET( CMAKE_Fortran_FLAGS             "${CMAKE_Fortran_FLAGS} -DLAPACK77_Interfac
 # Define the actual files and folders that make up the build
 ############################################################
 
-find_package(PythonInterp 2.4)# Systems with python that old won't have up-to-date cmake....
-find_package(PackageHandleStandardArgs)
-if(NOT DEFINED ${PYTHON_VERSION_MAJOR})
-#cmake-2.4 is so old that the python module does not set the Python versions... we have to 
-# find them ourselves
-#message(STATUS "trying to guess python")
-execute_process(COMMAND ${PYTHON_EXECUTABLE} -c "import sys; print('%s.%s' % sys.version_info[0:2])"
- RESULT_VARIABLE PYVER)
+find_package(PythonInterp 3.0)
+if (NOT PYTHONINTERP_FOUND)
+  find_package(PythonInterp 2.6)
 endif()
+find_package(PackageHandleStandardArgs)
 
 
 INCLUDE(${CMAKE_MODULE_PATH}/installviapip.cmake)
@@ -71,14 +70,15 @@ if (USE_NFFT)
 #   set(ExternalProjectCMakeArgs
 #     -DHDF5_BUILD_CPP_LIB=ON
 #     )
-    set(_nfft_version "3.4.1")
+    set(_nfft_version "3.5.1")
 #   file(MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/nfft_local/src)
     ExternalProject_Add(nfft_local
-      URL http://www-user.tu-chemnitz.de/~potts/nfft/download/nfft-${_nfft_version}.tar.gz
+      URL https://www-user.tu-chemnitz.de/~potts/nfft/download/nfft-${_nfft_version}.tar.gz
       PREFIX nfft_local
       CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --libdir=<INSTALL_DIR>/lib
       BUILD_COMMAND make
       INSTALL_COMMAND make install
+      URL_HASH SHA256=bb95b2c240c6d972d4bb20740751a8efeba8b48b3be1d61fd59883909776fee3
       )
 # in the previous findPackage(NFFT) call an old version of NFFT could have been found. Here we override it with our up-to-date self-compiled version. We don't use the include directories.
     set(NFFT_LIBRARIES ${PROJECT_BINARY_DIR}/nfft_local/lib/libnfft3.a) 
@@ -90,22 +90,26 @@ endif ()
 
 find_package(NUMPY 1.4)
 IF(NOT NUMPY_FOUND)
-    MESSAGE(FATAL_ERROR "NumPy NOT found in a recent enough version!")
+    install_via_pip("numpy" ERRORCODE)
+    if (${ERRORCODE})
+    MESSAGE(FATAL_ERROR "Couldn't install numpy -> ABORTING!!!")
+    endif()
 ENDIF()
 find_package(HDF5 1.6 COMPONENTS Fortran)# enforce the availability of the Fortran bindings. FIXME: Test on a suitable computer
 
 if(NOT HDF5_FOUND)
 include(ExternalProject)
-    set(hdf5_local_major_version "1.8")
-    set(hdf5_local_minor_version "20")
+    set(hdf5_local_major_version "1.10")
+    set(hdf5_local_minor_version "6")
     find_package(ZLIB)
     #HDF5 also requires in its configure step a C++ compiler
     ExternalProject_Add(HDF5_LOCAL
         URL https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-${hdf5_local_major_version}/hdf5-${hdf5_local_major_version}.${hdf5_local_minor_version}/src/hdf5-${hdf5_local_major_version}.${hdf5_local_minor_version}.tar.gz
-        PREFIX hdf5_local
+	PREFIX hdf5_local
         CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --enable-fortran
         BUILD_COMMAND make
         INSTALL_COMMAND make install
+	URL_HASH SHA256=5f9a3ee85db4ea1d3b1fa9159352aebc2af72732fc2f58c96a3f0768dba0e9aa
     )
     set(HDF5_INCLUDE_DIRS ${PROJECT_BINARY_DIR}/hdf5_local/include)
     set(HDF5_Fortran_LIBRARIES ${PROJECT_BINARY_DIR}/hdf5_local/lib/libhdf5_fortran.so;${ZLIB_LIBRARIES})
@@ -120,9 +124,12 @@ find_package(MPI4PY)
 find_package(H5PY)
 find_package(SCIPY 0.10)
 IF(NOT SCIPY_FOUND)
-    MESSAGE(FATAL_ERROR "SciPy NOT found in a recent enough version!")
+    install_via_pip("scipy" ERRORCODE)
+    if (${ERRORCODE})
+    MESSAGE(FATAL_ERROR "Couldn't install scipy -> ABORTING!!!")
+    endif()
 ENDIF()
-find_package(ConfigObj)
+find_package(CONFIGOBJ)
 if(NOT H5PY_FOUND)
     install_via_pip("h5py" ERRORCODE)
     if (${ERRORCODE})
@@ -149,7 +156,7 @@ SET(CTQMCEXE ctqmc)
 
 # Define some directories
 SET(SRC ${CMAKE_SOURCE_DIR}/src)
-SET(LIB ${CMAKE_SOURCE_DIR}/lib)
+SET(LIB ${CMAKE_CURRENT_BINARY_DIR}/lib)
 #SET(BIN ${CMAKE_SOURCE_DIR}/bin)
 
 SET(SRCCTQMC ${SRC}/ctqmc_fortran)
@@ -159,7 +166,7 @@ SET(SRCMTRNG ${SRC}/mtrng)
 # Have the .mod files placed in the lib folder
 SET(CMAKE_Fortran_MODULE_DIRECTORY ${LIB})
 
-# The source for the BAR library and have it placed in the lib folder
+# The source for the C++11 MTRNG and have it placed in the lib folder
 ADD_SUBDIRECTORY(${SRCMTRNG} ${LIB})
 
 # The source for the ctqmc binary and have it placed in the bin folder
@@ -171,9 +178,8 @@ ADD_CUSTOM_TARGET(distclean
     COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/distclean.cmake
 )
 
-if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    ADD_SUBDIRECTORY(testsuite/mtrng.tests)
-    ADD_SUBDIRECTORY(testsuite/maxent.tests)
-    ADD_SUBDIRECTORY(testsuite/ctqmc.tests)
-    enable_testing()
-endif()
+ADD_SUBDIRECTORY(testsuite/mtrng.tests)
+ADD_SUBDIRECTORY(testsuite/maxent.tests)
+ADD_SUBDIRECTORY(testsuite/ctqmc.tests)
+ADD_SUBDIRECTORY(testsuite/w2dyn.tests)
+enable_testing()

@@ -4,6 +4,7 @@
 #          http://www.boost.org/LICENSE_1_0.txt)
 
 # Modified and Extended by Florian Goth 2018.
+# Fixed by Wentzell 2019
 #
 # This module looks for the nfft:
 # https://www-user.tu-chemnitz.de/~potts/nfft/
@@ -21,15 +22,15 @@
 SET(TRIAL_PATHS
  $ENV{NFFT_ROOT}/include
  ${NFFT_ROOT}/include
+ ~/opt/include
+ ~/.local/include
+ ~/include
+ /usr/include
  ENV CPATH
  ENV C_INCLUDE_PATH
  ENV CPLUS_INCLUDE_PATH
  ENV OBJC_INCLUDE_PATH
  ENV OBJCPLUS_INCLUDE_PATH
- ~/opt/include
- ~/.local/include
- ~/include
- /usr/include
  /usr/local/include
  /opt/local/include
  /opt/nfft/include
@@ -46,10 +47,11 @@ SET(TRIAL_LIBRARY_PATHS
  ~/opt/lib
  ~/.local/lib
  ~/lib
- /usr/lib 
+ /usr/lib
  /usr/lib/x86_64-linux-gnu
  /usr/local/lib
  /opt/local/lib
+ /opt/nfft/lib
  /sw/lib
  )
 
@@ -67,6 +69,14 @@ set_property(TARGET nfft PROPERTY INTERFACE_LINK_LIBRARIES m)
 set_property(TARGET nfft PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${NFFT_INCLUDE_DIR})
 
 if(NOT (NFFT_LIBRARIES STREQUAL "NFFT_LIBRARIES-NOTFOUND"))
+    find_package(FFTW QUIET)
+    if (NOT FFTW_FOUND)
+        set(FFTW_LIBRARIES "")
+        execute_process(COMMAND ${PYTHON_EXECUTABLE} -c "import numpy.distutils.system_info as s;print(s.get_info('fftw3')['include_dirs'][0])"
+                        OUTPUT_VARIABLE FFTW_INCLUDES
+			ERROR_QUIET)
+    endif ()
+    string(STRIP "${FFTW_INCLUDES}" FFTW_INCLUDES)
     SET(WORK_DIR ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/FindNFFT)
     SET(NFFT_VERSION_SRC 
     "#include <stdio.h>
@@ -78,6 +88,7 @@ if(NOT (NFFT_LIBRARIES STREQUAL "NFFT_LIBRARIES-NOTFOUND"))
     return 0;}")
     file(WRITE "${WORK_DIR}/nfft3test.c" "${NFFT_VERSION_SRC}")
     try_run(RUN_RESULT_VAR COMPILE_RESULT_VAR ${CMAKE_BINARY_DIR} "${WORK_DIR}/nfft3test.c"
+    CMAKE_FLAGS "-DINCLUDE_DIRECTORIES=${FFTW_INCLUDES};${NFFT_INCLUDE_DIR}"
     LINK_LIBRARIES nfft
     COMPILE_OUTPUT_VARIABLE comp
     RUN_OUTPUT_VARIABLE NFFT_VERSION)

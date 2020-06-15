@@ -1,3 +1,6 @@
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
+from textwrap import dedent
 QUANTITIES = {
     "g0iw-full": dict(
         axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
@@ -5,7 +8,11 @@ QUANTITIES = {
         ),
     "siw-full": dict(
         axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
-        desc="Full self-energy including all terms"
+        desc="Full self-energy in matsubara expansion (with jackknife error)"
+        ),
+    "siw-trial": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
+        desc="Full trial self-energy in matsubara expansion"
         ),
     "smom-full": dict(
         axes=["ineq", "band1", "spin1", "band2", "spin2", "moment"],
@@ -51,6 +58,10 @@ QUANTITIES = {
         axes=["ineq", "band", "spin", "taubin"],
         desc="impurity Green's function on the imaginary time axis"
         ),
+    "gtau-blocks": dict(
+        axes=["ineq", "band", "spin", "taubin", "m"],
+        desc="blocking analysis for the impurity Green's function"
+        ),
     "gtau-mean-step": dict(
         axes=["ineq", "band", "spin", "iNmeas"],
         desc="impurity Green's function averaged over tau, resolved in time (= Monte carlo steps)"
@@ -79,21 +90,29 @@ QUANTITIES = {
         axes=["ineq", "band", "spin", "iw"],
         desc="impurity Green's function used as input for Dyson equation"
         ),
+    "giw-cov": dict(
+        axes=["ineq", "band", "spin", "pos-iw", "part", "pos-iw", "part"],
+        desc="covariance of diagonal impurity Green's function"
+        ),
     "giw-meas": dict(
         axes=["ineq", "band", "spin", "iw"],
         desc="Impurity Green's function in Matsubara"
         ),
     "giw-worm": dict(
-        axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
+        axes=["ineq", "iw"],
         desc="Impurity Green's function in Matsubara from worm sampling"
         ),
     "gtau-worm": dict(
-        axes=["ineq", "band1", "spin1", "band2", "spin2", "taubin"],
+        axes=["ineq", "taubin"],
         desc="Impurity Green's function in imaginary time from worm sampling"
         ),
     "gsigmaiw-worm": dict(
-        axes=["ineq", "band", "spin", "band", "spin" , "iw"],
+        axes=["ineq", "iw"],
         desc="Worm Improved estimators in Matsubara basis"
+        ),
+    'quddag-worm': dict(
+        axes=['ineq', 'iw'],
+        desc='Worm Improved estimators in Matsubara basis'
         ),
     "gsigmaiw": dict(
         axes=["ineq", "band", "spin", "iw"],
@@ -104,36 +123,82 @@ QUANTITIES = {
         desc="Two-particle Green's function in Matsubara basis"
         ),
     "p2iw-worm": dict(
-        axes=["ineq", "component", "iwb-p2"],
+        axes=["ineq", "iwb-p2"],
         desc="Two legged two-particle Green's function ph-convention (1 bosonic)"
         ),
     "p2iwpp-worm": dict(
-        axes=["ineq", "component", "iwb-p2"],
+        axes=["ineq", "iwb-p2"],
         desc="Two legged two-particle Green's function pp-convention (1 bosonic)"
         ),
     "p2tau-worm": dict(
-        axes=["ineq", "component", "taubin"],
+        axes=["ineq", "taubin"],
         desc="Two legged two-particle Green's function in imaginary time"
         ),
     "p2taupp-worm": dict(
-        axes=["ineq", "component", "taubin"],
+        axes=["ineq", "taubin"],
         desc="Two legged two-particle Green's function pp in imaginary time"
         ),
     "p3iw-worm": dict(
-        axes=["ineq", "component", "iwf-p3", "iwb-p3"],
+        axes=["ineq", "iwf-p3", "iwb-p3"],
         desc="Three legged two-particle Green's function ph-convention (1 fermionic, 1 bosonic)"
         ),
     "p3iwpp-worm": dict(
-        axes=["ineq", "component", "iwf-p3", "iwb-p3"],
+        axes=["ineq", "iwf-p3", "iwb-p3"],
         desc="Three legged two-particle Green's function pp-convention (1 fermionic, 1 bosonic)"
         ),
     "g4iw-worm": dict(
-        axes=["ineq","component","iwf-g4","iwf-g4","iwb-g4"],
-        desc="Two-particle Green's function in Matsubara basis from worm sampling"
+        axes=["ineq", "iwf-g4", "iwf-g4", "iwb-g4"],
+        desc=dedent("""\
+        Two-particle Green's function in particle-hole Matsubara frequencies from worm sampling
+        There are two conventions:
+        0: (v+w) tau_1 - v tau_2 + v' tau_3 - (v'+w) tau_4
+        1: v tau_1 - (v-w) tau_2 + (v'-w) tau_3 - v' tau_4""")
+        ),
+    "g4iwpp-worm": dict(
+        axes=["ineq", "iwf-g4", "iwf-g4", "iwb-g4"],
+        desc=dedent("""\
+        Two-particle Green's function in particle-particle Matsubara frequencies from worm sampling
+        Convention: v tau_1 - (w-v') tau_2 + (w-v) tau_3 - v' tau_4""")
         ),
     "h4iw-worm": dict(
-        axes=["ineq","component","iwf-g4","iwf-g4","iwb-g4"],
+        axes=["ineq","wf-g4","iwf-g4","iwb-g4"],
         desc="Two-particle improved estimator in Matsubara basis from worm sampling"
+        ),
+    "qqiw-worm": dict(
+        axes=["ineq", "iw"],
+        desc="Worm Symmetric Improved 1P estimator in Matsubara basis"
+        ),
+    "qqtau-worm": dict(
+        axes=["ineq", "taubin"],
+        desc="Worm Symmetric Improved 1P estimator in imaginary time"
+        ),
+    "nqqdag-worm": dict(
+        axes=["ineq", "iwf-p3", "iwb-p3"],
+        desc="Part of Symmetric Improved 2P estimator in Matsubara frequencies"
+        ),
+    "qqdd-worm": dict(
+        axes=["ineq", "iwf-p3", "iwb-p3"],
+        desc="Part of Symmetric Improved 2P estimator in Matsubara frequencies"
+        ),
+    "qqqq-worm": dict(
+        axes=["ineq", "iwf-g4","iwf-g4","iwb-g4"],
+        desc="Worm Symmetric Improved 2P estimators in Matsubara basis"
+        ),
+    "ucaca-worm": dict(
+        axes=["ineq", "iwb-p2"],
+        desc="Worm Symmetric Improved 2P estimators in Matsubara basis"
+        ),
+    "ucacatau-worm": dict(
+        axes=["ineq", "taubin"],
+        desc="Worm Symmetric Improved 2P estimators in Matsubara basis"
+        ),
+    "uccaa-worm": dict(
+        axes=["ineq", "iwb-p2"],
+        desc="Worm Symmetric Improved 2P estimators in Matsubara basis"
+        ),
+    "uccaatau-worm": dict(
+        axes=["ineq", "taubin"],
+        desc="Worm Symmetric Improved 2P estimators in Matsubara basis"
         ),
     "g4tau": dict(
         axes=["ineq", "band1", "spin1", "band2", "spin2", "tau-g4", "tau-g4", "tau-g4"],
@@ -173,8 +238,7 @@ QUANTITIES = {
         ),
     "densitymatrix": dict(
         axes=["ineq", "state", "state"],
-        desc="Density matrix in occupation number basis \n"
-            "\t\t(measured at operator closest to beta/2 (Krylov) or exactly at beta/2 (Eigenbasis))"
+        desc="Density matrix in occupation number basis measured at beta/2"
         ),
     "expresdensitymatrix": dict(
         axes=["ineq", "band" , "spin", "traceorder", "state", "state"],
@@ -347,7 +411,11 @@ QUANTITIES = {
         ),
     "siw": dict(
         axes=["ineq", "band", "spin", "iw"],
-        desc="self energy in matsubara expansion"
+        desc="Band-spin-diagonal self-energy in matsubara expansion"
+        ),
+    "siw-cov": dict(
+        axes=["ineq", "band", "spin", "pos-iw", "part", "pos-iw", "part"],
+        desc="covariance of diagonal self-energy in matsubara expansion"
         ),
     "sigma-hartree": dict(
         axes=["band1", "spin1", "band2", "spin2"],
@@ -357,9 +425,17 @@ QUANTITIES = {
         axes=["ineq", "band", "spin", "iw"],
         desc="local Green's function in Matsubara (old self-energy)"
         ),
+    "glocold-lattice": dict(
+        axes=["lda-band", "spin", "iw"],
+        desc="local Green's function in Matsubara (old self-energy), diagonal part for all lda-bands"
+        ),
     "glocnew": dict(
         axes=["ineq", "band", "spin", "iw"],
         desc="local Green's function in Matsubara (new self-energy)"
+        ),
+    "glocnew-lattice": dict(
+        axes=["lda-band", "spin", "iw"],
+        desc="local Green's function in Matsubara (old self-energy), diagonal part for all lda-bands"
         ),
     "dc": dict(
         axes=["ineq", "band", "spin"],

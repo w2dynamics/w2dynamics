@@ -35,8 +35,9 @@ endif (NOT F2PY_SUFFIX)
 ## Path to the f2py executable
 find_program(F2PY_EXECUTABLE NAMES "f2py${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}"
                                    "f2py-${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}"
+                                   "f2py"  # if a user-installed distribution comes with 'f2py' only, prefer it to potentially incompatible system-wide 'f2pyx'
                                    "f2py${PYTHON_VERSION_MAJOR}"
-                                   "f2py"
+                             PATHS ~/.local/bin
                              REQUIRED)
 
 
@@ -80,9 +81,9 @@ macro (add_f2py_module _name)
   # Set f2py compiler options: compiler vendor and path to Fortran77/90 compiler.
   if(F2PY_FCOMPILER)
     set(_fcompiler_opts "--fcompiler=${F2PY_FCOMPILER}")
-    list(APPEND _fcompiler_opts "--f77exec=${CMAKE_Fortran_COMPILER}" "--f77flags='${CMAKE_Fortran_FLAGS} -DF2PY'")
+    list(APPEND _fcompiler_opts "--f77exec=${CMAKE_Fortran_COMPILER}" "--f77flags=${CMAKE_Fortran_FLAGS} -DF2PY")
     if(CMAKE_Fortran_COMPILER_SUPPORTS_F90)
-      list(APPEND _fcompiler_opts "--f90exec=${CMAKE_Fortran_COMPILER}" "--f90flags='${CMAKE_Fortran_FLAGS} -DF2PY'")
+      list(APPEND _fcompiler_opts "--f90exec=${CMAKE_Fortran_COMPILER}" "--f90flags=${CMAKE_Fortran_FLAGS} -DF2PY")
     endif(CMAKE_Fortran_COMPILER_SUPPORTS_F90)
   endif(F2PY_FCOMPILER)
   # Make the source filenames absolute.

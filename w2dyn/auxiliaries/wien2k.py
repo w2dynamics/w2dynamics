@@ -1,11 +1,10 @@
 """ @package wien2k
 Provides methods for charge selfconsistency with Wien2k
 """
-
+from __future__ import absolute_import, print_function, unicode_literals
 import os
 import numpy        as np
 import numpy.linalg as la
-import w2dyn.auxiliaries.CTQMC as CTQMC
 
 def init(cfg, kpoints, notify=open(os.devnull, 'w')):
     global klist
@@ -13,15 +12,14 @@ def init(cfg, kpoints, notify=open(os.devnull, 'w')):
     if cfg['General']['KListFile'] is None:
         cfg['General']['KListFile'] = os.path.basename(os.getcwd()) + '.klist'
 
-    klist_file = file(cfg['General']['KListFile'], 'r')
+    klist_file = open(cfg['General']['KListFile'], 'r')
 
     klist = read_klist(klist_file)
 
     klist_file.close()
 
-    print >>notify, \
-          "Read %g k-points from `%s' for charge selfconsistency" \
-          % (len(klist), cfg['General']['KListFile'])
+    print("Read %g k-points from `%s' for charge selfconsistency"
+          % (len(klist), cfg['General']['KListFile']), file=notify)
 
     klist = check_klist(klist, kpoints, cfg)
 
@@ -39,7 +37,7 @@ def delta_N(beta, w, mu_lda, mu_dmft, Hk, Siw, DC, nat, nneq):
     try:
         nk = len(klist)
     except NameError:
-        raise StandardError(u"`klist' not defined -- did you call wien2k.init()?")
+        raise Exception("`klist' not defined -- did you call wien2k.init()?")
  
     #TODO: Hk and gks need to be changed once supporting spin-orbit
     assert Hk .shape[1:4:2] == (nbands, nbands)

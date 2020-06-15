@@ -1,17 +1,14 @@
 """Collection of MPI-related things"""
-from __future__ import division
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import sys
 import numpy as np
-import scipy.optimize as opt
 
 from mpi4py import MPI as mpi
-from warnings import warn
 # NOTE: For a comprehensive API documentation of mpi4py, refer to any one
 #       parallel universe where they actually bothered to write more than just
 #       repeating the name of the respective function.
 
-import w2dyn.auxiliaries.hdfout
-from w2dyn.dmft import doublecounting
 
 DEBUG = True
 MPI_COMM_WORLD = mpi.COMM_WORLD
@@ -123,7 +120,7 @@ class MPIFrequencyParallel(MPIProxy):
                 self.sizes[-iw_excess:] += 1
 
             slice_ends = self.sizes.cumsum()
-            self.slices = map(slice, slice_ends - self.sizes, slice_ends)
+            self.slices = list(map(slice, slice_ends - self.sizes, slice_ends))
 
             self.myniw = self.sizes[rank]
             self.myslice = self.slices[rank]

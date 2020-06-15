@@ -2,15 +2,17 @@
 """copies run-time directory
 
 Author: Markus Wallerberger"""
-
-__version__ = 0, 2
-
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import re
 import sys
 import os
 import shutil
 import glob
 from optparse import OptionParser
+
+__version__ = 0, 2
+
 
 class IniFile:
     INI_REGEX_STRING = r"""
@@ -92,7 +94,7 @@ if __name__ == "__main__":
         for arg in args[2:]:
             key, val = arg.split("=", 1)
             subst[key] = val
-    except Exception, e:
+    except Exception as e:
         parser.error(str(e))
 
     if options.cont:
@@ -104,8 +106,8 @@ if __name__ == "__main__":
     for from_currdir, subdirs, files in os.walk(from_dir):
         reldir = os.path.relpath(from_currdir, from_dir)
         to_currdir = os.path.join(to_dir, reldir)
-        print "%s/ -> %s/" % (from_currdir, to_currdir)
-        os.makedirs(to_currdir, 0755)
+        print("%s/ -> %s/" % (from_currdir, to_currdir))
+        os.makedirs(to_currdir, 0o755)
 
         for fname in files:
             from_file = os.path.join(from_currdir, fname)
@@ -113,7 +115,7 @@ if __name__ == "__main__":
 
             if os.path.islink(from_file):
                 if options.cont and fname == "old.hdf5":
-                    print "  RE-CONTINUATION: ignoring old.hdf5"
+                    print("  RE-CONTINUATION: ignoring old.hdf5")
                     continue
                 target = os.readlink(from_file)
                 if not os.path.isabs(target):
@@ -121,19 +123,22 @@ if __name__ == "__main__":
                     target = os.path.relpath(os.path.abspath(target),
                                              os.path.abspath(to_currdir))
 
-                print "  %s -> %s (=> %s)" % (from_file, to_file, target)
+                print("  %s -> %s (=> %s)" % (from_file, to_file, target))
                 os.symlink(target, to_file)
 
             elif COPY_RE.search(fname):
-                print "  %s -> %s" % (from_file, to_file)
+                print("  %s -> %s" % (from_file, to_file))
                 shutil.copy(from_file, to_file)
 
             elif fname.endswith(".in"):
-                print "  %s -> %s" % (from_file, to_file)
+                print("  %s -> %s" % (from_file, to_file))
                 ini_data = IniFile(file(from_file, "r"))
-                for k, v in subst.iteritems():
-                    print "    %s: %s -> %s" % (k, ini_data.update_key(k, v), v)
-                file(to_file, "w").writelines(ini_data.lines())
+                for k in subst:
+                    print("    %s: %s -> %s" % (k,
+                                                ini_data.update_key(k,
+                                                                    subst[k]),
+                                                subst[k]))
+                open(to_file, "w").writelines(ini_data.lines())
                 del ini_data
     
         if options.cont:
@@ -143,7 +148,7 @@ if __name__ == "__main__":
             from_fname = os.path.basename(from_file)
             target = os.path.join(old4new, from_fname)
             to_file = os.path.join(to_currdir, "old.hdf5")
-            print "  %s -> %s (=> %s)" % (from_file, to_file, target)
+            print("  %s -> %s (=> %s)" % (from_file, to_file, target))
             os.symlink(target, to_file)
             
         if not options.recursive:

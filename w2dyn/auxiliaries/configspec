@@ -60,7 +60,7 @@ NSeed		= integer(default=43890)	# random number seed
 NBin 		= integer(default=1)		# # of bins per core
 MaxHisto 	= integer(default=500)		# maximum histogram order
 TaudiffMax      = float(default=-1.0)           # maximum tau difference of operator pairs that may be proposed for insertion or removal
-MeasDensityMatrix = integer(default=0)
+MeasDensityMatrix = integer(default=1)
 PrintDensityMatrixBasis = integer(default=0)
 MeasExpResDensityMatrix = integer(default=0)
 MeasGiw     = integer(default=0)
@@ -92,6 +92,13 @@ N2iwb   = integer(min=0,default=100)    # Number of bosonic matsubara frequencie
 N3iwb   = integer(min=0,default=100)    # Number of bosonic matsubara frequencies for 3 legged 2P GF, total box size 2*N3iwb+1
 N3iwf   = integer(min=0,default=100)    # Number of fermionic matsubara frequencies for 3 legged 2P GF, total box size 2*N3iwf
 
+# measurement options
+# 0: off, 1: mean only, 2: autocorrelation
+AccumGtau = integer(default=1)
+
+WriteCovMeanGiw = boolean(default=False)      # Write out the covariance of the mean of the diagonals of the Matsubara Green's function into the quantity "giw-cov"
+WriteCovMeanSigmaiw = boolean(default=False)  # Write out the covariance of the mean of the diagonals of the Matsubara self-energy function into the quantity "siw-cov"
+
 # Timing
 MeasurementTiming = integer(default=-1)
 MeasG2iw = integer(default=0)
@@ -112,7 +119,7 @@ flavourchange_moves = integer(default=0, min=0, max=1) # whether to use flavourc
 
 PercentageWormInsert    = float(min=0,max=1,default=0.0)      # percentage of worm moves; default=0.0, i.e. disabled
 PercentageWormReplace   = float(min=0,max=1,default=0.0)      # pecentage of moves where a worm switches position with a hyboperator 
-WormEta                 = float(default=1.)                   # prefactor for green function space contribution
+WormEta                 = float(default=1.)                   # prefactor for green function space contribution; will be overwritten if WormSearchEta != 0
 WormMeasGiw             = integer(default=0)                  # flag for worm sampling - 1P Greens function in iw
 WormMeasGtau            = integer(default=0)                  # flag for worm sampling - 1P Greens function in tau
 
@@ -130,13 +137,35 @@ WormMeasP2tauPP       = integer(default=0)                  # 2-legged equal tim
 WormMeasP3iwPH        = integer(default=0)                  # 3-legged equal time Green's function ph convention
 WormMeasP3iwPP        = integer(default=0)                  # 3-legged equal time Green's funciton pp convention
 
-WormSearchEta         = integer(default=0)                  # flag for automatic vertex eta-matrix search
+WormMeasQQ            = integer(default=0)                  # symmetric IE for 1P GF
+WormMeasQQtau         = integer(default=0)                  # symmetric IE for 1P GF in imaginary time
+
+WormMeasNQQdag        = integer(default=0)                  # part of symmetric IE for 2P GF
+WormMeasQQdd          = integer(default=0)                  # part of symmetric IE for 2P GF
+
+WormMeasQQQQ          = integer(default=0)                  # symmetric IE for 2P GF
+WormMeasUcaca         = integer(default=0)                  # part of symmetric IE for 2P GF
+WormMeasUcacatau      = integer(default=0)                  # part of symmetric IE for 2P GF
+WormMeasUccaa         = integer(default=0)                  # part of symmetric IE for 2P GF
+WormMeasUccaatau      = integer(default=0)                  # part of symmetric IE for 2P GF
+WormMeasQUDdag        = integer(default=0)                  # part of symmetric IE for 2P GF
+
+
+WormSearchEta         = integer(default=0)                  # eta-search mode: 0 = no eta search, 1 = bisection eta search, 2 = brentq eta search.
 WormComponents        = force_list(default=None)              # worm components to be sampled for worm estimator, default -> all
 WormPHConvention      = integer(default=0)                  # flag to select bosonic channel in PH convention,  
                                                             # 0 --> w relates to operators 1 and 4, 1--> w relates to operators 2 and 3
 ZPHConvention         = integer(default=0)                  # flag to select bosonic channel in PH convention,  
                                                             # 0 --> w relates to operators 1 and 4, 1--> w relates to operators 2 and 3
 
+# Fourier transformation of g4iw-worm: the sampling is the same for g4iw_ph and g4iw_pp, just the FT is different.
+# Therefore it is possible to do (with the same sampling) a ph-FT and/or a pp-FT. Both G4ph and G4pp can be set to 1.
+# Convention of G4ph: (0): (v+w) tau_1 - v tau_2 + v' tau_3 - (v'+w) tau_4
+#                     (1): v tau_1 - (v-w) tau_2 + (v'-w) tau_3 - v' tau_4
+# Convention of G4pp: v tau_1 - (w-v') tau_2 + (w-v) tau_3 - v' tau_4
+G4ph                  = integer(default=1)                  # 1 -> do Fourier transform of g4iw-worm in ph channel
+G4pp                  = integer(default=0)                  # 1 -> do Fourier transform of g4iw-worm in pp channel
+nfft_mode_g4iw        = integer(default=0)  # 0: 3D NFFT.  1: 2D NFFT for each bosonic frequency
 
 # segment parameters
 segment=integer(default=0)
@@ -176,28 +205,38 @@ dc              = option_or_list('anisimov','fll','amf','trace','siginfbar','sig
 dc_mixing       = float(default=0.0)	 	# mixing between old and new SE
 dc_dp           = integer(default=0)            # Fixint of energetic distance between d and p orbitals
 dc_dp_orbitals  = int_list(default=None)        # Specify the reference d-orbitals 
-siw_moments     = option('estimate', 'extract', default='extract')
+siw_moments     = option('estimate', 'extract', default='estimate')
 Neps            = integer(default=1000)         # numerical integration of DOS
 
 # fix mu parameters
+mu_search       = option('nloc', 'kappa', default='nloc')
 totdens 	= float(default=0.)		# # of electrons in system per atom
 EPSLDAN		= float(default=0.00001)	# eps between lda dens and totdens readjust mu
 EPSMATSN	= float(default=5e-6)		# eps between model and num tail to trunc
 EPSN 		= float(default=0.000)		# eps between mats sum and totdens readjust mu
 
+# parameters for mu search by extrapolation
+kappa_force_sign = float(default=None)
+initial_last_mudiff = float(default=None)       # override the initial value of last_mudiff; note that the default value of None sets no override while 0.0 sets last_mudiff to None, causing the first step to be unrestricted when continuing from an old file, which might be useful if other calculation parameters have changed
+
 # DMFT parameters
 DMFTsteps 	= integer(default=1)		# # of DMFT iterations
 StatisticSteps 	= integer(default=0)		# # of statistic steps
 WormSteps       = integer(default=0)            # # of worm steps
-SelfEnergy  = option('dyson', 'improved', 'improved_worm', default='dyson')
+SelfEnergy  = option('dyson', 'improved', 'improved_worm', 'symmetric_improved_worm', default='dyson')
 DMFTerr 	= float(default=None)		# not yet used
 FTType 		= option('none','plain','legendre','none_worm',default='legendre')
 mixing		= float(default=0.0)	 	# mixing between old and new SE
+mixing_strategy = option('linear', 'diis', default='linear')
+mixing_diis_history = integer(default=5)
+mixing_diis_period = integer(default=1)
 
 # input/output parameters
 FileNamePrefix 	= string(default='')		# prefix for output file
 readold 	= integer(default=0)		# start again from nth iteration
 fileold 	= string(default=None)		# from this file
+readold_mu      = option('default', 'always', default='default')   # default: uses General.mu as mu if General.EPSN == 0; always: when reading old output, uses mu from last iteration as mu even if General.EPSN == 0
+readold_mapsiw  = option('index', 'iomega', default='index') # index puts the values of the old self-energy at the same index as in the old data, not taking into account the frequencies corresponding to the indices at all. iomega not only reuses the values of the self-energy, but also tries to get them to approx. the same frequency as they belonged to in the frequency grid of the old calculation. Interpolates linearly if necessary. Only relevant if beta has changed.
 readleads	= integer(default=0)		# read leads from leads-file
 leadsfile	= string(default=None)          # leads-file
 write       = option('full', 'normal', 'minimal', default='normal')

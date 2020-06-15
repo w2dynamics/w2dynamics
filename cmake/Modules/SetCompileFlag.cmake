@@ -37,6 +37,7 @@ FUNCTION(SET_COMPILE_FLAG FLAGVAR FLAGVAL LANG)
             "ignoring unknown option"             # Intel
             "invalid argument"                    # Intel
             "unknown extension .* ignored in option" # Intel 10
+	    "option .* not supported"             # Intel (newer)
             "unrecognized .*option"               # GNU
             "[Uu]nknown switch"                   # Portland Group
             "ignoring unknown option"             # MSVC
@@ -91,6 +92,14 @@ end program dummyprog
                     SET(FLAG_WORKS FALSE)
                 ENDIF("${OUTPUT}" MATCHES "${rx}")
             ENDFOREACH(rx ${FAIL_REGEX})
+
+	    if (UNIX)
+                if ("${flag}" MATCHES "^/")
+                    # workaround since at least pgfortran 17.10 compiles perfectly
+                    # fine when paths to non-existent files are added to the call
+                    SET(FLAG_WORKS FALSE)
+                endif()
+            endif()
 
         ELSE()
             MESSAGE(FATAL_ERROR "Unknown language in SET_COMPILE_FLAGS: ${LANG}")

@@ -1,18 +1,18 @@
 """ @package input
 Provides methods for interacting with input files
 """
-from __future__ import division
-import itertools as itt
-import string
-import sys
-import os
-import h5py
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import re
 from warnings import warn
 
 import numpy as np
-import validate
-import configobj
+import h5py
+import sys
+h5ustrs = h5py.special_dtype(vlen=(str
+                                   if sys.version_info >= (3, )
+                                   else unicode))
+
 
 def read_u_matrix(u_file, spin=False):
     r""" Reads a full four-index U matrix f$ U_{ijkl} f$ from a text file.
@@ -37,7 +37,7 @@ def read_u_matrix(u_file, spin=False):
     Returns the U-matrix as either four- or eight-dimensional numpy array.
     """
     if not hasattr(u_file, "readline"):
-        u_file = file(u_file, "r")
+        u_file = open(u_file, "r")
 
     # reading header of the form "3 BANDS", possibly preceded by comments
     header_re = re.compile(r"\s*(?:([\d]+)\s+bands?\s*)?(?:\#.*)?$",
@@ -118,7 +118,7 @@ def read_epsk_vk_file(epsk_file, vk_file):
     vki = vki[:,:,None].repeat(2, -1).reshape(vki.shape[0], -1)
 
     epsk = epsk.reshape(-1)
-    vki = np.vstack(np.diag(vki_row) for vki_row in vki)
+    vki = np.vstack([np.diag(vki_row) for vki_row in vki])
     assert epsk.shape[0] == vki.shape[0]
     return True, epsk, vki
 
@@ -166,7 +166,7 @@ def read_Delta_iw_tau(deltaiw_file, deltatau_file, beta):
    FIXME: currently only implemented for diagonaly hybridization functions
    FIXME: function name conflicts with nano hybridization read-in
    """
-   from transform import matfreq
+   from .transform import matfreq
 
    #ignoring explicit matsubara and tau values in file
    hybriv = np.loadtxt(deltaiw_file)[:,1:]
@@ -184,7 +184,7 @@ def read_Delta_iw_tau(deltaiw_file, deltatau_file, beta):
    niw = hybriv.shape[0]
    iwf = matfreq(beta, 'fermi', niw)
    nftau = hybrtau.shape[0]
-   tauf = np.arange(nftau)*beta/(nftau - 1.0)
+   tauf = np.linspace(0., beta, num=nftau, endpoint=True)
    
    return hybriv, hybrtau, niw, iwf, nftau, tauf
 
@@ -229,7 +229,7 @@ def read_Delta_iw_tau_full(deltaiw_file, deltatau_file, beta, norbitals):
    
    FIXME: function name conflicts with nano hybridization read-in
    """
-   from transform import matfreq
+   from .transform import matfreq
 
    # load the files
    hybriv = np.loadtxt("fiw.dat")
@@ -317,7 +317,7 @@ def read_hamiltonian(hk_file, spin_orbit=False):
         del lines, natoms
     elif len(header) != 3:
         warn("Version 1 headers are obsolete (specify in input file!)")
-        header = map(int, header)
+        header = list(map(int, header))
         nkpoints = header[0]
         nbands = header[1] * (header[2] + header[3])
     else:
@@ -609,5 +609,8 @@ def hdf_qmeta(hdf_qmeta_node,name,axes=None,desc=None):
     qnode = hdf_qmeta_node.create_group(name)
     qnode.attrs["desc"] = desc
     if axes is not None:
-        qnode.attrs["axes"] = axes
+        try:
+            qnode.attrs["axes"] = axes
+        except TypeError:
+            qnode.attrs.create("axes", axes, dtype=h5ustrs)
     return qnode

@@ -1,3 +1,5 @@
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import time
 import os
 from warnings import warn
@@ -7,11 +9,18 @@ import numpy as np
 import w2dyn.auxiliaries as _aux
 import w2dyn.auxiliaries.transform as _tf
 import w2dyn.dmft.meta as meta
+import w2dyn.auxiliaries.statistics as statistics
 import w2dyn.dmft.orbspin as orbspin
+
+import sys
+ustr = str if sys.version_info >= (3, ) else unicode
+h5ustrs = hdf5.special_dtype(vlen=ustr)
+
 
 def _flat_items(d, prefix=""):
     items = []
-    for k, v in d.iteritems():
+    for k in d:
+        v = d[k]
         fullk = prefix + k
         if isinstance(v, dict):
             items.extend(_flat_items(v, fullk + "."))
@@ -20,7 +29,8 @@ def _flat_items(d, prefix=""):
     return items
 
 class HdfOutput:
-    def load_old(self, oldfile, olditer=-1):
+    @staticmethod
+    def load_old(oldfile, olditer=-1):
         hf = hdf5.File(oldfile, "r")
         file_version = tuple(hf.attrs["outfile-version"])
 
@@ -29,35 +39,119 @@ class HdfOutput:
         else:
             oldit = hf["dmft-%03d" % olditer]
 
-        ineqs = [node for name, node in sorted(oldit.iteritems())
+        ineqs = [oldit[name] for name in sorted(oldit)
                  if name.startswith("ineq-")]
         if not ineqs:
             raise ValueError("No impurity results found in iteration")
 
-        mu = oldit["mu/value"].value
+        mu = oldit["mu/value"][()]
         smom_dd = None
         dc_latt = None
+        beta = None
 
         if file_version >= (2, 1):
-            siw_dd = [ineq["siw-full/value"].value.transpose(4,0,1,2,3)
+            siw_dd = [ineq["siw-full/value"][()].transpose(4,0,1,2,3)
                       for ineq in ineqs]
-            smom_dd = [ineq["smom-full/value"].value.transpose(4,0,1,2,3)
+            smom_dd = [ineq["smom-full/value"][()].transpose(4,0,1,2,3)
                        for ineq in ineqs]
+
+            # Fix shape of smom when reading old data files with only
+            # one order (i.e. sigma_inf) written
+            if any(smom_ineq.shape[0] == 1 for smom_ineq in smom_dd):
+                smom_dd = [np.broadcast_to(smom_ineq,
+                                           [2] + list(smom_ineq.shape[1:]))
+                           for smom_ineq in smom_dd]
+
             try:
-                dc_latt = oldit["dc-latt/value"].value
+                dc_latt = oldit["dc-latt/value"][()]
             except KeyError:
                 pass
         elif file_version >= (2, 0):
             # FIXME: double-counting for old runs
-            siw_dd = [orbspin.promote_diagonal(ineq["siw/value"].value.transpose(2,0,1))
+            siw_dd = [orbspin.promote_diagonal(ineq["siw/value"][()].transpose(2,0,1))
                       for ineq in ineqs]
         else:
             # FIXME: double-counting for very old runs
             siw_dd = [orbspin.promote_diagonal(siw_ineq.transpose(2,0,1))
-                      for siw_ineq in oldit["siw/value"].value]
+                      for siw_ineq in oldit["siw/value"][()]]
+
+        try:
+            beta = hf[".config"].attrs["general.beta"]
+        except KeyError:
+            pass
+        except AttributeError:
+            pass
 
         hf.close()
-        return mu, siw_dd, smom_dd, dc_latt
+        return mu, siw_dd, smom_dd, dc_latt, beta
+
+    @staticmethod
+    def load_old_kappa(oldfile, olditer=-1, oldtype='dmft', kappa_sign=None):
+        hf = hdf5.File(oldfile, "r")
+        file_version = tuple(hf.attrs["outfile-version"])
+
+        if olditer == -1:
+            oldit = hf[oldtype + "-last"]
+            for igrp, grp in ((i, hf[oldtype + "-%03d" % i])
+                              for i in range(1, 1000)
+                              if (oldtype + "-%03d" % i) in hf):
+                if grp == oldit:
+                    olditer = igrp
+                    break
+            else:
+                raise ValueError("Malformed file, %s could not be matched to a"
+                                 "numbered iteration" % (oldtype + "-last"))
+        else:
+            oldit = hf[oldtype + "-%03d" % olditer]
+
+        mu = oldit["mu/value"][()]
+
+        def get_nimps(iteration):
+            nimps = 0.0
+
+            # FIXME: for anything older than the (2, 2) format I just guessed
+            if file_version >= (2, 0):
+                ineqs = [iteration[name] for name in sorted(iteration)
+                         if name.startswith("ineq-")]
+                if not ineqs:
+                    raise ValueError("No impurity results found in iteration")
+
+                for occ in (ineq["occ/value"][()] for ineq in ineqs):
+                    nimps += np.trace(np.trace(occ, 0, -3, -1), 0, -2, -1)
+            else:
+                for occ in iteration["occ/value"][()]:
+                    nimps += np.trace(np.trace(occ, 0, -3, -1), 0, -2, -1)
+            return nimps
+
+        nimps = get_nimps(oldit)
+
+        if olditer > 1:
+            preoldit = hf[oldtype + "-%03d" % (olditer - 1)]
+            last_mu = preoldit["mu/value"][()]
+            last_nimps = get_nimps(preoldit)
+            last_mudiff = mu - last_mu
+            kappa = (nimps - last_nimps) / (mu - last_mu)
+            olditer -= 1
+            # try to find kappa with desired sign in earlier
+            # iterations if necessary
+            while (kappa_sign is not None
+                   and olditer > 1
+                   and not np.sign(kappa) == np.sign(kappa_sign)):
+                oldit = preoldit
+                preoldit = hf[oldtype + "-%03d" % (olditer - 1)]
+                mu = last_mu
+                nimps = last_nimps
+                last_mu = preoldit["mu/value"][()]
+                last_nimps = get_nimps(preoldit)
+                kappa = (nimps - last_nimps) / (mu - last_mu)
+                olditer -= 1
+            if ((kappa_sign is None or np.sign(kappa) == np.sign(kappa_sign))
+                    and last_mu != mu and last_nimps != nimps):
+                hf.close()
+                return mu, nimps, kappa, last_mudiff
+
+        hf.close()
+        return mu, nimps, None, None
 
     def __init__(self, config, git_revision=None, start_time=None, 
                  ineq_list=None, mpi_comm=None):
@@ -81,7 +175,6 @@ class HdfOutput:
         else:
             self.filename = ""
             self.filename = mpi_comm.bcast(self.filename, root=0)
-
             self.file = None
             self.iter = None
 
@@ -91,7 +184,8 @@ class HdfOutput:
     def _ready_file(self, hf, config, git_revision, start_time):
         # generate HDF5 file and write important metadata
         hf.attrs["outfile-version"] = _aux.OUTPUT_VERSION
-        hf.attrs["code-version"] = _aux.CODE_VERSION
+        hf.attrs.create("code-version", list(map(ustr, _aux.CODE_VERSION)),
+                        dtype=h5ustrs)
         if git_revision is not None:
             hf.attrs["git-revision"] = git_revision
         hf.attrs["run-date"] = time.strftime("%c", start_time)
@@ -100,11 +194,15 @@ class HdfOutput:
         hfgrp = hf.create_group(".config")
         for key, val in _flat_items(config):
             if val is None: continue
-            hfgrp.attrs[key.lower()] = val
+            try:
+                hfgrp.attrs[key.lower()] = val
+            except TypeError:
+                hfgrp.attrs.create(key.lower(), val, dtype=h5ustrs)
 
         # write environment of current run
         hfgrp = hf.create_group(".environment")
-        for k,v in os.environ.iteritems():
+        for k in os.environ:
+            v = os.environ[k]
             if v is None: continue
             hfgrp.attrs[k] = v
 
@@ -113,6 +211,7 @@ class HdfOutput:
         beta = config["General"]["beta"]
         qcfg = config["QMC"]
         ax.create_dataset("iw", data=_tf.matfreq(beta, "fermi", 2*qcfg["Niw"]))
+        ax.create_dataset("pos-iw", data=_tf.matfreq(beta, "fermi", 2*qcfg["Niw"])[qcfg["Niw"]:])
         ax.create_dataset("tau", data=np.linspace(0, beta, qcfg["Ntau"]))
         ax.create_dataset("tauf", data=np.linspace(0, beta, qcfg["Nftau"]))
         ax.create_dataset("taubin", data=_tf.tau_bins(beta, qcfg["Ntau"], 'centre'))
@@ -135,7 +234,7 @@ class HdfOutput:
         hf.flush()
         return hiter
 
-    def next_iteration(self, iter_type, iter_no=None):
+    def open_iteration(self, iter_type, iter_no=None):
 
         if not self.is_writer:
             return
@@ -149,16 +248,23 @@ class HdfOutput:
             self.iter.attrs["desc"] = ("%s iteration no. %d"
                                        % (iter_type.capitalize(), iter_no + 1))
 
-            # Set dmft-last etc. to the last iteration other than finish.
-            last_link = "%s-last" % iter_type.lower()
-            if iter_no >= 1:
-                del self.file[last_link]
-            current_iter = "/%s-%03d" % (iter_type.lower(), iter_no + 1)
-            self.file[last_link] = hdf5.SoftLink(current_iter)
-
         self.file.flush()
         self.ineq_no = -1
         self.ineq = None
+
+    def close_iteration(self, iter_type, iter_no=None):
+
+        if not self.is_writer:
+            return
+
+        # Set dmft-last etc. to the last completed iteration
+        last_link = "%s-last" % iter_type.lower()
+        if iter_no >= 1:
+            del self.file[last_link]
+        current_iter = "/%s-%03d" % (iter_type.lower(), iter_no + 1)
+        self.file[last_link] = hdf5.SoftLink(current_iter)
+
+        self.file.flush()
 
     def _write_meta_return_axes(self, qtty_name):
         try:
@@ -172,8 +278,11 @@ class HdfOutput:
         except ValueError:
             pass
         else:
-            for key, value in meta_info.iteritems():
-                meta_node[key] = value
+            for key in meta_info:
+                try:
+                    meta_node[key] = meta_info[key]
+                except TypeError:
+                    meta_node.create(key, meta_info[key], dtype=h5ustrs)
         try:
             return meta_info["axes"]
         except KeyError:
@@ -193,13 +302,13 @@ class HdfOutput:
             elif band_dims == 1:
                 # extract the diagonal because that is what should go into HDF5
                 part = orbspin.extract_diagonal(part)
-                axes_list = [-2, -1] + range(part.ndim - 2)
+                axes_list = [-2, -1] + list(range(part.ndim - 2))
                 part = part.transpose(axes_list)
                 pshape = pshape[-2:] + pshape[:-4]
                 if pslice is not None:
                     pslice = (slice(None),)*2 + (qtty_slice,)
             elif band_dims == 2:
-                axes_list = [-4, -3, -2, -1] + range(part.ndim - 4)
+                axes_list = [-4, -3, -2, -1] + list(range(part.ndim - 4))
                 part = part.transpose(axes_list)
                 pshape = pshape[-4:] + pshape[:-4]
                 if pslice is not None:
@@ -224,7 +333,6 @@ class HdfOutput:
         band_dims = len({"band", "band1", "band2", "band3", "band4"} & set(axes))
         if axes and axes[0] == "ineq":
             # writing ineq stuff
-            axes = axes[1:]
             for iineq, ineq in enumerate(self.ineq_list):
                 ineq_node = self.iter.require_group("ineq-%03d" % (iineq+1))
                 if ineq_force_list or isinstance(qtty_data, (list, tuple)):
@@ -256,37 +364,29 @@ class HdfOutput:
                                 ineq_force_list)
 
     def write_impurity_result(self, iineq, result):
-        if not self.is_writer:
-            return
-
-        ineq_node = self.iter.require_group("ineq-%03d" % (iineq+1))
-        for qtty_name, qtty_value in result.iteritems():
-            self._write_meta_return_axes(qtty_name)
-            qtty_node = ineq_node.create_group(qtty_name)
-            if qtty_value.dtype.fields:
-                for fname in qtty_value.dtype.fields:
-                    qtty_node.create_dataset(fname, data=qtty_value[fname])
-            else:
-                qtty_node.create_dataset("value", data=qtty_value)
-        self.file.flush()
-
-    
-    def write_impurity_component(self, iineq, component):
-        if not self.is_writer:
-            return
-
-        ineq_node = self.iter.require_group("ineq-%03d" % (iineq+1))
-        
-        for qtty_name, qtty_value in component.iteritems(): 
-           self._write_meta_return_axes(qtty_name.split("/")[0])
-           qtty_node = ineq_node.create_group(qtty_name)
-           if qtty_value.dtype.fields:
-               for fname in qtty_value.dtype.fields:
-                   qtty_node.create_dataset(fname, data=qtty_value[fname])
-           else:
-               qtty_node.create_dataset("value", data=qtty_value)
-
-        self.file.flush()
-
-
-
+        if self.is_writer:
+            ineq_node = self.iter.require_group("ineq-%03d" % (iineq+1))
+        for qtty_name in result:
+            qtty_value = result[qtty_name]
+            if self.is_writer:
+                self._write_meta_return_axes(qtty_name.split('/')[0])
+                qtty_node = ineq_node.require_group(qtty_name)
+            try:
+                if isinstance(qtty_value, statistics.DistributedSample):
+                    mean = qtty_value.mean()
+                    stderr = qtty_value.stderr()
+                    if self.is_writer:
+                        qtty_node.create_dataset('value', data=mean)
+                        qtty_node.create_dataset('error', data=stderr)
+                elif qtty_value.dtype.fields:
+                    for fname in qtty_value.dtype.fields:
+                        if self.is_writer:
+                            qtty_node.create_dataset(fname, data=qtty_value[fname])
+                else:
+                    if self.is_writer:
+                        qtty_node.create_dataset("value", data=qtty_value)
+            except (OSError, RuntimeError):
+                sys.stderr.write(
+                    "\nWARNING: Ignoring field {} for multiple worm components.\n\n".format(qtty_name))
+        if self.is_writer:
+            self.file.flush()

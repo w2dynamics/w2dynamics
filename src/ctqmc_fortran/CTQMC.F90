@@ -15,6 +15,7 @@ use signals
 use iso_c_binding
 use MAusgabe
 use ft_worm
+use Accumulators
 #ifdef USE_NFFT
  use ft_fast, ft_beta => beta
 #else
@@ -31,11 +32,14 @@ implicit none
     end interface
 #endif
 
+   class(accumulator), allocatable, target :: gtau_accum
+
+   real(c_double), allocatable, target :: gtau(:,:,:), gtau_blocks(:,:,:,:)
+
    integer(C_INT64_T)         :: Nwarmups,Nmeas
    integer                    :: NGtau,NCorr,NGiw,NBands,NStates
    integer(c_int64_t)         :: NSlide
    integer                    :: N4tau, N4leg, N4iwb, N4iwf, N2iwb, N3iwb, N3iwf
-   real(KINDR),allocatable    :: Gtau(:,:,:)   ! o,sp,tau
    real(KINDR),allocatable    :: Gtau_mean_step(:,:,:), Gtau_mid_step(:,:,:) ! o,sp,iNmeas
    real(KINDR),allocatable    :: sign_step(:) ! iNMeas
    integer(c_int64_t)         :: g_inmeas
@@ -49,7 +53,7 @@ implicit none
    complex(KINDC),allocatable :: Giw_lookup_M(:,:,:)
    integer,allocatable        :: Giw_lookup_row(:,:)
    integer                    :: NLookup_nfft
-!   complex(KINDC),allocatable :: GSigmaiw(:,:,:) !o,s,iw
+   ! complex(KINDC),allocatable :: GSigmaiw(:,:,:) !o,s,iw
    complex(KINDC),allocatable :: G2iw(:,:,:,:)  !o,s,iw,iw'
    complex(KINDC),allocatable :: G4iw(:,:,:,:,:,:,:) !o1,s1,o2,s2,iw,iw',iW
    complex(KINDC),allocatable :: G4iw_pp(:,:,:,:,:,:,:) !o1,s1,o2,s2,iw,iw',iW
@@ -73,9 +77,11 @@ implicit none
    complex(KINDC),allocatable :: Giw_worm(:) ! iw
    real(KINDR),allocatable    :: Gtau_worm(:) ! tau
    complex(KINDC),allocatable :: GSigmaiw_worm(:) !iw
-  
+   complex(KINDC),allocatable :: qUddag_worm(:) !iw
+   
    !worm quantities (component sampling)
    complex(KINDC),allocatable :: G4iw_worm(:,:,:) ! iv,iv',iw
+   complex(KINDC),allocatable :: G4iwpp_worm(:,:,:) ! iv,iv',iw
    complex(KINDC),allocatable :: H4iw_worm(:,:,:) ! iv,iv',iw
    complex(KINDC),allocatable :: P2iw_worm(:) ! iw
    complex(KINDC),allocatable :: P2iwPP_worm(:) ! iw
@@ -84,36 +90,50 @@ implicit none
 
    real(KINDR), allocatable   :: P2tau_worm(:) ! tau 
    real(KINDR), allocatable   :: P2tauPP_worm(:) ! tau
+   
+   complex(KINDC),allocatable :: QQ_worm(:) !iw
+   complex(KINDC),allocatable :: QQtau_worm(:) !tau
+   complex(KINDC),allocatable :: QQQQ_worm(:,:,:) ! iv,iv',iw
+   complex(KINDC),allocatable :: nqqdag_worm(:,:)
+   complex(KINDC),allocatable :: qqdd_worm(:,:)
+   complex(KINDC),allocatable :: ucaca_worm(:), ucacatau_worm(:), uccaa_worm(:), uccaatau_worm(:)
 
    !imaginary-time buffer for buffered nfft
-   real(c_double),allocatable            :: tau_worm(:)     ! (tau-argumens)*buffer_size
+   real(c_double),allocatable            :: tau_worm(:), tau_worm_ft(:)     ! (tau-argumens)*buffer_size
+   real(c_double),allocatable            :: tau_worm_pp(:), tau_worm_pp_ft(:)    ! (tau-argumens)*buffer_size
    complex(c_double_complex),allocatable :: val_worm(:)         ! buffer_size
+   complex(c_double_complex),allocatable :: val_worm_w(:)         ! buffer_size
    integer(c_int64_t)                    :: tau_fill
 
-   !number of worm operators in specific sector
-   integer, parameter, dimension(2:9)   :: NOperWorm = (/2,4,4,6,4,4,4,4/)
+   ! NWormSectors has to be defined here, since f2py does not allow 
+   ! to use parameters from other modules (use MParameters)
+   ! as array dimensions. 
+   integer, parameter :: NWormSectors=16 
 
    !logical to control when to Fourier transform Worm operators
    !we need to store previous worm configuration 
-   logical                    :: isNew(2:9)
+   logical                    :: isNew(2:NWormSectors)
    !wormTau stores time differences for fermionic and bosonic fourier transform for each sector
-   real(KINDR)                :: wormSum(2:9),wormTau(2:9,3)
-   integer                    :: wormO(2:9,4),wormS(2:9,4)
+   real(KINDR)                :: wormSum(2:NWormSectors),wormTau(2:NWormSectors,3)
+   integer                    :: wormO(2:NWormSectors,4),wormS(2:NWormSectors,4)
     
    !we make the umatrix global to qmc
    real(KINDR),allocatable    :: u_matrix(:,:,:,:)
+   real(KINDR),allocatable    :: u_matrix_antisymm_1(:,:,:,:)
+   real(KINDR),allocatable    :: u_matrix_antisymm_2(:,:,:,:)
+   real(KINDR),allocatable    :: u_matrix_antisymm_both(:,:,:,:)
    !outer/dangling indices (spin, orbital, general) of umatrix for improved estimator
-   integer                    :: u_s, u_o, u_g
+   integer                    :: u_s(4), u_o(4), u_g(4)
 
    !parameter eta to control how much greens function space contributes
    !spin-orbit eta matrix with combined spin-orbit index, order c,c^dag (c,c^dag)
    real(KINDR)                :: PercentageWormInsert,PercentageWormReplace
 
-   !we consider 9 different spaces, which are defined in the sector variable
+   !we consider NWormSectors different spaces, which are defined in the sector variable
    !in the CTQMCsimulate subroutine
    !CntSampling: steps in each space taken
    !CntMeas: measurements in each space made
-   integer(c_int64_t)                  :: CntSampling(9), CntMeas(9)
+   integer(c_int64_t)                  :: CntSampling(NWormSectors), CntMeas(NWormSectors)
    
    real(KINDR)                :: mean_sign
    ! state dimension index of the form (sst offset + in-sst index)
@@ -143,9 +163,9 @@ implicit none
    real(KINDR),allocatable    :: ExpResDensityMatrix(:,:,:,:,:)
    
    !we count the acceptance of hyb pairs in each sector including z sector
-   real(KINDR)                :: AccRem(9),AccAdd(9),AccGlob,AccShift
-   integer(c_int64_t)         :: TryRem(9),TryAdd(9),TryGlob,TryShift
-   integer(c_int64_t)         :: AccQNRem(9),AccQNAdd(9),AccQNGlob
+   real(KINDR)                :: AccRem(NWormSectors),AccAdd(NWormSectors),AccGlob,AccShift
+   integer(c_int64_t)         :: TryRem(NWormSectors),TryAdd(NWormSectors),TryGlob,TryShift
+   integer(c_int64_t)         :: AccQNRem(NWormSectors),AccQNAdd(NWormSectors),AccQNGlob
 
    ! Separate acceptance counters for outer and inner moves (try =
    ! move attempts, acc = absolute number of accepted moves, accqn =
@@ -164,12 +184,12 @@ implicit none
    !worm accepts and tries
    !1 -> 1P Worm, 2-> 2P Worm, 3-> IE Sigma, 4->IE chi 
    !(mind shift of 1 as we dont consider Z)
-   real(KINDR)                :: AccWormRem(2:9),AccWormAdd(2:9),AccWormRep(2:9)
-   integer(c_int64_t)         :: TryWormRem(2:9),TryWormAdd(2:9),TryWormRep(2:9)
-   integer(c_int64_t)         :: AccQNWormAdd(2:9),AccQNWormRem(2:9)
+   real(KINDR)                :: AccWormRem(2:NWormSectors),AccWormAdd(2:NWormSectors),AccWormRep(2:NWormSectors)
+   integer(c_int64_t)         :: TryWormRem(2:NWormSectors),TryWormAdd(2:NWormSectors),TryWormRep(2:NWormSectors)
+   integer(c_int64_t)         :: AccQNWormAdd(2:NWormSectors),AccQNWormRem(2:NWormSectors)
    
    !FIXME: this needs to generalized for components
-   real(KINDR)                :: wormEta(2:9)
+   real(KINDR)                :: wormEta(2:NWormSectors)
    
    !array for nfft
    real(c_double),allocatable                :: taus(:)
@@ -185,7 +205,7 @@ implicit none
    real(KINDR),allocatable    :: LegendreGrid(:,:)
    real(KINDR),allocatable    :: GLeg(:,:,:)  ! o,sp,l
    real(KINDR),allocatable    :: GLeg_full(:,:,:,:,:)  ! o,sp,l
-   complex(KINDC),allocatable :: G4leg(:,:,:,:,:,:,:) !o1,s1,o2,s2,l,l´,n
+   complex(KINDC),allocatable :: G4leg(:,:,:,:,:,:,:) !o1,s1,o2,s2,l,l',n
 
    integer                    :: timings_maxorder
    real(KINDR), allocatable   :: timings_giw(:), timings_g4iw_ft(:), timings_g4iw_add(:)
@@ -195,14 +215,14 @@ implicit none
 
    logical                    :: fancy_prog = .false.
 
-! opaquely handling the pointers to derived types; see A. Pletzer et al. 
-   integer(C_INT64_T)         :: ipDStates(12)
-   integer(C_INT64_T)         :: ipDTrace(12)
-!   type(TStates)              :: DStates
-!   type(TTrace)               :: DTrace
+   ! HACK: f2py is unable to handle derived types, but it is also unable to
+   !       recognize Fortran 2003 polymorphic entities, `class(...)`, so we
+   !       hide the structs from f2py by wrapping them like so.
+   class(TStates), allocatable :: DStates
+   class(TTrace), allocatable  :: DTrace
 
    integer, parameter :: GF4_IMAGTIME = 1, GF4_LEGENDRE = 2, GF4_MATSUBARA = 4, GF4_WORM = 8
-   integer            :: WormphConv,ZphConv
+   integer            :: WormphConv,ZphConv,g4ph,g4pp,nfft_mode_g4iw
    
    logical :: b_Eigenbasis, b_Densitymatrix,b_meas_susz,b_segment
    logical :: b_meas_susz_mat
@@ -244,24 +264,17 @@ subroutine init_CTQMC()
 !===============================================================================
    use ft_common
 !input
-   type(TStates),pointer         :: DStates
-   type(TStates_pointer)         :: pDStates
    integer                       :: i
    real(kindr), parameter        :: pi=dacos(-1d0)
    real(kindr)                   :: dt
 !output
 
-   pDStates=transfer(ipDStates,pDStates)
-   DStates => pDStates%ptr
-
    ! segment or matrix-vector
    if (get_Integer_Parameter("segment")==0) then
       b_segment = .false.
-      b_Densitymatrix = .true.   !!! FIXME: when segment, then it is not possible to measure the dm, since the beta-half state will not exist
       write(0,*) "--> Using Matrix solver."
    else
       b_segment = .true.
-      b_Densitymatrix = .false.
       write(0,*) "--> Using Segment solver."
    endif
 
@@ -311,14 +324,37 @@ subroutine init_CTQMC()
    
    ! two-particl worm measurement
    if( IAND(FourPnt,GF4_WORM) /= 0 .and. get_integer_parameter("WormMeasG4iw") /= 0) then
+      ! Choice of ph notation frequency convention
       if(get_Integer_Parameter("WormPHConvention") /= 0) then
          WormphConv = 1
       else
          WormphConv = 0
       endif
+
+      ! whether to do the fourier transform in ph channel (with above convention)
+      if(get_Integer_Parameter("G4ph") /= 0) then
+         g4ph = 1
+         allocate(G4iw_worm(-N4iwf:N4iwf-1,-N4iwf:N4iwf-1,-N4iwb:N4iwb))
+         G4iw_worm = cmplx(0, kind=KINDC)
+      else
+         g4ph = 0
+      endif
+
+      ! whether to do the fourier transform in pp channel
+      if(get_Integer_Parameter("G4pp") /= 0) then
+         g4pp = 1
+         allocate(G4iwpp_worm(-N4iwf:N4iwf-1,-N4iwf:N4iwf-1,-N4iwb:N4iwb))
+         G4iwpp_worm = cmplx(0, kind=KINDC)
+      else
+         g4pp = 0
+      endif
    
-      allocate(G4iw_worm(-N4iwf:N4iwf-1,-N4iwf:N4iwf-1,-N4iwb:N4iwb))
-      G4iw_worm = cmplx(0, kind=KINDC)
+      ! whether to do the NFFT for the 3D array, or in 2D slices
+      if(get_Integer_Parameter("nfft_mode_g4iw") /= 0) then
+         nfft_mode_g4iw = 1 ! 2D NFFT for each bosonic frequency
+      else
+         nfft_mode_g4iw = 0 ! 3D NFFT
+      endif
    endif
 
    if( IAND(FourPnt,GF4_WORM) /= 0 .and. get_integer_parameter("WormMeasH4iw") /= 0) then
@@ -331,17 +367,60 @@ subroutine init_CTQMC()
       H4iw_worm = cmplx(0, kind=KINDC)
    endif
    
+   ! two-particle symmetric ie worm
+   if( IAND(FourPnt,GF4_WORM) /= 0 .and. get_integer_parameter("WormMeasQQQQ") /= 0) then
+      if(get_Integer_Parameter("WormPHConvention") /= 0) then
+         WormphConv = 1
+      else
+         WormphConv = 0
+      endif
+   
+      allocate(QQQQ_worm(-N4iwf:N4iwf-1,-N4iwf:N4iwf-1,-N4iwb:N4iwb))
+      QQQQ_worm = cmplx(0, kind=KINDC)
+   endif
+   
+   if( get_integer_parameter("WormMeasNQQdag") /= 0) then
+      allocate(nqqdag_worm(-N3iwf:N3iwf-1,-N3iwb:N3iwb))
+      nqqdag_worm = cmplx(0, kind=KINDC)
+   endif
+
+   if( get_integer_parameter("WormMeasQQdd") /= 0) then
+     allocate(qqdd_worm(-N3iwf:N3iwf-1, -N3iwf:N3iwf-1))
+     qqdd_worm = cmplx(0, kind=KINDC)
+   endif
+
+   if( get_integer_parameter("WormMeasUcaca") /= 0) then
+     allocate(ucaca_worm(-N2iwb:N2iwb))
+     ucaca_worm = cmplx(0, kind=KINDC)
+   endif
+
+   if( get_integer_parameter("WormMeasUcacatau") /= 0) then
+      allocate(Ucacatau_worm(NGtau))
+      Ucacatau_worm = 0d0
+   endif
+
+
+   if( get_integer_parameter("WormMeasUccaa") /= 0) then
+     allocate(uccaa_worm(-N2iwb:N2iwb))
+     uccaa_worm = cmplx(0, kind=KINDC)
+   endif
+
+   if( get_integer_parameter("WormMeasUccaatau") /= 0) then
+      allocate(Uccaatau_worm(NGtau))
+      Uccaatau_worm = 0d0
+   endif
+
+
+
    wormEta=get_Real_Parameter("WormEta")
    
    !! choose Eigenbasis or Krylov solver
    !! we cannot use Krylov for segment algorithm
    !if ((get_Integer_Parameter("Eigenbasis")==0) .and. (b_segment.eqv..false.)) then
        !b_Eigenbasis = .false.
-       !b_Densitymatrix = get_Integer_Parameter("MeasDensityMatrix")
        !!write(0,*) "--> Using Krylov solver."
     !else
        !b_Eigenbasis = .true.
-       !b_Densitymatrix = .true.
        !!write(0,*) "--> Using Eigenbasis solver."
    !endif
  
@@ -349,9 +428,15 @@ subroutine init_CTQMC()
       stop "You requested Krylov, but this no longer supported."
    else
       b_Eigenbasis = .true.
-      b_Densitymatrix = .true.
       write(0,*) "--> Using eigenbasis of impurity."
    endif
+
+   if (get_Integer_Parameter("MeasDensityMatrix") /= 0 .and. .not. b_segment) then
+      b_Densitymatrix = .true.
+   else
+      b_Densitymatrix = .false.
+   end if
+
 
    ! choose offdiagonal or diagonal hybridisation
    if (get_Integer_Parameter("offdiag")==0) then
@@ -381,7 +466,26 @@ subroutine init_CTQMC()
    if(allocated(Gtau))then
      write(*,*)"Gtau already allocated"
    endif
-   allocate(Gtau(NBands,2,NGtau))
+
+   ! Create accumulators
+   if (get_integer_parameter("AccumGtau") == 0) then
+      allocate(gtau_accum, source=accumulator_create())
+   elseif (get_integer_parameter("AccumGtau") == 1) then
+      allocate(gtau_accum, &
+               source=meanacc_create(int(NBands * 2 * NGtau, c_int64_t)))
+   elseif (get_integer_parameter("AccumGtau") == 2) then
+      allocate(gtau_accum, &
+               source=autocorracc_create(int(NBands * 2 * NGtau, c_int64_t), &
+                                         ilog2(int(NMeas, c_int64_t))))
+   else
+      stop "error: invalid value for `AccumGtau'"
+   endif
+
+   if (gtau_accum%has_mean()) &
+      allocate(gtau(NBands, 2, NGtau))
+   if (gtau_accum%has_blocks()) &
+      allocate(gtau_blocks(NBands, 2, NGtau, gtau_accum%num_blocks()))
+
    if (get_Integer_Parameter("Gtau_mean_step") /= 0) allocate(Gtau_mean_step(NBands,2,Nmeas))
    if (get_Integer_Parameter("Gtau_mid_step") /= 0) allocate(Gtau_mid_step(NBands,2,Nmeas))
    if (get_Integer_Parameter("sign_step") /= 0) allocate(sign_step(Nmeas))
@@ -491,13 +595,35 @@ subroutine init_CTQMC()
    if( get_integer_parameter("WormMeasGSigmaiw") /=0) then
       allocate(GSigmaiw_worm(-NGiw:NGiw-1))
       GSigmaiw_worm = cmplx(0d0, kind=KINDC)
+    endif
+   if( get_integer_parameter("WormMeasQUDdag") /= 0) then
+      allocate(quddag_worm(-NGiw:NGiw-1))
+      quddag_worm = cmplx(0, kind=KINDC)
+   endif
 
-      if(.not.allocated(iw)) then
+
+    if((allocated(GSigmaiw_worm) .or. allocated(quddag_worm)) .and. .not.allocated(iw)) then
          allocate(iw(-NGiw:NGiw-1))   
          do i=-NGiw,NGiw-1,1
             iw(i)=2.d0*pi/beta*(dble(i)+0.5d0)
          end do
+    endif
+
+   if( get_integer_parameter("WormMeasQQ") /=0) then
+      allocate(QQ_worm(-NGiw:NGiw-1))
+      QQ_worm = cmplx(0d0, kind=KINDC)
+
+      if(.not.allocated(iw)) then
+         allocate(iw(-NGiw:NGiw-1))
+         do i=-NGiw,NGiw-1,1
+            iw(i)=2.d0*pi/beta*(dble(i)+0.5d0)
+         end do
       endif
+   endif
+
+   if( get_integer_parameter("WormMeasQQtau") /= 0) then
+     allocate(QQtau_worm(NGtau))
+     QQtau_worm = 0
    endif
 
    if( get_integer_parameter("WormMeasP2iwPH") /= 0) then
@@ -578,17 +704,18 @@ subroutine init_CTQMC()
    endif
    
    allocate(occ(NBands, 2,NBands, 2))
-   allocate(rho2(2*NBands,2*NBands,2*NBands,2*NBands))
    allocate(double_occ(NBands, 2, NBands, 2))
    allocate(single_occ(NBands, 2))
-   allocate(rho1(2*NBands,2*NBands))
    
    if(allocated(densitymatrix))then
      write(*,*)"densitymatrix already allocated"
    endif
    
-   if(b_Densitymatrix .eqv. .true.) &
-    allocate(DensityMatrix(NStates,NStates))
+   if (b_Densitymatrix) then
+      allocate(DensityMatrix(NStates,NStates))
+      allocate(rho1(2*NBands,2*NBands))
+      allocate(rho2(2*NBands,2*NBands,2*NBands,2*NBands))
+   end if
     
    if(get_Integer_Parameter("MeasExpResDensityMatrix").ne.0)&
      allocate(ExpResDensityMatrix(NBands,2,0:get_Integer_Parameter("MaxHisto"),NStates,NStates))
@@ -617,7 +744,7 @@ subroutine init_CTQMC()
    allocate(lhisto(PMAX))
    allocate(rhisto(PMAX))
 
-   allocate(globalmove_check(NBands*2))
+   allocate(globalmove_check(0:2*NBands))
    globalmove_check(:)=0d0
 
    allocate(AccPair(NBands,2,NGtau))
@@ -643,14 +770,16 @@ subroutine init_CTQMC()
    TraceContribStates=0d0
    histo_seg=0d0
    occ=0d0
-   rho2=0d0
    double_occ=0d0
    single_occ=0d0
-   rho1=0d0
    
    call init_counters()
    
-   if(allocated(DensityMatrix)) DensityMatrix=0d0
+   if(allocated(DensityMatrix)) then
+      DensityMatrix=0d0
+      rho1=0d0
+      rho2=0d0
+   end if
    if(allocated(ExpResDensityMatrix)) ExpResDensityMatrix=0d0
    
    
@@ -699,6 +828,9 @@ subroutine init_counters()
    AccAddOuter=0
    AccRemInner=0
    AccRemOuter=0
+   AccAdd4=0
+   AccRem4=0
+   AccFlavc=0
    AccWormAdd=0
    AccWormRem=0
    AccWormRep=0
@@ -719,11 +851,12 @@ subroutine init_counters()
    TryAddOuter=0
    TryRemInner=0
    TryRemOuter=0
+   TryAdd4=0
+   TryRem4=0
+   TryFlavc=0
    TryWormAdd=0
    TryWormRem=0
    TryWormRep=0
-   TryFlavc=0
-   AccFlavc=0
 
    apt_index = 1
    CntSampling = 0
@@ -740,22 +873,21 @@ end subroutine init_counters
 !===============================================================================
 subroutine dest_CTQMC()
 !===============================================================================
-   type(TStates), pointer        :: DStates
-   type(TTrace), pointer         :: DTrace
-   type(TStates_pointer)         :: pDStates
-   type(TTrace_pointer)          :: pDTrace
 
-   pDStates = transfer(ipDStates, pDStates)
-   pDTrace = transfer(ipDTrace, pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
    call ft_cleanup()
    call dest_Trace(DTrace)
    call dest_States(DStates)
-   deallocate(pDStates%ptr)
-   deallocate(pDTrace%ptr)
+
+   deallocate(DTrace)
+   deallocate(DStates)
+
+   call gtau_accum%delete()
+
+   deallocate(gtau_accum)
 
    if(allocated(Gtau))deallocate(Gtau)
+   if(allocated(gtau_blocks)) deallocate(gtau_blocks)
+
    if(allocated(Gtau_mean_step))deallocate(Gtau_mean_step)
    if(allocated(Gtau_mid_step))deallocate(Gtau_mid_step)
    if(allocated(sign_step))deallocate(sign_step)
@@ -801,8 +933,10 @@ subroutine dest_CTQMC()
    if(allocated(Giw)) deallocate(Giw)
    if(allocated(Giw_worm)) deallocate(Giw_worm)
    if(allocated(Gtau_worm)) deallocate(Gtau_worm)
-!   if(allocated(GSigmaiw)) deallocate(GSigmaiw)
+   ! if(allocated(GSigmaiw)) deallocate(GSigmaiw)
    if(allocated(GSigmaiw_worm)) deallocate(GSigmaiw_worm)
+   if (allocated(qUddag_worm)) deallocate(qUddag_worm)
+
    if (allocated(Giw_lookup_tau)) deallocate(Giw_lookup_tau)
    if (allocated(Giw_lookup_M)) deallocate(Giw_lookup_M)
    if (allocated(Giw_lookup_row)) deallocate(Giw_lookup_row)
@@ -813,6 +947,16 @@ subroutine dest_CTQMC()
    if(allocated(P2tauPP_worm)) deallocate(P2tauPP_worm)
    if(allocated(P3iw_worm)) deallocate(P3iw_worm)
    if(allocated(P3iwPP_worm)) deallocate(P3iwPP_worm)
+   
+   if(allocated(QQ_worm)) deallocate(QQ_worm)
+   if(allocated(QQtau_worm)) deallocate(QQtau_worm)
+   if(allocated(QQQQ_worm)) deallocate(QQQQ_worm)
+   if(allocated(NQQdag_worm)) deallocate(NQQdag_worm)
+   if(allocated(qqdd_worm)) deallocate(qqdd_worm)
+   if(allocated(ucaca_worm)) deallocate(ucaca_worm)
+   if(allocated(ucacatau_worm)) deallocate(ucacatau_worm)
+   if(allocated(uccaa_worm)) deallocate(uccaa_worm)
+   if(allocated(uccaatau_worm)) deallocate(uccaatau_worm)
 
    if(allocated(timings_giw)) deallocate(timings_giw)
    if(allocated(timings_g4iw_add)) deallocate(timings_g4iw_add)
@@ -823,10 +967,18 @@ subroutine dest_CTQMC()
    if(allocated(rhisto)) deallocate(rhisto)
    
    if (allocated(u_matrix)) deallocate(u_matrix)
+   if (allocated(u_matrix_antisymm_1)) deallocate(u_matrix_antisymm_1)
+   if (allocated(u_matrix_antisymm_2)) deallocate(u_matrix_antisymm_2)
+   if (allocated(u_matrix_antisymm_both)) deallocate(u_matrix_antisymm_both)
    if(allocated(g4iw_worm)) deallocate(g4iw_worm)
+   if(allocated(g4iwpp_worm)) deallocate(g4iwpp_worm)
    if(allocated(h4iw_worm)) deallocate(h4iw_worm)
    if(allocated(tau_worm)) deallocate(tau_worm)  
+   if(allocated(tau_worm_ft)) deallocate(tau_worm_ft)
+   if(allocated(tau_worm_pp)) deallocate(tau_worm_pp)
+   if(allocated(tau_worm_pp_ft)) deallocate(tau_worm_pp_ft)
    if(allocated(val_worm)) deallocate(val_worm)
+   if(allocated(val_worm_w)) deallocate(val_worm_w)
  
 end subroutine dest_CTQMC
 
@@ -835,15 +987,11 @@ end subroutine dest_CTQMC
 subroutine measure_giw_nfft()
    use ft_common, only: nfreq
    logical, parameter :: debug = .false.
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
 
    integer :: iorb, ispin
    integer(c_long) :: start_secs, start_nanos, end_secs, end_nanos
    complex(KINDC) :: this_giw(nfreq,2)
 
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
    if (timings_maxorder >= DTrace%noper) then
       call wasted(start_secs, start_nanos)
@@ -883,18 +1031,14 @@ end subroutine
 !      worm measurement routines
 !measurement of giw_worm in greens function space
 subroutine measure_giw_worm()
-   type(TTrace), pointer       :: DTrace
-   type(TTrace_pointer)        :: pDTrace
    
    real(KINDR)                :: prefact
    
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
-   prefact=1d0/wormEta(2)
+   prefact=1d0/wormEta(SectorG)
    
    !we only fourier transform new worm configs, old ones are just accumulated
-   if(isNew(2).eqv..true.) then
+   if(isNew(SectorG).eqv..true.) then
    
       if(tau_fill .eq. size(val_worm)) then
 
@@ -911,24 +1055,20 @@ subroutine measure_giw_worm()
       tau_worm(tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(2)%p%tau)/(2d0*DTrace%beta)
       val_worm(tau_fill+1) = DTrace%cfgsign*prefact
       tau_fill = tau_fill + 1
-      isNew(2)=.false.
+      isNew(SectorG)=.false.
 
    else
       val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
    endif
 
-end subroutine
+end subroutine measure_giw_worm
 
 !measurement of gtau_worm in greens function space
 subroutine measure_gtau_worm()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
    
    integer                    :: itau
    real(KINDR)                :: tau, sgn, prefact
    
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
    
    tau=DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(2)%p%tau
    sgn=1d0
@@ -945,24 +1085,20 @@ subroutine measure_gtau_worm()
    if(itau.gt.NGtau) itau=NGtau
    
 
-   prefact=1d0/wormEta(2)
+   prefact=1d0/wormEta(SectorG)
    
    Gtau_worm(itau)=Gtau_worm(itau)+sgn*prefact 
 
-end subroutine
+end subroutine measure_gtau_worm
 
 !measurement of gsigma in worm space using improved estimators
 subroutine measure_ie_sigma_worm()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
    
    integer                    :: s(4), o(4), g(4), i
    real(KINDR)                :: prefact
 
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
-   prefact = 1d0/wormEta(3)   
+   prefact = 1d0/wormEta(SectorGSigma)   
 
    do i=1,4
       o(i)=DTrace%wormContainer(i)%p%Orbital
@@ -970,11 +1106,11 @@ subroutine measure_ie_sigma_worm()
       g(i)=2*(o(i)-1)+s(i)
    enddo
       
-   !u_s,u_o and u_g set to dangling index
-   prefact = prefact*sign(1d0,0.5d0*(u_matrix(u_g,g(2),g(1),g(3))-u_matrix(g(2),u_g,g(1),g(3))))
+   !u_g(1) set to dangling index
+   prefact = prefact*sign(1d0,0.5d0*(u_matrix(u_g(1),g(2),g(1),g(3))-u_matrix(g(2),u_g(1),g(1),g(3))))
 
    !we only fourier transform new worm configs, old ones are just accumulated
-   if(isNew(3).eqv..true.) then      
+   if(isNew(SectorGSigma).eqv..true.) then      
 
       if(tau_fill .eq. size(val_worm)) then
 
@@ -991,28 +1127,154 @@ subroutine measure_ie_sigma_worm()
       tau_worm(tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
       val_worm(tau_fill+1) = DTrace%cfgsign*prefact
       tau_fill = tau_fill + 1
-      isNew(3)=.false.
+      isNew(SectorGSigma)=.false.
 
    else
       val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
    endif
 
-end subroutine
+end subroutine measure_ie_sigma_worm
+
+! measure q_a (Uddag)_(bcd) -> just convenience for SIE, since actually it could be obtained from GSigma
+subroutine measure_quddag_worm()
+   
+   integer                    :: s(4), o(4), g(4), i
+   real(KINDR)                :: prefact
+   real(KINDR)                :: ua1, ua2
+
+
+   prefact = 1d0/wormEta(SectorQUDdag)   
+
+   do i=1,4
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      g(i)=2*(o(i)-1)+s(i)
+   enddo
+   
+   ua1 = u_matrix_antisymm_1(u_g(1),g(2),g(1),g(3))
+   ua2 = u_matrix_antisymm_both(u_g(3),g(4),u_g(2),u_g(4))
+   !u_g(1) set to dangling index
+   prefact = prefact*sign(1d0, ua1*ua2)
+
+   !we only fourier transform new worm configs, old ones are just accumulated
+   if(isNew(SectorQUDdag).eqv..true.) then      
+
+      if(tau_fill .eq. size(val_worm)) then
+
+         allocate(matsubaras(4*NGiw),d(1))
+         d(1)=size(matsubaras)
+
+         call ft_nd(tau_worm,val_worm,matsubaras,d)
+         quddag_worm(:)=quddag_worm(:)+matsubaras(2::2)
+
+         deallocate(matsubaras,d)
+         tau_fill=0
+      endif
+
+      tau_worm(tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
+      val_worm(tau_fill+1) = DTrace%cfgsign*prefact
+      tau_fill = tau_fill + 1
+      isNew(SectorQUDdag)=.false.
+
+   else
+      val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
+   endif
+
+end subroutine measure_quddag_worm
+
+
+!measurement of qq in worm space using improved estimators
+subroutine measure_qq_worm()
+
+   integer                    :: s(6), o(6), g(6), i
+   real(KINDR)                :: prefact
+
+
+   prefact = 1d0/wormEta(SectorQQ)
+
+   do i=1,6
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      g(i)=2*(o(i)-1)+s(i)
+   enddo
+
+   !u_g(1) and u_g(2) set to dangling index
+   prefact = -prefact*sign(1d0,0.5d0*(u_matrix(u_g(1),g(2),g(1),g(3))-u_matrix(g(2),u_g(1),g(1),g(3)))*&
+                          0.5d0*(u_matrix(g(6),g(4),u_g(2),g(5))-u_matrix(g(6),g(4),g(5),u_g(2))))
+
+   !we only fourier transform new worm configs, old ones are just accumulated
+   if(isNew(SectorQQ).eqv..true.) then
+
+      if(tau_fill .eq. size(val_worm)) then
+
+         allocate(matsubaras(4*NGiw),d(1))
+         d(1)=size(matsubaras)
+
+         call ft_nd(tau_worm,val_worm,matsubaras,d)
+         QQ_worm(:)=QQ_worm(:)+matsubaras(2::2)
+
+         deallocate(matsubaras,d)
+         tau_fill=0
+      endif
+
+      tau_worm(tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
+      val_worm(tau_fill+1) = DTrace%cfgsign*prefact
+      tau_fill = tau_fill + 1
+      isNew(SectorQQ)=.false.
+
+   else
+      val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
+   endif
+
+end subroutine measure_qq_worm
+
+! tau-binning of qq
+subroutine measure_qqtau_worm()
+   integer                    :: itau
+   integer                    :: s(6), o(6), g(6), i
+   real(KINDR)                :: tau, sgn, prefact
+   
+
+   do i=1,6
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      g(i)=2*(o(i)-1)+s(i)
+   enddo
+
+   tau=DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(6)%p%tau
+
+   ! calculate sign of configuration
+   sgn=1d0
+   if(tau<0.d0) then
+      !antiperiodicity includes time ordering
+      tau=tau+DTrace%beta
+      sgn=-sgn
+   endif
+   sgn=sgn*DTrace%cfgsign
+   
+   ! calculate prefactor of configuration
+   prefact = 1d0/wormEta(SectorQQ)
+   !u_g(1) and u_g(2) set to dangling index
+   prefact = prefact*sign(1d0,0.5d0*(u_matrix(u_g(1),g(2),g(1),g(3))-u_matrix(g(2),u_g(1),g(1),g(3)))*&
+                          0.5d0*(u_matrix(g(6),g(4),u_g(2),g(5))-u_matrix(g(6),g(4),g(5),u_g(2))))
+   
+   ! get tau bin and increment the value
+   itau=int(dble(NGtau)*tau/DTrace%beta)+1
+   if(itau.gt.NGtau) itau=NGtau
+   qqtau_worm(itau)=qqtau_worm(itau)+sgn*prefact 
+
+end subroutine measure_qqtau_worm
 
 !measurement of p2iw_worm
 subroutine measure_p2iw_worm()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
    
    real(KINDR)                :: prefact
    
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
-   prefact=1d0/wormEta(6)
+   prefact=1d0/wormEta(SectorP2)
    
    !we only fourier transform new worm configs, old ones are just accumulated
-   if(isNew(6).eqv..true.) then
+   if(isNew(SectorP2).eqv..true.) then
    
       if(tau_fill .eq. size(val_worm)) then
 
@@ -1029,24 +1291,20 @@ subroutine measure_p2iw_worm()
       tau_worm(tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(3)%p%tau)/(2d0*DTrace%beta)
       val_worm(tau_fill+1) = DTrace%cfgsign*prefact
       tau_fill = tau_fill + 1
-      isNew(6)=.false.
+      isNew(SectorP2)=.false.
       
    else
       val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
    endif
 
-end subroutine
+end subroutine measure_p2iw_worm
 
 !measurement of p2tau_worm
 subroutine measure_p2tau_worm()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
    
    integer                    :: itau
    real(KINDR)                :: tau, sgn, prefact
    
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
    
    tau=DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(3)%p%tau
    sgn=1d0
@@ -1062,26 +1320,22 @@ subroutine measure_p2tau_worm()
    itau=int(dble(NGtau)*tau/DTrace%beta)+1
    if(itau.gt.NGtau) itau=NGtau
    
-   prefact=1d0/wormEta(6)
+   prefact=1d0/wormEta(SectorP2)
    
    p2tau_worm(itau)=p2tau_worm(itau)+sgn*prefact 
 
-end subroutine
+end subroutine measure_p2tau_worm
 
 !measurement of p2iwpp_worm
 subroutine measure_p2iwpp_worm()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
 
    real(KINDR)                :: prefact
    
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
-   prefact=1d0/wormEta(7)
+   prefact=1d0/wormEta(SectorP2pp)
    
    !we only fourier transform new worm configs, old ones are just accumulated
-   if(isNew(7).eqv..true.) then
+   if(isNew(SectorP2pp).eqv..true.) then
   
       if(tau_fill .eq. size(val_worm)) then
          allocate(matsubaras(4*N2iwb+3),d(1))
@@ -1097,24 +1351,20 @@ subroutine measure_p2iwpp_worm()
       tau_worm(tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(2)%p%tau)/(2d0*DTrace%beta)
       val_worm(tau_fill+1) = DTrace%cfgsign*prefact
       tau_fill = tau_fill + 1
-      isNew(7)=.false.
+      isNew(SectorP2pp)=.false.
   
    else
       val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
    endif
 
-end subroutine
+end subroutine measure_p2iwpp_worm
 
 !measurement of p2taupp_worm
 subroutine measure_p2taupp_worm()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
    
    integer                    :: itau
    real(KINDR)                :: tau, sgn, prefact
    
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
    
    tau=DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(2)%p%tau
    sgn=1d0
@@ -1129,27 +1379,23 @@ subroutine measure_p2taupp_worm()
    itau=int(dble(NGtau)*tau/DTrace%beta)+1
    if(itau.gt.NGtau) itau=NGtau
      
-   prefact=1d0/wormEta(7)
+   prefact=1d0/wormEta(SectorP2)
   
    p2taupp_worm(itau)=p2taupp_worm(itau)+sgn*prefact 
 
-end subroutine
+end subroutine measure_p2taupp_worm
 
 !measurement of p3iw_worm
 subroutine measure_p3iw_worm()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
    
    integer                    :: i,j,k
    real(KINDR)                :: prefact
    
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
-   prefact=1d0/wormEta(8)
+   prefact=1d0/wormEta(SectorP3)
    
    !we only fourier transform new worm configs, old ones are just accumulated
-   if(isNew(8).eqv..true.) then
+   if(isNew(SectorP3).eqv..true.) then
    
       !fourier transform previous worm
       if(tau_fill .eq. size(val_worm)) then
@@ -1177,30 +1423,26 @@ subroutine measure_p3iw_worm()
 
       val_worm(tau_fill+1)=DTrace%cfgsign*prefact
       tau_fill = tau_fill + 1 
-      isNew(8)=.false.
+      isNew(SectorP3)=.false.
       
    else
       val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
    endif
 
-end subroutine
+end subroutine measure_p3iw_worm
 
 
 !measurement of p3iwpp_worm
 subroutine measure_p3iwpp_worm()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
    
    integer                    :: i,j,k
    real(KINDR)                :: prefact
    
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
-   prefact=1d0/wormEta(9)
+   prefact=1d0/wormEta(SectorP3pp)
    
    !we only fourier transform new worm configs, old ones are just accumulated
-   if(isNew(9).eqv..true.) then
+   if(isNew(SectorP3pp).eqv..true.) then
    
       !fourier transform previous worm
       if(tau_fill .eq. size(val_worm)) then
@@ -1228,83 +1470,219 @@ subroutine measure_p3iwpp_worm()
 
       val_worm(tau_fill+1)=DTrace%cfgsign*prefact
       tau_fill = tau_fill + 1 
-      isNew(9)=.false.
+      isNew(SectorP3pp)=.false.
       
    else
       val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
    endif
 
-end subroutine
+end subroutine measure_p3iwpp_worm
 
-subroutine measure_g4iw_worm()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
-   integer                    :: in1,in2,in3,k
+
+!======================================================================================
+
+! measure two-particle Green's function and do the NFFT
+! separately for each bosonic frequency. 
+! This takes more time, but saves a lot of memory
+subroutine measure_g4iw_worm_nfft2d()
+   use type_progress
+   integer                    :: in1,in2,in3,k,i_sample,max_tick
    real(KINDR)                :: prefact
+   type(progress)             :: ft_progress
 
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
    
-   prefact=1d0/wormEta(4)
+   prefact=1d0/wormEta(SectorG4)
    
    !we only fourier transform new worm configs, old ones are just accumulated
-   if(isNew(4).eqv..true.) then
+   if(isNew(SectorG4).eqv..true.) then
    
       !fourier transform if buffer is full
       if(tau_fill .eq. size(val_worm)) then
+         if (g4ph .eq. 1 .and. g4pp .eq. 0) then
+           max_tick = 2 * N4iwb + 1
+         elseif (g4ph .eq. 0 .and. g4pp .eq. 1) then
+           max_tick = 2 * N4iwb + 1
+         elseif (g4ph .eq. 1 .and. g4pp .eq. 1) then
+           max_tick = 2 * (2 * N4iwb + 1)
+         endif
+         ft_progress%adaptrate = 0.1
+         call pstart(ft_progress, int(max_tick, PINT), &
+               fancy=fancy_prog, title='hybridNFFT' // simstr // ':')
+         allocate(matsubaras((4*N4iwf)*(4*N4iwf)),d(2))
+         d(1)=4*N4iwf
+         d(2)=4*N4iwf
+         
+         if (g4ph .eq. 1) then
+           do k=0,tau_fill-1
+             tau_worm_ft(2*k+1) = tau_worm(3*k+1)
+             tau_worm_ft(2*k+2) = tau_worm(3*k+2)
+           enddo
+           do in3=-N4iwb,N4iwb
+             do i_sample=1,size(val_worm)
+               val_worm_w(i_sample) = val_worm(i_sample) * exp(cmplx(0, 4d0 * in3 * pi * tau_worm(3 * i_sample), kind=KINDC))
+             enddo
+             call ft_nd(tau_worm_ft,val_worm_w,matsubaras,d) ! ph fourier transform
+             do in2=-N4iwf,N4iwf-1
+               do in1=-N4iwf,N4iwf-1
 
+                 k=(4*N4iwf)*(2*(in1+N4iwf)+1)+(2*(in2+N4iwf)+1)+1
+                 g4iw_worm(in1,in2,in3)=g4iw_worm(in1,in2,in3) + matsubaras(k)
+
+               enddo
+             enddo
+             call ptick(ft_progress)
+           enddo
+         endif
+
+         if (g4pp .eq. 1) then
+           do k=0,tau_fill-1
+             tau_worm_pp_ft(2*k+1) = tau_worm_pp(3*k+1)
+             tau_worm_pp_ft(2*k+2) = tau_worm_pp(3*k+2)
+           enddo
+           do in3=-N4iwb,N4iwb
+             do i_sample=1,size(val_worm)
+               val_worm_w(i_sample) = val_worm(i_sample) * exp(cmplx(0, 4d0 * in3 * pi * tau_worm_pp(3 * i_sample), kind=KINDC))
+             enddo
+             call ft_nd(tau_worm_pp_ft,val_worm_w,matsubaras,d) ! pp fourier transform
+             do in2=-N4iwf,N4iwf-1
+               do in1=-N4iwf,N4iwf-1
+
+                 k=(4*N4iwf)*(2*(in1+N4iwf)+1)+(2*(in2+N4iwf)+1)+1
+                 g4iwpp_worm(in1,in2,in3)=g4iwpp_worm(in1,in2,in3) + matsubaras(k)
+
+               enddo
+             enddo
+             call ptick(ft_progress)
+           enddo
+         endif
+
+         deallocate(matsubaras,d)
+         tau_fill = 0
+      endif
+
+      if (g4ph .eq. 1) then ! time arguments in ph frequency notation
+        tau_worm(3*tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(2)%p%tau)/(2d0*DTrace%beta)
+        tau_worm(3*tau_fill+2) = (DTrace%wormContainer(3)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
+        if(WormphConv.eq.0) then
+           tau_worm(3*tau_fill+3)= (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
+        else
+           tau_worm(3*tau_fill+3)= (DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(3)%p%tau)/(2d0*DTrace%beta)
+        endif
+      endif
+
+      if (g4pp .eq. 1) then ! time arguments in pp frequency notation
+        tau_worm_pp(3*tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(3)%p%tau)/(2d0*DTrace%beta)
+        tau_worm_pp(3*tau_fill+2) = (DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
+        tau_worm_pp(3*tau_fill+3) = (DTrace%wormContainer(3)%p%tau-DTrace%wormContainer(2)%p%tau)/(2d0*DTrace%beta)
+      endif
+
+
+      val_worm(tau_fill+1)=DTrace%cfgsign*prefact
+      tau_fill = tau_fill + 1
+      isNew(SectorG4)=.false.
+      
+   else
+      val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
+   endif
+   
+end subroutine measure_g4iw_worm_nfft2d
+
+
+! measure the two-particle Green's function in the usual way,
+! with a 3D NFFT
+subroutine measure_g4iw_worm()
+   use type_progress
+   integer                    :: in1,in2,in3,k
+   real(KINDR)                :: prefact
+   type(progress)             :: ft_progress
+
+   
+   prefact=1d0/wormEta(SectorG4)
+   
+   !we only fourier transform new worm configs, old ones are just accumulated
+   if(isNew(SectorG4).eqv..true.) then
+   
+      !fourier transform if buffer is full
+      if(tau_fill .eq. size(val_worm)) then
+         call pstart(ft_progress, int(1, PINT), &
+               fancy=fancy_prog, title='NFFT' // simstr // ':')
          allocate(matsubaras((4*N4iwf)*(4*N4iwf)*(4*N4iwb+3)),d(3))
          d(1)=4*N4iwf
          d(2)=4*N4iwf
          d(3)=4*N4iwb+3
          
-         call ft_nd(tau_worm,val_worm,matsubaras,d)
+         if (g4ph .eq. 1) then
+           call ft_nd(tau_worm,val_worm,matsubaras,d) ! ph fourier transform
+           do in3=-N4iwb,N4iwb
+               do in2=-N4iwf,N4iwf-1
+                  do in1=-N4iwf,N4iwf-1
 
-         do in3=-N4iwb,N4iwb
-             do in2=-N4iwf,N4iwf-1
-                do in1=-N4iwf,N4iwf-1
+                     k=(4*N4iwf)*(4*N4iwb+3)*(2*(in1+N4iwf)+1)+(4*N4iwb+3)*(2*(in2+N4iwf)+1)+(2*(in3+N4iwb)+1)+1
+                     g4iw_worm(in1,in2,in3)=g4iw_worm(in1,in2,in3) + matsubaras(k)
 
-                   k=(4*N4iwf)*(4*N4iwb+3)*(2*(in1+N4iwf)+1)+(4*N4iwb+3)*(2*(in2+N4iwf)+1)+(2*(in3+N4iwb)+1)+1
-                   g4iw_worm(in1,in2,in3)=g4iw_worm(in1,in2,in3) + matsubaras(k)
+                 enddo
+              enddo
+           enddo
+         endif
 
-               enddo
-            enddo
-         enddo
+         if (g4pp .eq. 1) then
+           call ft_nd(tau_worm_pp,val_worm,matsubaras,d) ! pp fourier transform
+           do in3=-N4iwb,N4iwb
+               do in2=-N4iwf,N4iwf-1
+                  do in1=-N4iwf,N4iwf-1
+
+                     k=(4*N4iwf)*(4*N4iwb+3)*(2*(in1+N4iwf)+1)+(4*N4iwb+3)*(2*(in2+N4iwf)+1)+(2*(in3+N4iwb)+1)+1
+                     g4iwpp_worm(in1,in2,in3)=g4iwpp_worm(in1,in2,in3) + matsubaras(k)
+
+                 enddo
+              enddo
+           enddo
+         endif
 
          deallocate(matsubaras,d)
          tau_fill = 0
+         call ptick(ft_progress)
 
       endif
 
-      tau_worm(3*tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(2)%p%tau)/(2d0*DTrace%beta)
-      tau_worm(3*tau_fill+2) = (DTrace%wormContainer(3)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
-      if(WormphConv.eq.0) then
-         tau_worm(3*tau_fill+3)= (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
-      else
-         tau_worm(3*tau_fill+3)= (DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(3)%p%tau)/(2d0*DTrace%beta)
+      if (g4ph .eq. 1) then ! time arguments in ph frequency notation
+        tau_worm(3*tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(2)%p%tau)/(2d0*DTrace%beta)
+        tau_worm(3*tau_fill+2) = (DTrace%wormContainer(3)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
+        if(WormphConv.eq.0) then
+           tau_worm(3*tau_fill+3)= (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
+        else
+           tau_worm(3*tau_fill+3)= (DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(3)%p%tau)/(2d0*DTrace%beta)
+        endif
       endif
+
+      if (g4pp .eq. 1) then ! time arguments in pp frequency notation
+        tau_worm_pp(3*tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(3)%p%tau)/(2d0*DTrace%beta)
+        tau_worm_pp(3*tau_fill+2) = (DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
+        tau_worm_pp(3*tau_fill+3) = (DTrace%wormContainer(3)%p%tau-DTrace%wormContainer(2)%p%tau)/(2d0*DTrace%beta)
+      endif
+
 
       val_worm(tau_fill+1)=DTrace%cfgsign*prefact
       tau_fill = tau_fill + 1
-      isNew(4)=.false.
+      isNew(SectorG4)=.false.
       
    else
       val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
    endif
    
-end subroutine
+end subroutine measure_g4iw_worm
+
+
+
+!=====================================================================================
 
 !measurement of chi in worm space using improved estimators
 subroutine measure_ie_chi_worm()
    
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
    integer                    :: in1,in2,in3,k,i
    integer                    :: s(6), o(6), g(6)
    real(KINDR)                :: prefact
 
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
    
    do i=1,6
       o(i)=DTrace%wormContainer(i)%p%Orbital
@@ -1312,13 +1690,13 @@ subroutine measure_ie_chi_worm()
       g(i)=2*(o(i)-1)+s(i)
    enddo
    
-   !u_s,u_o and u_g set to dangling index
-   prefact = sign(1d0,0.5d0*(u_matrix(u_g,g(2),g(1),g(3))-u_matrix(g(2),u_g,g(1),g(3))))
+   !u_g(1) set to dangling index
+   prefact = sign(1d0,0.5d0*(u_matrix(u_g(1),g(2),g(1),g(3))-u_matrix(g(2),u_g(1),g(1),g(3))))
         
-   prefact=prefact/wormEta(5)
+   prefact=prefact/wormEta(SectorH4)
    
    !we only fourier transform new worm configs, old ones are just accumulated
-   if(isNew(5).eqv..true.) then
+   if(isNew(SectorH4).eqv..true.) then
    
       !fourier transform previous worm
       if(tau_fill .eq. size(val_worm)) then
@@ -1357,25 +1735,377 @@ subroutine measure_ie_chi_worm()
 
       val_worm(tau_fill+1)=DTrace%cfgsign*prefact
       tau_fill = tau_fill + 1
-      isNew(5)=.false.
+      isNew(SectorH4)=.false.
       
    else
       val_worm(tau_fill)=val_worm(tau_fill)+DTrace%cfgsign*prefact
    endif
    
-end subroutine
+end subroutine measure_ie_chi_worm
+
+subroutine measure_qqqq_worm()
+   integer                    :: in1,in2,in3,k
+   real(KINDR)                :: prefact
+   integer                    :: s(12), o(12), bs(12),i
+
+   
+   prefact=1d0/wormEta(SectorQ4)
+   
+   do i=1,12
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      bs(i)=2*(o(i)-1)+s(i)
+   enddo
+
+   prefact = prefact*sign(1d0,&
+                 0.5d0*(u_matrix(u_g(1),bs(2),bs(1),bs(3))-u_matrix(bs(2),u_g(1),bs(1),bs(3)))*&
+                 0.5d0*(u_matrix(bs(6),bs(4),u_g(2),bs(5))-u_matrix(bs(6),bs(4),bs(5),u_g(2)))*&
+                 0.5d0*(u_matrix(u_g(3),bs(8),bs(7),bs(9))-u_matrix(bs(8),u_g(3),bs(7),bs(9)))*&
+                 0.5d0*(u_matrix(bs(12),bs(10),u_g(4),bs(11))-u_matrix(bs(12),bs(10),bs(11),u_g(4))))   
+   !we only fourier transform new worm configs, old ones are just accumulated
+   if(isNew(SectorQ4).eqv..true.) then
+   
+      !fourier transform if buffer is full
+      if(tau_fill .eq. size(val_worm)) then
+
+         allocate(matsubaras((4*N4iwf)*(4*N4iwf)*(4*N4iwb+3)),d(3))
+         d(1)=4*N4iwf
+         d(2)=4*N4iwf
+         d(3)=4*N4iwb+3
+         
+         call ft_nd(tau_worm,val_worm,matsubaras,d)
+
+         do in3=-N4iwb,N4iwb
+             do in2=-N4iwf,N4iwf-1
+                do in1=-N4iwf,N4iwf-1
+
+                   k=(4*N4iwf)*(4*N4iwb+3)*(2*(in1+N4iwf)+1)+(4*N4iwb+3)*(2*(in2+N4iwf)+1)+(2*(in3+N4iwb)+1)+1
+                   qqqq_worm(in1,in2,in3)=qqqq_worm(in1,in2,in3) + matsubaras(k)
+
+               enddo
+            enddo
+         enddo
+
+         deallocate(matsubaras,d)
+         tau_fill = 0
+
+      endif
+
+
+      !qqqq operator comes in four three-tuples in the order 2,3,1 ; 6,4,5 ; 8,9,7 ; 12,10,11
+      tau_worm(3*tau_fill+1) = (DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(6)%p%tau)/(2d0*DTrace%beta)
+      tau_worm(3*tau_fill+2) = (DTrace%wormContainer(8)%p%tau-DTrace%wormContainer(12)%p%tau)/(2d0*DTrace%beta)
+      if(WormphConv.eq.0) then
+         tau_worm(3*tau_fill+3)= (DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(12)%p%tau)/(2d0*DTrace%beta)
+      else
+         tau_worm(3*tau_fill+3)= (DTrace%wormContainer(6)%p%tau-DTrace%wormContainer(8)%p%tau)/(2d0*DTrace%beta)
+      endif
+
+      val_worm(tau_fill+1)=DTrace%cfgsign*prefact
+      tau_fill = tau_fill + 1
+      isNew(SectorQ4)=.false.
+      
+   else
+      val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
+   endif
+   
+end subroutine measure_qqqq_worm
+
+subroutine measure_nqqdag_worm()
+   implicit none
+   integer                    :: in1,in2,in3,k
+   real(KINDR)                :: prefact, u_antisymm_1, u_antisymm_2, u_antisymm_both
+   integer                    :: s(8), o(8), bs(8), i
+
+   
+   prefact=1d0/wormEta(SectorNQQdag)
+   
+   do i=1,8
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      bs(i)=2*(o(i)-1)+s(i)
+   enddo
+
+   u_antisymm_1 = u_matrix_antisymm_1(u_g(1), bs(2), bs(1), bs(3)) 
+   u_antisymm_2 = u_matrix_antisymm_2(bs(4), bs(6), u_g(2), bs(5)) 
+   u_antisymm_both = u_matrix_antisymm_both(u_g(3), bs(8), u_g(4), bs(7))
+
+   prefact = prefact*sign(1d0, u_antisymm_1 * u_antisymm_2 * u_antisymm_both)
+
+   !we only fourier transform new worm configs, old ones are just accumulated
+   if(isNew(SectorNQQdag).eqv..true.) then
+   
+      !fourier transform if buffer is full
+      if(tau_fill .eq. size(val_worm)) then
+
+         allocate(matsubaras((4*N3iwf)*(4*N3iwb+3)),d(2))
+         d(1)=4*N3iwf
+         d(2)=4*N3iwb+3
+         
+         call ft_nd(tau_worm,val_worm,matsubaras,d)
+
+         do in2=-N3iwb,N3iwb
+            do in1=-N3iwf,N3iwf-1
+               k=(4*N3iwb+3)*(2*(in1+N3iwf)+1)+(2*(in2+N3iwb)+1)+1
+               nqqdag_worm(in1,in2)=nqqdag_worm(in1,in2) + matsubaras(k)
+            enddo
+         enddo
+
+         deallocate(matsubaras,d)
+         tau_fill = 0
+
+      endif
+
+
+      !nqqdag operator comes in a two-tuple and two three-tuples in the order 2,3,1; 4,6,5; 8,7
+      tau_worm(2*tau_fill+1) = (DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(4)%p%tau)/(2d0*DTrace%beta)
+      tau_worm(2*tau_fill+2) = (DTrace%wormContainer(4)%p%tau-DTrace%wormContainer(8)%p%tau)/(2d0*DTrace%beta)
+
+      val_worm(tau_fill+1)=DTrace%cfgsign*prefact
+      tau_fill = tau_fill + 1
+      isNew(SectorNQQdag)=.false.
+      
+   else
+      val_worm(tau_fill) = val_worm(tau_fill)+DTrace%cfgsign*prefact
+   endif
+   
+
+
+end subroutine measure_nqqdag_worm
+
+subroutine measure_qqdd_worm()
+   implicit none
+   integer                    :: in1,in2,in3,k
+   real(KINDR)                :: prefact, u_antisymm_1, u_antisymm_2, u_antisymm_3
+   integer                    :: s(8), o(8), bs(8), i
+
+   
+   prefact=1d0/wormEta(SectorQQdd)
+   
+   do i=1,8
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      bs(i)=2*(o(i)-1)+s(i)
+   enddo
+
+   u_antisymm_1 = u_matrix_antisymm_1(u_g(1), bs(2), bs(1), bs(3)) 
+   u_antisymm_2 = u_matrix_antisymm_1(u_g(3), bs(4), bs(5), bs(7)) 
+   u_antisymm_3 = u_matrix_antisymm_2(bs(6), bs(8), u_g(2), u_g(4))
+   prefact = prefact*sign(1d0, u_antisymm_1 * u_antisymm_2 * u_antisymm_3)
+
+   !we only fourier transform new worm configs, old ones are just accumulated
+   if(isNew(SectorQQdd).eqv..true.) then
+   
+      !fourier transform if buffer is full
+      if(tau_fill .eq. size(val_worm)) then
+
+         ! This object has 2 fermionic frequencies!
+         allocate(matsubaras((4*N3iwf)*(4*N3iwf)),d(2))
+         d(1)=4*N3iwf
+         d(2)=4*N3iwf
+         
+         call ft_nd(tau_worm,val_worm,matsubaras,d)
+
+         do in2=-N3iwf,N3iwf-1
+            do in1=-N3iwf,N3iwf-1
+               k=(4*N3iwf)*(2*(in1+N3iwf)+1)+(2*(in2+N3iwf)+1)+1
+               qqdd_worm(in1,in2)=qqdd_worm(in1,in2) + matsubaras(k)
+            enddo
+         enddo
+
+         deallocate(matsubaras,d)
+         tau_fill = 0
+
+      endif
+
+
+      !qqdd operator comes in two three-tuples and a two-tuple in the order 2,3,1; 4,7,5; 6,8
+      tau_worm(2*tau_fill+1) = (DTrace%wormContainer(2)%p%tau-DTrace%wormContainer(6)%p%tau)/(2d0*DTrace%beta)
+      tau_worm(2*tau_fill+2) = (DTrace%wormContainer(4)%p%tau-DTrace%wormContainer(6)%p%tau)/(2d0*DTrace%beta)
+
+      val_worm(tau_fill+1) = DTrace%cfgsign*prefact 
+      tau_fill = tau_fill + 1
+      isNew(SectorQQdd)=.false.
+      
+   else
+      val_worm(tau_fill) = val_worm(tau_fill) + DTrace%cfgsign*prefact
+   endif
+   
+
+
+end subroutine measure_qqdd_worm
+
+subroutine measure_ucaca_worm()
+   implicit none
+   real(KINDR)                :: prefact, u_antisymm_1, u_antisymm_2
+   integer                    :: s(4), o(4), bs(4), i
+
+   prefact=1d0/wormEta(SectorUcaca)
+   
+   do i=1,4
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      bs(i)=2*(o(i)-1)+s(i)
+   enddo
+
+   u_antisymm_1 = u_matrix_antisymm_both(u_g(1),bs(2),u_g(2),bs(1))
+   u_antisymm_2 = u_matrix_antisymm_both(u_g(3),bs(4),u_g(4),bs(3)) 
+   prefact = prefact*sign(1d0, u_antisymm_1 * u_antisymm_2)
+
+   !we only fourier transform new worm configs, old ones are just accumulated
+   if(isNew(SectorUcaca)) then
+   
+      !fourier transform if buffer is full
+      if(tau_fill .eq. size(val_worm)) then
+
+         allocate(matsubaras((4*N2iwb+3)),d(1))
+         d(1)=size(matsubaras)
+         
+         call ft_nd(tau_worm,val_worm,matsubaras,d)
+
+         ucaca_worm(:) = ucaca_worm(:) + matsubaras(2::2)
+
+         deallocate(matsubaras,d)
+         tau_fill = 0
+      endif
+
+
+      tau_worm(tau_fill+1) = (DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(3)%p%tau)/(2d0*DTrace%beta)
+
+      val_worm(tau_fill+1) = DTrace%cfgsign*prefact 
+      tau_fill = tau_fill + 1
+      isNew(SectorUcaca)=.false.
+      
+   else
+      val_worm(tau_fill) = val_worm(tau_fill) + DTrace%cfgsign*prefact
+   endif
+end subroutine measure_ucaca_worm
+
+!measurement of ucacatau_worm
+subroutine measure_ucacatau_worm()
+   integer                    :: itau, i
+   real(KINDR)                :: tau, sgn, prefact, u_antisymm_1, u_antisymm_2
+   integer                    :: s(4), o(4), bs(4)
+   
+   prefact=1d0/wormEta(SectorUcaca)
+   
+   do i=1,4
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      bs(i)=2*(o(i)-1)+s(i)
+   enddo
+
+   u_antisymm_1 = u_matrix_antisymm_both(u_g(1),bs(2),u_g(2),bs(1))
+   u_antisymm_2 = u_matrix_antisymm_both(u_g(3),bs(4),u_g(4),bs(3)) 
+   prefact = prefact*sign(1d0, u_antisymm_1 * u_antisymm_2)
+
+   tau=DTrace%wormContainer(1)%p%tau-DTrace%wormContainer(3)%p%tau
+   sgn=1d0
+   
+   if(tau<0.d0) then
+      tau=tau+DTrace%beta
+      !does not pick up a sign due to pairs being exchanged
+      sgn=sgn
+   endif
+   
+   sgn=sgn*DTrace%cfgsign
+   
+   itau=int(dble(NGtau)*tau/DTrace%beta)+1
+   if(itau.gt.NGtau) itau=NGtau
+   
+   ucacatau_worm(itau)=ucacatau_worm(itau)+sgn*prefact 
+
+end subroutine measure_ucacatau_worm
+
+subroutine measure_uccaa_worm()
+   implicit none
+   real(KINDR)                :: prefact, u_antisymm_1, u_antisymm_2
+   integer                    :: s(4), o(4), bs(4), i
+
+   prefact=1d0/wormEta(SectorUcaca)
+   
+   do i=1,4
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      bs(i)=2*(o(i)-1)+s(i)
+   enddo
+
+   u_antisymm_1 = u_matrix_antisymm_1(u_g(1),u_g(3),bs(1),bs(3))
+   u_antisymm_2 = u_matrix_antisymm_2(bs(2),bs(4),u_g(2),u_g(4)) 
+   prefact = prefact*sign(1d0, u_antisymm_1 * u_antisymm_2)
+
+   !we only fourier transform new worm configs, old ones are just accumulated
+   if(isNew(SectorUccaa)) then
+   
+      !fourier transform if buffer is full
+      if(tau_fill .eq. size(val_worm)) then
+
+         allocate(matsubaras((4*N2iwb+3)),d(1))
+         d(1)=size(matsubaras)
+         
+         call ft_nd(tau_worm,val_worm,matsubaras,d)
+
+         uccaa_worm(:) = uccaa_worm(:) + matsubaras(2::2)
+
+         deallocate(matsubaras,d)
+         tau_fill = 0
+      endif
+
+
+      tau_worm(tau_fill+1) = (DTrace%wormContainer(3)%p%tau-DTrace%wormContainer(2)%p%tau)/(2d0*DTrace%beta)
+
+      val_worm(tau_fill+1) = DTrace%cfgsign*prefact 
+      tau_fill = tau_fill + 1
+      isNew(SectorUccaa)=.false.
+      
+   else
+      val_worm(tau_fill) = val_worm(tau_fill) + DTrace%cfgsign*prefact
+   endif
+end subroutine measure_uccaa_worm
+
+!measurement of uccaatau_worm
+subroutine measure_uccaatau_worm()
+   integer                    :: itau, i
+   real(KINDR)                :: tau, sgn, prefact, u_antisymm_1, u_antisymm_2
+   integer                    :: s(4), o(4), bs(4)
+   
+   prefact=1d0/wormEta(SectorUccaa)
+   
+   do i=1,4
+      o(i)=DTrace%wormContainer(i)%p%Orbital
+      s(i)=DTrace%wormContainer(i)%p%Spin
+      bs(i)=2*(o(i)-1)+s(i)
+   enddo
+
+   u_antisymm_1 = u_matrix_antisymm_1(u_g(1),u_g(3),bs(1),bs(3))
+   u_antisymm_2 = u_matrix_antisymm_2(bs(2),bs(4),u_g(2),u_g(4)) 
+   prefact = prefact*sign(1d0, u_antisymm_1 * u_antisymm_2)
+
+   tau=DTrace%wormContainer(3)%p%tau-DTrace%wormContainer(2)%p%tau
+   sgn=1d0
+   
+   if(tau<0.d0) then
+      tau=tau+DTrace%beta
+      !does not pick up a sign due to pairs being exchanged
+      sgn=sgn
+   endif
+   
+   sgn=sgn*DTrace%cfgsign
+   
+   itau=int(dble(NGtau)*tau/DTrace%beta)+1
+   if(itau.gt.NGtau) itau=NGtau
+   
+   uccaatau_worm(itau)=uccaatau_worm(itau)+sgn*prefact 
+
+end subroutine measure_uccaatau_worm
 
 subroutine measure_g4iw_nfft()
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
 
    integer :: o1, sp1, o2, sp2, w1, w2, wb
    integer(c_long) :: start_secs, start_nanos, end_secs, end_nanos
 
    complex(KINDC) :: this_g2iw(NBands,2,-n2freq/2:n2freq/2-1,-n2freq/2:n2freq/2-1)
 
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
    if (timings_maxorder >= DTrace%noper) then
       call wasted(start_secs, start_nanos)
@@ -1476,24 +2206,22 @@ subroutine measure_g4iw_nfft()
 end subroutine
 
 
-!> \brief Measures the imaginary time Green´s function in Legendre polynomials.
+!> \brief Measures the imaginary time Green's function in Legendre polynomials.
 !!
-!! Measures all possible imaginary-time one-particle Green´s functions
+!! Measures all possible imaginary-time one-particle Green's functions
 !! \f[
 !!        G(\tau) = -\langle T_\tau c(\tau)c^+(0)\rangle
 !! \f]
 !! from the current trace. Two optimisations are made:
 !!
 !!  # Instead of expensive insertion of operators in the local trace, instead
-!!    two hybridisation lines in the bath are removed (Gull 2008, §7.2)
+!!    two hybridisation lines in the bath are removed (Gull 2008, Sec. 7.2)
 !!
 !!  # Instead of measuring in tau bins or Matsubara frequencies, scaled Legendre
 !!    polynomials in \f$ x = 2\tau/\beta - 1 \f$ are used, which provides better
 !!    statistics and better convergence at the anti-periodic step (Boehnke 2011)
 !!
 subroutine MeasGtauRem(isDetRat)
-!   type(TTrace), intent(in)    :: DTrace
-!   type(TStates), intent(in)   :: DStates
 
    !isDetRat==false measure using MInv, isDetRat==true measure using determinant ratio
    logical, intent(in)           :: isDetRat
@@ -1504,15 +2232,12 @@ subroutine MeasGtauRem(isDetRat)
    real(KINDR)                   :: M,x,Plp1x,Plx,Plm1x
    type(TLogDet)                 :: Det_G, Det_Z, tDet
 !   type(TOperPointer)         :: Oper(2)
-   type(TStates),pointer         :: DStates
-   type(TTrace),pointer          :: DTrace
-   type(TStates_pointer)         :: pDStates
-   type(TTrace_pointer)          :: pDTrace
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
+   real(c_double), pointer :: gtau_buf(:,:,:)
+
+   ! Reshape accumulator buffer to proper size
+   if (.not. allocated(gtau_accum%buffer)) return
+   gtau_buf(1:NBands, 1:2, 1:NGtau) => gtau_accum%buffer
 
    nullify(tmpFullHybr);nullify(ReducedHybr) 
 
@@ -1636,8 +2361,8 @@ subroutine MeasGtauRem(isDetRat)
 
            ! Measure to tau bins
            if(idt.gt.NGtau) idt=NGtau
-           Gtau(opa%Orbital,opa%Spin,idt)=&
-              Gtau(opa%Orbital,opa%Spin,idt)+M
+           gtau_buf(opa%Orbital,opa%Spin,idt)=&
+              gtau_buf(opa%Orbital,opa%Spin,idt)+M
            if (allocated(Gtau_mean_step)) Gtau_mean_step(opa%Orbital,opa%Spin,g_inmeas)=&
               Gtau_mean_step(opa%Orbital,opa%Spin,g_inmeas) + M * DTrace%cfgsign
            if (allocated(Gtau_mid_step)) then
@@ -1682,7 +2407,8 @@ subroutine MeasGtauRem(isDetRat)
       deallocate(tmpFullHybr)
       deallocate(ReducedHybr)
    endif
-   
+
+   call gtau_accum%add()
 end subroutine MeasGtauRem
 
 subroutine MeasGiwFlushLookup(Orbital, Spin)
@@ -1700,16 +2426,16 @@ subroutine MeasGiwFlushLookup(Orbital, Spin)
 #endif
 end subroutine MeasGiwFlushLookup
 
-!> \brief Measures the imaginary time Green´s function in Legendre polynomials.
+!> \brief Measures the imaginary time Green's function in Legendre polynomials.
 !!
-!! Measures all possible imaginary-time one-particle Green´s functions
+!! Measures all possible imaginary-time one-particle Green's functions
 !! \f[
 !!        G(\tau) = -\langle T_\tau c(\tau)c^+(0)\rangle
 !! \f]
 !! from the current trace. Two optimisations are made:
 !!
 !!  # Instead of expensive insertion of operators in the local trace, instead
-!!    two hybridisation lines in the bath are removed (Gull 2008, §7.2)
+!!    two hybridisation lines in the bath are removed (Gull 2008, Sec. 7.2)
 !!
 !!  # Instead of measuring in tau bins or Matsubara frequencies, scaled Legendre
 !!    polynomials in \f$ x = 2\tau/\beta - 1 \f$ are used, which provides better
@@ -1720,10 +2446,6 @@ end subroutine MeasGiwFlushLookup
 !! update and returns the hybrizization matrix.
 subroutine MeasGtauRem_full()
 !===============================================================================
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 !local   
    integer                    :: iters, itere
    integer                    :: pos(2),b1,s1,b2,s2
@@ -1732,10 +2454,6 @@ subroutine MeasGtauRem_full()
    real(KINDR)                :: Plp1x, Plx, Plm1x
    integer                    :: iLegMax, l, idt
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    if(dtrace%noper.eq.0)then
       return
@@ -1837,10 +2555,10 @@ subroutine MeasGtauRem_full()
 
 end subroutine MeasGtauRem_full
 
-!> \brief Measures the two-particle imaginary time Green´s function in
+!> \brief Measures the two-particle imaginary time Green's function in
 !!        Legendre polynomials and one bosonic Matsubara frequency.
 !!
-!! Measures all possible imaginary-time two-particle Green´s functions
+!! Measures all possible imaginary-time two-particle Green's functions
 !! \f[
 !!      G(\tau_{12}, \tau_{34}, \tau_{14}) =
 !!          +\langle T_tau c(\tau_1) c^+(\tau_2) d(\tau_3) d^+(\tau_4) \rangle
@@ -1856,9 +2574,9 @@ end subroutine MeasGtauRem_full
 !! coordinates are mapped to scaled Legendre polynomials.
 !!
 !! Instead of expensive insertion of operators in the local trace, instead two
-!! hybridisation lines in the bath are removed (Gull 2008, §7.2). The term
+!! hybridisation lines in the bath are removed (Gull 2008, Sec. 7.2). The term
 !! "remove" may be misleading here, since we can multiply invoke that procedure
-!! if two operators in the two-particle Green´s function coincide.
+!! if two operators in the two-particle Green's function coincide.
 !!
 subroutine MeasGtau4PntLeg()
     use LegendrePoly, only: legendrep, PI
@@ -1880,14 +2598,8 @@ subroutine MeasGtau4PntLeg()
 
     integer             :: l, lp, wm
     integer             :: nins
-    type(TTrace),pointer       :: DTrace
-    type(TStates_pointer)      :: pDStates
-    type(TTrace_pointer)       :: pDTrace
 
- 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
+
 
 
     TF1Pos=0
@@ -2025,13 +2737,9 @@ end subroutine MeasGtau4PntLeg
 
 subroutine MeasSingleOcc_from_Densitymatrix()
 
-    type(tstates), pointer    :: dstates
-    type(tstates_pointer)     :: pdstates
     real(kindr), allocatable  :: tempmat(:, :)
     integer                   :: iB1, iS1, iSSt, iSt, nsst, offset, NStates_sst, NStates_nsst
 
-    pdstates = transfer(ipdstates, pdstates)
-    dstates => pdstates%ptr
 
     do iB1=1,NBands
        do iS1=1,2
@@ -2071,14 +2779,10 @@ end subroutine MeasSingleOcc_from_Densitymatrix
 
 subroutine MeasDoubleOcc_from_Densitymatrix()
 
-    type(tstates),pointer         :: dstates
-    type(tstates_pointer)         :: pdstates
     real(kindr), allocatable      :: tempmat1(:, :), tempmat2(:, :)
     integer                       :: iB1, iS1, iB2, iS2, iSSt, iSt, nsst1, nsst2, offset
     integer                       :: NStates_sst, NStates_nsst1, NStates_nsst2
 
-    pdstates = transfer(ipdstates, pdstates)
-    dstates => pdstates%ptr
 
     do iB1=1,NBands
     do iS1=1,2
@@ -2136,15 +2840,11 @@ end subroutine MeasDoubleOcc_from_Densitymatrix
 
 subroutine Meas_rho2_from_Densitymatrix()
 
-    type(tstates), pointer   :: dstates
-    type(tstates_pointer)    :: pdstates
     real(kindr), allocatable :: tempmat1(:, :), tempmat2(:, :)
     integer                  :: iB1, iS1, iB2, iS2, iB3, iS3, iB4, iS4
     integer                  :: iSSt, iSt, nsst1, nsst2, nsst3, offset
     integer                  :: NStates_sst, NStates_nsst1, NStates_nsst2, NStates_nsst3
 
-    pdstates = transfer(ipdstates, pdstates)
-    dstates => pdstates%ptr
 
     do iB1=1,NBands
     do iS1=1,2
@@ -2215,14 +2915,10 @@ end subroutine Meas_rho2_from_Densitymatrix
 
 subroutine Meas_rho1_from_Densitymatrix()
 
-    type(tstates), pointer        :: dstates
-    type(tstates_pointer)         :: pdstates
     real(kindr), allocatable      :: tempmat(:, :)
     integer                       :: iB1, iS1, iB2, iS2, iSSt, iSt, nsst, offset
     integer                       :: NStates_sst, NStates_nsst
 
-    pdstates = transfer(ipdstates, pdstates)
-    dstates => pdstates%ptr
 
     do iB1=1,NBands
     do iS1=1,2
@@ -2290,15 +2986,7 @@ subroutine MeasDensityMatrix_beta_half()
    integer                    :: st1, st2, trst, offset, vec_outer_ind
    real(KINDR)                :: factor
 
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 
-   pDStates = transfer(ipDStates,pDStates)
-   pDTrace = transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    call update_b2_states_eb(DTrace, DStates)
 
@@ -2360,15 +3048,7 @@ end subroutine MeasDensityMatrix_beta_half
 
 
 subroutine MeasSusz()
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 
-   pDStates = transfer(ipDStates,pDStates)
-   pDTrace = transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
    call meas_ntau_n0(DTrace, DStates, ntau_n0)
 end subroutine MeasSusz
 
@@ -2379,11 +3059,7 @@ end subroutine MeasSusz
 subroutine Transform_DensityMatrix_EB_to_OCCB()
 !===============================================================================
    integer                    :: isst, offset, ns
-   type(TStates),pointer      :: DStates
-   type(TStates_pointer)      :: pDStates
 
-   pDStates = transfer(ipDStates,pDStates)
-   DStates => pDStates%ptr
 
    do isst=0, DStates%NSStates-1
 
@@ -2406,15 +3082,7 @@ subroutine MeasExpResDensityMatrix()
    integer                       :: st1, st2, trst, offset, iB, iS, vec_outer_ind
    real(KINDR)                   :: factor
 
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 
-   pDStates = transfer(ipDStates,pDStates)
-   pDTrace = transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    call update_b2_states_eb(DTrace, DStates)
 
@@ -2445,6 +3113,11 @@ subroutine MeasExpResDensityMatrix()
          ! up to numerical differences, so only
          !     norm = 1 / DTrace%Trace
          ! remains
+
+         ! after this rearranging, braket and parttrace cancel, but it
+         ! is probably still not a good idea to add contributions from
+         ! configuration parts with zero weight contribution
+         if (trval(dtrace%parttrace(trst)) == 0.0_KINDR) cycle
 
          do st1 = 1, size(dtrace%bra_b2(:, vec_outer_ind))
             factor = dtrace%bra_b2(st1, vec_outer_ind)&
@@ -2488,14 +3161,8 @@ subroutine MeasExpOrder()
 !===============================================================================
 !input
    integer                       :: iB,iS
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 
  
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
    do iB=1,NBands
       do iS=1,2   
@@ -2514,15 +3181,7 @@ end subroutine MeasExpOrder
 subroutine MeasOuterHistograms()
 !===============================================================================
    integer                    :: i, offset
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    ! number of visits (as "part of configuration" where applicable)
    OuterSuperstateHisto(DTrace%outer_sst) =&
@@ -2579,11 +3238,7 @@ end subroutine MeasOuterHistograms
 !> Measures the sign in Z
 subroutine MeasSign()
 !===============================================================================
-   type(TTrace),pointer       :: DTrace
-   type(TTrace_pointer)       :: pDTrace
 
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
    meas_sign = meas_sign + DTrace%cfgsign
    cnt_sign_z=cnt_sign_z+1     
@@ -2594,10 +3249,6 @@ end subroutine MeasSign
 subroutine StepAdd(change_outer,Sector)
 !===============================================================================
 !input
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
    logical                    :: change_outer
    integer                    :: Sector
 !local
@@ -2616,17 +3267,13 @@ subroutine StepAdd(change_outer,Sector)
    real(kindr),pointer            :: FullHybr_offdiag(:,:)
    logical :: equal_times
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    ! Fortran 90 does not guarantee nullified pointers
    nullify(temp); nullify(Q); nullify(R)
    nullify(FullHybr_offdiag)
    global = .false.
 
-   if(DTrace%iOperPool.eq.0)then
+   if(DTrace%iOperPool < 2)then
       do CA=1,2
          allocate(Oper(CA)%p)
 !        allocate(Oper(CA)%p%normr(DTrace%NTruncStatesMax))
@@ -2900,10 +3547,6 @@ end subroutine StepAdd
 subroutine StepAdd4(Sector)
 !===============================================================================
 !input
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
    integer                    :: Sector
 !local
    integer                       :: CA,FPos(2),iB,iS
@@ -2923,10 +3566,6 @@ subroutine StepAdd4(Sector)
    real(kindr),pointer           :: FullHybr_offdiag(:,:)
 
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    ! Fortran 90 does not guarantee nullified pointers
    nullify(FullHybr)
@@ -3164,10 +3803,6 @@ end subroutine StepAdd4
 subroutine StepRem(change_outer,Sector)
 !===============================================================================
 !input
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
    logical                    :: change_outer
    integer                    :: Sector
 !local
@@ -3184,10 +3819,6 @@ subroutine StepRem(change_outer,Sector)
    real(kindr) :: prob
    real(kindr),pointer            :: FullHybr_offdiag(:,:)
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    nullify(temp)
    nullify(FullHybr_offdiag)
@@ -3441,10 +4072,6 @@ end subroutine StepRem
 subroutine StepRem4()
 !===============================================================================
 !input
-   type(TStates),pointer         :: DStates
-   type(TTrace),pointer          :: DTrace
-   type(TStates_pointer)         :: pDStates
-   type(TTrace_pointer)          :: pDTrace
 !local
    integer                       :: CA,FPos(2),iB,iS
    integer                       :: begin_sst, end_sst, old_NPairs
@@ -3460,10 +4087,6 @@ subroutine StepRem4()
    type(TSubMatrix),pointer      :: FullHybr(:,:)
    real(kindr),pointer           :: FullHybr_offdiag(:,:)
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
  
    nullify(FullHybr)
    nullify(FullHybr_offdiag)
@@ -3690,10 +4313,6 @@ end subroutine StepRem4
 subroutine StepGlob()
 !===============================================================================
 !input
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 !local 
    type(TLogTr)                  :: TraceNew
    real(KINDR)                   :: rand,sst_factor
@@ -3702,13 +4321,9 @@ subroutine StepGlob()
    type(TSubMatrix),pointer      :: FullHybr(:,:)
    integer                       :: iB,iS,move_type
    type(TOper),pointer           :: Element
-   logical                       :: Debg
    real(kindr),pointer           :: FullHybr_offdiag(:,:)
+   integer, parameter            :: RandPerm = 1, UserSym = 2, SpinFlip = 3, CAFlip = 4
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    nullify(FullHybr); nullify(Element)
    nullify(FullHybr_offdiag)
@@ -3720,29 +4335,30 @@ subroutine StepGlob()
    
 ! adding spin flip for paramagnetic case
    rand=grnd()
-   if(DTrace%ParaMag.eq.1.and.rand.lt.1d-1)then
-      move_type = 0
+   if(rand < 0.3d0)then
+      move_type = SpinFlip
       call gen_SpinFlipUpdate(DTrace,DStates)
-   elseif(rand.lt.5d-1.and.get_Integer_Parameter("NSymMove").gt.0)then
-      move_type = 1
+   elseif (rand < 0.6d0) then
+      move_type = CAFlip
+      call gen_CAFlip(DTrace, DStates)
+   elseif(rand < 0.8d0 .and. get_Integer_Parameter("NSymMove").gt.0)then
+      move_type = UserSym
       call gen_SymUpdate(DTrace,DStates)
    else
-      move_type = 2
-      !!! in the original global moves, permutations were proposed not uniformly
-      !Debg=gen_GlobalUpdate(DTrace,DStates)
-      Debg=gen_GlobalUpdate_new(DTrace,DStates)
-      globalmove_check=globalmove_check+dtrace%gu(1:)
+      move_type = RandPerm
+      call gen_GlobalUpdate_new(DTrace,DStates)
+      globalmove_check = globalmove_check + dtrace%gu  ! counter for uniformity checking (debug)
    endif
    call save_outer_sst(DTrace)
 
-   if (move_type == 0) then
+   if (move_type == SpinFlip) then
       if (index(get_String_Parameter("QuantumNumbers"), "Szt") /= 0) then
-         sst_factor = check_spinflip(DTrace, DStates)
+         sst_factor = perform_spinflip_check_qn(DTrace, DStates)
       else
-         sst_factor = check_qn_global(DTrace, DStates)
+         sst_factor = perform_global_check_qn(DTrace, DStates)
       endif
    else
-      sst_factor = check_qn_global(DTrace, DStates)
+      sst_factor = perform_global_check_qn(DTrace, DStates)
    endif
 
    if (sst_factor == 0._KINDR) then
@@ -3822,11 +4438,7 @@ end subroutine StepGlob
 subroutine StepShiftTau()
 !===============================================================================
 !input
-   type(TTrace),pointer          :: DTrace
-   type(TTrace_pointer)          :: pDTrace
 
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DTrace => pDTrace%ptr
 
    if (DTrace%NOper == 0) then
       call StepChangeOuter()
@@ -3839,19 +4451,11 @@ end subroutine StepShiftTau
 subroutine StepChangeOuter()
 !===============================================================================
 !input
-   type(TStates),pointer         :: DStates
-   type(TTrace),pointer          :: DTrace
-   type(TStates_pointer)         :: pDStates
-   type(TTrace_pointer)          :: pDTrace
 
    real(KINDR), allocatable      :: empty_trace_values(:)
    integer                       :: iSt, i, j
    real(KINDR)                   :: accumulator, rand
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    call save_outer_sst(DTrace)
 1  if (b_statesampling) then
@@ -3918,10 +4522,6 @@ end subroutine StepChangeOuter
 subroutine StepShiftTau_proper()
 !===============================================================================
 !input
-   type(TStates),pointer         :: DStates
-   type(TTrace),pointer          :: DTrace
-   type(TStates_pointer)         :: pDStates
-   type(TTrace_pointer)          :: pDTrace
 !local
    type(TLogTr)                  :: TraceNew
    real(KINDR)                   :: DeltaTau, BosTraceNew
@@ -3935,10 +4535,6 @@ subroutine StepShiftTau_proper()
    type(TOperPointer)            :: ffirst_old(NBands, 2), ffirst_temp(NBands, 2)
    type(TOperPointer)            :: flast_old(NBands, 2), fprewin_old(NBands, 2)
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    DeltaTau = grnd() * DTrace%beta
    if (DeltaTau == 0_KINDR .or. DeltaTau == DTrace%beta) return
@@ -4123,10 +4719,6 @@ end subroutine StepShiftTau_proper
 subroutine StepFlavourchange_general()
 !===============================================================================
 !input
-   type(TStates),pointer          :: DStates
-   type(TTrace),pointer           :: DTrace
-   type(TStates_pointer)          :: pDStates
-   type(TTrace_pointer)           :: pDTrace
 !local
    integer                       :: iB,iS,begin_sst,end_sst,throwaway(2)
    type(TLogTr)                  :: TraceNew
@@ -4139,10 +4731,6 @@ subroutine StepFlavourchange_general()
    integer :: oldorb2, oldspin2
    type(TSubMatrix),pointer      :: FullHybr(:,:)
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    ! Fortran 90 does not guarantee nullified pointers
    nullify(FullHybr_offdiag)
@@ -4164,15 +4752,11 @@ subroutine StepFlavourchange_general()
 
    !!! dice new flavours
 
-   oper(1)%p%orbital=ceiling(grnd()*dble(dstates%NBands))
-   oper(1)%p%spin=ceiling(grnd()*dble(2))
-   if(oper(1)%p%orbital.eq.0)oper(1)%p%orbital=1
-   if(oper(1)%p%spin.eq.0)oper(1)%p%spin=1
+   oper(1)%p%orbital=randint(1, dstates%NBands)
+   oper(1)%p%spin=randint(1, 2)
 
-   oper(2)%p%orbital=ceiling(grnd()*dble(dstates%NBands))
-   oper(2)%p%spin=ceiling(grnd()*dble(2))
-   if(oper(2)%p%orbital.eq.0)oper(2)%p%orbital=1
-   if(oper(2)%p%spin.eq.0)oper(2)%p%spin=1
+   oper(2)%p%orbital=randint(1, dstates%NBands)
+   oper(2)%p%spin=randint(1, 2)
 
    if (.not. process_OperAdd(DTrace, Oper, throwaway, 2))&
       stop "unreachable: reinsertion (1) failed in StepFlavourchange_general"
@@ -4293,10 +4877,6 @@ subroutine StepWormAdd(Sector,flavor)
    integer, optional          :: flavor
    integer                    :: tflavor
    
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 !local
    integer                       :: begin_sst,end_sst
    type(TLogTr)                  :: TraceNew
@@ -4307,20 +4887,13 @@ subroutine StepWormAdd(Sector,flavor)
    type(TOperPointer)            :: Oper(NOperWorm(Sector))
  
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    !generate random general flavor index for band spin pattern
    if(.not.present(flavor).or.flavor.eq.0) then 
-      tflavor = ceiling(grnd()*((2*NBands)**NOperWorm(Sector)))
+      tflavor = randint(1, (2*NBands)**NOperWorm(Sector))
    else
       tflavor = flavor
    endif
-
-   if(tflavor .eq. 0) tflavor = 1
-   
 
    !calculate band-spin compound index for umatrix in improved estimator
    !call index2component_general(Nbands, NOperWorm(Sector), tflavor, bs, b, s)
@@ -4344,17 +4917,6 @@ subroutine StepWormAdd(Sector,flavor)
       enddo
    endif
 
-   !set band spin pattern and times for worm according to flavor and Sector
-   !for improved estimators the 'inner' operators are chosen randomly
-   !for a given tflavor
-   if(Sector==3 .or. Sector==5) then
-      call set_IEOperFlavor(Oper,NOperWorm(Sector),NBands,flavor,u_o,u_s)
-      u_g=2*(u_o-1)+u_s
-   else
-     call set_OperFlavor(Oper,NOperWorm(Sector),NBands,tflavor)
-   endif
-   call set_OperTime(Oper,NOperWorm(Sector),DTrace%beta,DTrace%equal_time_offset,Sector)
-   
    !attaching tags to the generated operators
    !make sure they have no hyb lines attached
    allocate(DTrace%wormContainer(NOperWorm(Sector)))
@@ -4362,6 +4924,31 @@ subroutine StepWormAdd(Sector,flavor)
       Oper(i)%p%has_hyb=.false.
       DTrace%wormContainer(i)%p=>Oper(i)%p
    enddo
+
+   !set band spin pattern and times for worm according to flavor and Sector
+   !for improved estimators the 'inner' operators are chosen randomly
+   !for a given tflavor
+   if(Sector==SectorGSigma &
+     .or. Sector==SectorQUDdag &
+     .or. Sector==SectorH4 &
+     .or. Sector==SectorQQ & 
+     .or. Sector==SectorQ4 &
+     .or. Sector==SectorNQQdag &
+     .or. Sector==SectorQQdd &
+     .or. Sector==SectorUcaca &
+     .or. Sector==SectorUccaa) then
+      do
+         call set_IEOperFlavor(Oper,NOperWorm(Sector),NBands,flavor,u_o,u_s,Sector)
+         do i=1,4
+            u_g(i)=2*(u_o(i)-1)+u_s(i)
+         enddo
+         call get_Proposal(Sector, prefact)
+         if (prefact /= 0.0d0) exit
+      end do
+   else
+     call set_OperFlavor(Oper,NOperWorm(Sector),NBands,tflavor)
+   endif
+   call set_OperTime(Oper,NOperWorm(Sector),DTrace%beta,DTrace%equal_time_offset,Sector)
    
    !sort the generated operators to the correct position in the trace
    call process_OperAdd_global(DTrace,Oper,FPos,NOperWorm(Sector))
@@ -4376,12 +4963,15 @@ subroutine StepWormAdd(Sector,flavor)
       call insert_Oper(DTrace,Oper(i:i+1))
    enddo
 
+   !TODO is this necessary?
    call get_Proposal(Sector,prefact)
    
    call save_outer_sst(DTrace)
+
    !now we can check the quantum number violations
    if((.not.check_EqualTime(DTrace,Sector)).or.(prefact.eq.0d0)&
        .or. (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst))) then
+      
       call restore_outer_sst(DTrace)
       !if we violate quantum numbers we need to remove operators again before exiting
       do i=1,NOperWorm(Sector),2
@@ -4408,11 +4998,12 @@ subroutine StepWormAdd(Sector,flavor)
    TraceNew = get_trace_EB(DTrace,DStates,global=.true.)
    BosTraceNew = get_BosonicTrace(DTrace,DStates)
    
+
    !Metropolis                        
    rand=grnd()
    if(rand.lt.dabs(prefact&
       *trval(TraceNew/DTrace%Trace)*BosTraceNew/DTrace%BosonicTrace))then
-     
+
       DTrace%Trace=TraceNew
       DTrace%BosonicTrace=BosTraceNew
       
@@ -4423,12 +5014,14 @@ subroutine StepWormAdd(Sector,flavor)
       AccWormAdd(Sector)=AccWormAdd(Sector)+1
       
       !update control for worm measurement in order to save on Fourier transform
-      if(Sector>1) then
+      if(Sector>SectorZ) then
          isNew(Sector)=.true.
       endif
 
    else
+
       call restore_outer_sst(DTrace)
+
       do i=1,NOperWorm(Sector),2
          call remove_Oper(DTrace,Oper(i:i+1))
       enddo
@@ -4448,7 +5041,7 @@ subroutine StepWormAdd(Sector,flavor)
       DTrace%iOperPool=DTrace%iOperPool+NOperWorm(Sector)
     
       !make sure we change sector after updating pool
-      Sector=1
+      Sector=SectorZ
    endif
 
 end subroutine StepWormAdd
@@ -4460,10 +5053,6 @@ subroutine StepWormRem(Sector)
 !input
    integer, intent(inout)        :: Sector
 !local
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
    
    integer                       :: begin_sst,end_sst
    type(TLogTr)                  :: TraceNew
@@ -4475,10 +5064,6 @@ subroutine StepWormRem(Sector)
    type(TOperPointer)            :: Oper(NOperWorm(Sector))
    type(TOper),pointer           :: Element
       
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    nullify(Element)
 
@@ -4557,7 +5142,7 @@ subroutine StepWormRem(Sector)
       
       !if operator rem accepted and without hyb lines, change sector
       AccWormRem(Sector)=AccWormRem(Sector)+1
-      Sector=1      
+      Sector=SectorZ
 
 
    else
@@ -4591,10 +5176,6 @@ subroutine StepWormHybAdd(Sector,flavor)
    integer, optional          :: flavor
    integer                    :: wflavor,hybflavor
    
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 !local
    integer                       :: begin_sst,end_sst
    type(TLogTr)                  :: TraceNew
@@ -4611,28 +5192,21 @@ subroutine StepWormHybAdd(Sector,flavor)
 
    nullify(FullHybr_offdiag)
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
-   if(Sector .ne. 2) then
+   if(Sector .ne. SectorG) then
       stop 'StepWormHybAdd only implemented for one-particle Greens function'
    endif
-   !furthermore Sector 2 -> NOperWorm(2)=2
+   !furthermore Sector SectorG -> NOperWorm(SectorG)=2
 
    !generate worm flavor
    if(.not.present(flavor).or.flavor.eq.0) then
-      wflavor = ceiling(grnd()*((2*NBands)**2))
+      wflavor = randint(1, (2*NBands)**2)
    else
       wflavor = flavor
    endif
    !hybflavor determined randomly
-   hybflavor = ceiling(grnd()*((2*NBands)**2))
-   
-   if(wflavor .eq. 0) wflavor = 1
-   if(hybflavor .eq. 0) hybflavor = 1
-   
+   hybflavor = randint(1, (2*NBands)**2)
+
    !TODO:change to account for WormHyb Steps
    TryWormAdd(Sector)=TryWormAdd(Sector)+1
    
@@ -4816,7 +5390,7 @@ subroutine StepWormHybAdd(Sector,flavor)
       DTrace%iOperPool=DTrace%iOperPool+4
     
       !make sure we change sector after updating pool
-      Sector=1
+      Sector=SectorZ
    endif
 
 end subroutine StepWormHybAdd
@@ -4828,10 +5402,6 @@ subroutine StepWormHybRem(Sector)
 !input
    integer, intent(inout)        :: Sector
 !local
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
    
    integer                       :: begin_sst,end_sst
    type(TLogTr)                  :: TraceNew
@@ -4847,15 +5417,11 @@ subroutine StepWormHybRem(Sector)
    real(kindr),pointer            :: FullHybr_offdiag(:,:)
       
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
-   if(Sector .ne. 2) then
+   if(Sector .ne. SectorG) then
       stop 'StepWormHybRem only implemented for one-particle Greens function'
    endif
-   !furthermore Sector 2 -> NOperWorm(2)=2
+   !furthermore Sector SectorG -> NOperWorm(SectorG)=2
 
    !TODO:change to account for WormHyb Steps
    TryWormRem(Sector)=TryWormRem(Sector)+1
@@ -5041,56 +5607,139 @@ subroutine get_Proposal(Sector,prefact)
 !input
 integer,intent(in)                ::  Sector
 real(KINDR),intent(out)           ::  prefact
+real(KINDR)                       ::  u_antisymm_1, u_antisymm_2, u_antisymm_both, u_antisymm_3, ua1, ua2
 
-type(TTrace),pointer              :: DTrace
-type(TStates_pointer)             :: pDStates
-type(TTrace_pointer)              :: pDTrace
 
 !local
 integer                           ::  i
 integer                           ::  bs(NOperWorm(Sector))
 
 
-pDStates=transfer(ipDStates,pDStates)
-pDTrace=transfer(ipDTrace,pDTrace)
-DTrace => pDTrace%ptr
    
    !2 operators with 2 random times and one random flavor
-   if(Sector .eq. 1) then
+   if(Sector .eq. SectorZ) then
 
       prefact = (DTrace%beta**NOperWorm(Sector))*NBands
 
-   elseif(Sector .eq. 2) then
+   elseif(Sector .eq. SectorG) then
 
       prefact = ((DTrace%beta*NBands)**NOperWorm(Sector))*wormEta(Sector)
 
-   !5 operatos with 5 random times and 5 random flavors
-   elseif(Sector .eq. 4) then 
+   !4 operatos with 4 random times and 4 random flavors
+   elseif(Sector .eq. SectorG4) then 
 
       prefact = ((DTrace%beta*Nbands)**NOperWorm(Sector))*wormEta(Sector)
 
    !4/6 operators with 2/4 random times and 4/6 flavors
-   elseif(Sector .eq. 3 .or. Sector .eq. 5) then
+   elseif(Sector .eq. SectorGSigma .or. Sector .eq. SectorH4) then
       
       do i=1,NOperWorm(Sector)
          bs(i) = 2*(DTrace%wormContainer(i)%p%orbital-1) + DTrace%wormContainer(i)%p%spin
       enddo
       
       !the umatrix prefactor goes into the sampling
-      prefact = 0.5d0*(u_matrix(u_g,bs(2),bs(1),bs(3))-u_matrix(bs(2),u_g,bs(1),bs(3)))
+      prefact = 0.5d0*(u_matrix(u_g(1),bs(2),bs(1),bs(3))-u_matrix(bs(2),u_g(1),bs(1),bs(3)))
       
       prefact = prefact*(DTrace%beta**(NOperWorm(Sector)-2))*(Nbands**(NOperWorm(Sector)+1))*wormEta(Sector)
 
+   elseif(Sector.eq.SectorQUDdag) then
+
+      do i=1,NOperWorm(Sector)
+         bs(i) = 2*(DTrace%wormContainer(i)%p%orbital-1) + DTrace%wormContainer(i)%p%spin
+      enddo
+
+      ua1 = u_matrix_antisymm_1(u_g(1),bs(2),bs(1),bs(3))
+      ua2 = u_matrix_antisymm_both(u_g(3),bs(4),u_g(2),u_g(4))
+      prefact = ua1 * ua2
+      prefact = prefact * (DTrace%beta)**2
+      prefact = prefact * Nbands**4
+      prefact = prefact * wormEta(Sector)
+
    !4 operators with 2 random times and 4 flavors
-   elseif(Sector .eq. 6 .or. Sector .eq. 7) then 
+   elseif(Sector .eq. SectorP2 .or. Sector .eq. SectorP2pp) then 
  
       prefact = (DTrace%beta**2)*(Nbands**4)*wormEta(Sector)
 
    !4 operators with 3 random times and 4 flavors
-   elseif(Sector .eq. 8 .or. Sector .eq. 9) then 
+   elseif(Sector .eq. SectorP3 .or. Sector .eq. SectorP3pp) then 
 
       prefact = (DTrace%beta**3)*(Nbands**4)*wormEta(Sector)
    
+   elseif(Sector .eq. SectorQQ) then
+      
+      do i=1,NOperWorm(Sector)
+         bs(i) = 2*(DTrace%wormContainer(i)%p%orbital-1) + DTrace%wormContainer(i)%p%spin
+      enddo
+      
+      !the umatrix prefactor goes into the sampling
+      prefact = (0.5d0*(u_matrix(u_g(1),bs(2),bs(1),bs(3))-u_matrix(bs(2),u_g(1),bs(1),bs(3)))*&
+                 0.5d0*(u_matrix(bs(6),bs(4),u_g(2),bs(5))-u_matrix(bs(6),bs(4),bs(5),u_g(2))))
+   
+      prefact = prefact*(DTrace%beta**(NOperWorm(Sector)-4))*(Nbands**(NOperWorm(Sector)+2))*wormEta(Sector)
+
+   elseif(Sector .eq. SectorQ4) then
+      
+      do i=1,NOperWorm(Sector)
+         bs(i) = 2*(DTrace%wormContainer(i)%p%orbital-1) + DTrace%wormContainer(i)%p%spin
+      enddo
+      
+      !the umatrix prefactor goes into the sampling
+      prefact = (0.5d0*(u_matrix(u_g(1),bs(2),bs(1),bs(3))-u_matrix(bs(2),u_g(1),bs(1),bs(3)))*&
+                 0.5d0*(u_matrix(bs(6),bs(4),u_g(2),bs(5))-u_matrix(bs(6),bs(4),bs(5),u_g(2)))*&
+                 0.5d0*(u_matrix(u_g(3),bs(8),bs(7),bs(9))-u_matrix(bs(8),u_g(3),bs(7),bs(9)))*&
+                 0.5d0*(u_matrix(bs(12),bs(10),u_g(4),bs(11))-u_matrix(bs(12),bs(10),bs(11),u_g(4))))
+   
+      prefact = prefact*(DTrace%beta**4)*(Nbands**12)*wormEta(Sector)
+      ! FIXME beta factor
+
+   elseif(Sector .eq. SectorNQQdag) then
+     
+     do i=1,NOperWorm(Sector)
+         bs(i) = 2*(DTrace%wormContainer(i)%p%orbital-1) + DTrace%wormContainer(i)%p%spin
+     enddo
+     u_antisymm_1 = u_matrix_antisymm_1(u_g(1), bs(2), bs(1), bs(3))
+     u_antisymm_2 = u_matrix_antisymm_2(bs(4), bs(6), u_g(2), bs(5))
+     u_antisymm_both = u_matrix_antisymm_both(u_g(3), bs(8), u_g(4), bs(7))
+
+     prefact = u_antisymm_1 * u_antisymm_2 * u_antisymm_both * wormEta(Sector) * DTrace%beta**3 * Nbands**8
+
+   elseif(Sector .eq. SectorQQdd) then
+     
+     do i=1,NOperWorm(Sector)
+         bs(i) = 2*(DTrace%wormContainer(i)%p%orbital-1) + DTrace%wormContainer(i)%p%spin
+     enddo
+     u_antisymm_1 = u_matrix_antisymm_1(u_g(1), bs(2), bs(1), bs(3)) 
+     u_antisymm_2 = u_matrix_antisymm_1(u_g(3), bs(4), bs(6), bs(5)) 
+     u_antisymm_3 = u_matrix_antisymm_2(bs(8), bs(7), u_g(2), u_g(4))
+
+     prefact = u_antisymm_1 * u_antisymm_2 * u_antisymm_3 * wormEta(Sector) * DTrace%beta**3 * Nbands**8
+     !write(*,*) u_antisymm_1, u_antisymm_2, u_antisymm_3, prefact
+   elseif(Sector .eq. SectorUcaca) then
+     do i=1,NOperWorm(Sector)
+       bs(i) = 2*(DTrace%wormContainer(i)%p%orbital-1) &
+         + DTrace%wormContainer(i)%p%spin
+     enddo
+     u_antisymm_1 = u_matrix_antisymm_both(u_g(1), bs(2), u_g(2), bs(1))
+     u_antisymm_2 = u_matrix_antisymm_both(u_g(3), bs(4), u_g(4), bs(3))
+
+     prefact = u_antisymm_1 &
+       * u_antisymm_2 &
+       * wormEta(Sector) &
+       * DTrace%beta**2 &
+       * Nbands**4
+   elseif(Sector .eq. SectorUccaa) then
+     do i=1,NOperWorm(Sector)
+       bs(i) = 2*(DTrace%wormContainer(i)%p%orbital-1) &
+         + DTrace%wormContainer(i)%p%spin
+     enddo
+     u_antisymm_1 = u_matrix_antisymm_1(u_g(1), u_g(3), bs(1), bs(3))
+     u_antisymm_2 = u_matrix_antisymm_2(bs(2), bs(4), u_g(2), u_g(4))
+
+     prefact = -u_antisymm_1 & ! minus, because 2413 is odd permutation of 1234
+       * u_antisymm_2 &
+       * wormEta(Sector) &
+       * DTrace%beta**2 &
+       * Nbands**4
    endif
 
 end subroutine get_Proposal
@@ -5108,50 +5757,133 @@ subroutine StepWormReplace(Sector)
 !===============================================================================
 !input
    integer,intent(in)         :: Sector
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
-   integer                    :: operPos,tmpPos, iN
-   integer                    :: wb,ws,wca
-   integer                    :: N,rand
-   real(KINDR)                :: DetRat,sgn
+   integer                    :: operPos,tmpPos,iN,nobj
+   integer                    :: wb,ws,wca, begin_sst, end_sst
+   integer                    :: N,rand,fpos(2)
+   integer                    :: qrepind(3), qtimeind(3)
+   real(KINDR)                :: DetRat,sgn,BosTraceNew,prob
+   type(TLogTr)               :: TraceNew
    type(TOper),pointer        :: OperHyb
    type(TOper),pointer        :: Element
+   type(TOperPointer)         :: Oper(4), qtraceord(3), begin, end
    real(KINDR),pointer        :: u(:),vdag(:)
-   logical                    :: force_diagonal=.true.   
+   logical                    :: force_diagonal=.true.,multimove=.false.
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    nullify(Element);nullify(vdag);nullify(u)
    
-   if((.not.allocated(DTrace%wormContainer)).or.(Sector.eq.1)) then 
+   if((.not.allocated(DTrace%wormContainer)).or.(Sector.eq.SectorZ)) then 
       stop "Cannot replace a hyb operator with a worm operator"
    endif
    
    TryWormRep(Sector)=TryWormRep(Sector)+1
    
    !select one of the two worm operators for exchange
-   if(Sector .eq. 2 .or. Sector .eq. 4) then
-      rand=ceiling(grnd()*size(DTrace%wormContainer))
-      if(rand.eq.0) rand=1     
-   elseif(Sector .eq. 3 .or. Sector .eq. 5) then
+   if(Sector .eq. SectorG .or. Sector .eq. SectorG4) then
+      rand=randint(1, size(DTrace%wormContainer))
+   elseif(Sector .eq. SectorGSigma &
+     .or. Sector .eq. SectorH4 &
+     .or. Sector .eq. SectorQUDdag) then ! I hope this works for QUDdag
       !we only exchange the operators which are not equal time operators
-      rand=ceiling(grnd()*size(DTrace%wormContainer(4:)))+3
-      if(rand.eq.3) rand=4
-   elseif(Sector .eq. 8) then
+      rand=randint(4, size(DTrace%wormContainer(4:)) + 3)
+   elseif(Sector .eq. SectorP3) then
      !we only exchange the operators which are not equal time operators
-      rand=ceiling(grnd()*2)
-      if(rand.eq.0) rand=1
-   elseif(Sector .eq. 9) then
+      rand=randint(1, 2)
+   elseif(Sector .eq. SectorP3pp) then
       !we only exchange the operators which are not equal time operators
-      rand=ceiling(grnd()*2)
-      if(rand.eq.0) rand=1
+      rand=randint(1, 2)
       if(rand.eq.2) rand=3
    !we do not attempt replacment moves for two legged GF
+   elseif (Sector == SectorQQ) then
+      ! move parts of three-operator object
+      nobj = 3
+      ! we always move two operators; if at least one three-operator
+      ! block contains a density, move a density. rand is the index of
+      ! the operator in wormContainer that will become a hybridization
+      ! operator (i.e. the operator that is not moved in the Q which
+      ! is moved away)
+      if (flaveq(DTrace%wormContainer(2)%p, DTrace%wormContainer(3)%p)) then
+         if (flaveq(DTrace%wormContainer(4)%p, DTrace%wormContainer(5)%p)) then
+            rand = randint(1, 2)
+            rand = (rand - 1) * 5 + 1
+         else
+            rand = 1
+         end if
+      else
+         if (flaveq(DTrace%wormContainer(4)%p, DTrace%wormContainer(5)%p)) then
+            rand = 6
+         else
+            rand = randint(1, 6)
+         end if
+      end if
+   elseif (Sector == SectorNQQdag) then
+      ! move parts of three-operator object
+      ! (potential FIXME: we do not move (parts of) the N yet)
+      nobj = 3
+      ! we always move two operators; if at least one three-operator
+      ! block contains a density, move a density. rand is the index of
+      ! the operator in wormContainer that will become a hybridization
+      ! operator (i.e. the operator that is not moved in the Q which
+      ! is moved away)
+      if (flaveq(DTrace%wormContainer(2)%p, DTrace%wormContainer(3)%p)) then
+         if (flaveq(DTrace%wormContainer(6)%p, DTrace%wormContainer(5)%p)) then
+            rand = randint(1, 2)
+            rand = (rand - 1) * 3 + 1
+         else
+            rand = 1
+         end if
+      else
+         if (flaveq(DTrace%wormContainer(6)%p, DTrace%wormContainer(5)%p)) then
+            rand = 4
+         else
+            rand = randint(1, 6)
+         end if
+      end if
+   elseif (Sector == SectorQ4) then
+      ! move parts of three-operator object
+      nobj = 3
+      iN = 0
+      ! iN is the amount of contained "densities"; we only move
+      ! densities if available in this case as well.
+      ! TODO: check whether this is a good idea
+      if (flaveq(DTrace%wormContainer(2)%p, DTrace%wormContainer(3)%p)) iN = iN + 1
+      if (flaveq(DTrace%wormContainer(4)%p, DTrace%wormContainer(5)%p)) iN = iN + 1
+      if (flaveq(DTrace%wormContainer(8)%p, DTrace%wormContainer(9)%p)) iN = iN + 1
+      if (flaveq(DTrace%wormContainer(10)%p, DTrace%wormContainer(11)%p)) iN = iN + 1
+      if (iN > 0) then
+         ! use rand first as "index of density to be moved", set to wormContainer index after that density is found
+         rand = randint(1, iN)
+         qqloop: do iN = 0, 1
+            if (flaveq(DTrace%wormContainer(6*iN + 2)%p, DTrace%wormContainer(6*iN + 3)%p)) then
+               if (rand <= 1) then
+                  rand = 6*iN + 1
+                  exit qqloop
+               else
+                  rand = rand - 1
+               end if
+            end if
+            if (flaveq(DTrace%wormContainer(6*iN + 4)%p, DTrace%wormContainer(6*iN + 5)%p)) then
+               if (rand <= 1) then
+                  rand = 6*iN + 6
+                  exit qqloop
+               else
+                  rand = rand - 1
+               end if
+            end if
+         end do qqloop
+      else
+         rand = randint(1, 12)
+      end if
+   else if (Sector == SectorUccaa) then
+      ! move parts of two-operator object
+      nobj = 2
+      ! wormContainer index of operator to become hybridization operator
+      rand = randint(1, 4)
+   else if (Sector == SectorUcaca) then
+      ! move parts of two-operator object
+      nobj = 2
+      ! wormContainer index of operator to become hybridization operator
+      rand = randint(1, 4)
    else
       return
    endif
@@ -5159,8 +5891,9 @@ subroutine StepWormReplace(Sector)
    wb=DTrace%wormContainer(rand)%p%orbital
    ws=DTrace%wormContainer(rand)%p%spin
    wca=DTrace%wormContainer(rand)%p%CA
-   
-   if(b_offdiag) then
+
+   ! TODO: someone should look into this more carefully
+   if(b_offdiag .and. .not. (Sector == SectorQQ .or. Sector == SectorQ4 .or. Sector == SectorUccaa .or. Sector == SectorUcaca .or. Sector == SectorNQQdag)) then
       N=(DTrace%NOper-size(DTrace%wormContainer))/2
    else
       N=DTrace%NOSOper(wb,ws)/2
@@ -5174,12 +5907,7 @@ subroutine StepWormReplace(Sector)
    allocate(vdag(N)) 
    
    !pick random operator of same type as worm operator
-   operPos=int(grnd()*N)+1
-   
-   !fix rare cases were grand() gives exactly 1
-   if(operPos.eq.N+1) then
-      operPos=N
-   endif 
+   operPos=randint(1, N)
 
    !find operator in list
    tmpPos=operPos
@@ -5209,11 +5937,203 @@ subroutine StepWormReplace(Sector)
 
    call propose_WormReplace(DTrace,DStates,DTrace%wormContainer(rand)%p,OperHyb,u,vdag,detRat,sgn)
 
-   !metropolis detRat only needs to be calculated for flavor block, not entire matrix
-   if(grnd().lt.abs(detRat))then
+   if (Sector == SectorQQ .or. Sector == SectorQ4) then
+      ! qrepind contains the wormContainer indices of the affected
+      ! operators where the first two are those of the operators to be
+      ! moved (and always in trace order). qtimeind contains the
+      ! positions in trace order ("ascending tau") of the three
+      ! operators with indices qrepind in the equal time three
+      ! operator sequence.
+      multimove = .true.
+      select case (rand)
+      case (1)
+         qrepind = (/3, 2, 1/)
+         qtimeind = (/2, 3, 1/)
+      case (2)
+         qrepind = (/1, 3, 2/)
+         qtimeind = (/1, 2, 3/)
+      case (3)
+         qrepind = (/1, 2, 3/)
+         qtimeind = (/1, 3, 2/)
+      case (4)
+         qrepind = (/5, 6, 4/)
+         qtimeind = (/1, 3, 2/)
+      case (5)
+         qrepind = (/4, 6, 5/)
+         qtimeind = (/2, 3, 1/)
+      case (6)
+         qrepind = (/5, 4, 6/)
+         qtimeind = (/1, 2, 3/)
+      case (7)
+         qrepind = (/9, 8, 7/)
+         qtimeind = (/2, 3, 1/)
+      case (8)
+         qrepind = (/7, 9, 8/)
+         qtimeind = (/1, 2, 3/)
+      case (9)
+         qrepind = (/7, 8, 9/)
+         qtimeind = (/1, 3, 2/)
+      case (10)
+         qrepind = (/11, 12, 10/)
+         qtimeind = (/1, 3, 2/)
+      case (11)
+         qrepind = (/10, 12, 11/)
+         qtimeind = (/2, 3, 1/)
+      case (12)
+         qrepind = (/11, 10, 12/)
+         qtimeind = (/1, 2, 3/)
+      end select
+   elseif (Sector == SectorNQQdag) then
+      ! same as above...
+      multimove = .true.
+      select case (rand)
+      case (1)
+         qrepind = (/3, 2, 1/)
+         qtimeind = (/2, 3, 1/)
+      case (2)
+         qrepind = (/1, 3, 2/)
+         qtimeind = (/1, 2, 3/)
+      case (3)
+         qrepind = (/1, 2, 3/)
+         qtimeind = (/1, 3, 2/)
+      case (4)
+         qrepind = (/5, 6, 4/)
+         qtimeind = (/1, 2, 3/)
+      case (5)
+         qrepind = (/6, 4, 5/)
+         qtimeind = (/2, 3, 1/)
+      case (6)
+         qrepind = (/5, 4, 6/)
+         qtimeind = (/1, 3, 2/)
+      end select
+   else if (Sector == SectorUccaa) then
+      ! same as above, but only the first one is moved and the third place is unused
+      multimove = .true.
+      select case (rand)
+      ! huge to provoke segmentation fault as much as possible in case of programmer error
+      case (1)
+         qrepind = (/3, 1, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
+      case (2)
+         qrepind = (/4, 2, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      case (3)
+         qrepind = (/1, 3, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      case (4)
+         qrepind = (/2, 4, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
+      end select
+   else if (Sector == SectorUcaca) then
+      ! same as above, but only the first one is moved and the third place is unused
+      multimove = .true.
+      select case (rand)
+      ! huge to provoke segmentation fault as much as possible in case of programmer error
+      case (1)
+         qrepind = (/2, 1, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
+      case (2)
+         qrepind = (/1, 2, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      case (3)
+         qrepind = (/4, 3, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
+      case (4)
+         qrepind = (/3, 4, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      end select
+   else
+      multimove = .false. ! just to be very explicit
+   end if
+
+   if (multimove) then
+      ! save current operators for easy restoring of the previous state
+      do iN = 1, nobj - 1
+         Oper(iN)%p => DTrace%wormContainer(qrepind(iN))%p
+      end do
+      Oper(nobj)%p => OperHyb
+      Oper(nobj + 1)%p => DTrace%wormContainer(qrepind(nobj))%p
+      do iN = 1, nobj - 1
+         call duplicate_oper(DTrace, DTrace%wormContainer(qrepind(iN))%p, qtraceord(qtimeind(iN))%p)
+      end do
+      call duplicate_oper(DTrace, OperHyb, qtraceord(qtimeind(nobj))%p)
+      call remove_Oper(DTrace, Oper(1:nobj-1))
+      call remove_Oper(DTrace, Oper(nobj:nobj))
+
+      ! generate and insert new equal time operators
+      qtraceord(1)%p%tau = OperHyb%tau
+      do iN = 2, nobj
+         qtraceord(iN)%p%tau = qtraceord(iN-1)%p%tau + DTrace%equal_time_offset
+      end do
+      call process_OperAdd_global(DTrace, qtraceord(1:nobj), fpos, nobj)
+
+      call insert_Oper(DTrace, qtraceord(1:nobj))
+
+      ! determine part of superstate sequence to check, either from
+      ! before the new Q to after the old Q or from before the old Q
+      ! until after the new Q
+      if (OperHyb%tau < DTrace%wormContainer(rand)%p%tau) then
+         begin%p => qtraceord(1)%p%prev
+         end%p => DTrace%wormContainer(qrepind(maxloc(qtimeind(1:nobj), 1)))%p%next
+      else
+         begin%p => DTrace%wormContainer(qrepind(minloc(qtimeind(1:nobj), 1)))%p%prev
+         end%p => qtraceord(nobj)%p%next
+      end if
+      call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+
+      ! temporarily set the wormContainer pointers so check_EqualTime works
+      do iN = 1, nobj
+         DTrace%wormContainer(qrepind(iN))%p => qtraceord(qtimeind(iN))%p
+      end do
+      if (.not.check_EqualTime(DTrace,Sector)&
+          .or.(.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst))) then
+         do iN = 1, nobj - 1
+            DTrace%wormContainer(qrepind(iN))%p => Oper(iN)%p
+         end do
+         DTrace%wormContainer(qrepind(nobj))%p => Oper(nobj + 1)%p
+         call remove_Oper(DTrace, qtraceord(1:nobj))
+         call insert_Oper(DTrace, Oper(nobj:nobj))
+         call insert_Oper(DTrace, Oper(1:nobj-1))
+         do iN = 1, nobj
+            call recycle_oper(DTrace, qtraceord(iN)%p)
+         end do
+         goto 99
+      end if
+      do iN = 1, nobj - 1
+         DTrace%wormContainer(qrepind(iN))%p => Oper(iN)%p
+      end do
+      DTrace%wormContainer(qrepind(nobj))%p => Oper(nobj + 1)%p
+
+      OperHyb => qtraceord(qtimeind(nobj))%p
+
+      TraceNew = get_trace_EB(DTrace, DStates, global=.true.)
+      BosTraceNew = get_BosonicTrace(DTrace,DStates)
+
+      prob = abs(detRat*trval(TraceNew/DTrace%Trace)*BosTraceNew/DTrace%BosonicTrace)
+   else ! multimove
+      prob = abs(detRat)
+   end if ! multimove
    
+   !metropolis detRat only needs to be calculated for flavor block, not entire matrix
+   if(grnd().lt.prob)then
       !updating matrix,determinant etc.
       call do_WormReplace(DTrace,DStates,DTrace%wormContainer(rand)%p,OperHyb,u,vdag,detRat)
+
+      if (multimove) then
+         DTrace%Trace = TraceNew
+         DTrace%BosonicTrace = DTrace%BosonicTrace
+         call update_trace_EB(DTrace, global=.true.)
+
+         ! throw away stored operators
+         do iN = 1, nobj
+            call recycle_oper(DTrace, Oper(iN)%p)
+         end do
+
+         ! set wormContainer pointers, for former OperHyb already done by do_WormReplace
+         do iN = 1, nobj - 1
+            DTrace%wormContainer(qrepind(iN))%p => qtraceord(qtimeind(iN))%p
+         end do
+      end if
       
       !calculating the sign (should be the same as sgn from propose_wormReplace)
       DTrace%cfgsign=-get_Sign(DTrace,DStates)      
@@ -5223,54 +6143,55 @@ subroutine StepWormReplace(Sector)
       
       !update control for worm measurement in oder to save on Fourier transform
       isNew(Sector)=.true.
-
+   else
+      if (multimove) then
+         ! remove and throw away the new Q operators and reinsert the
+         ! stored old ones
+         call remove_Oper(DTrace, qtraceord(1:nobj))
+         call insert_Oper(DTrace, Oper(nobj:nobj))
+         call insert_Oper(DTrace, Oper(1:nobj-1))
+         do iN = 1, nobj
+            call recycle_oper(DTrace, qtraceord(iN)%p)
+         end do
+      end if
    endif
-   
+
    !clean up
-99 deallocate(u,vdag)
+99 if (associated(u)) deallocate(u)
+   if (associated(vdag)) deallocate(vdag)
    
 end subroutine StepWormReplace
 
-!===============================================================================
-!> this subroutine tries to dermine the best wormEta for each sector, such that each
-!  sector is equally visited by finding the correct reweighing factor
-subroutine findEta(iSector,iComponent,tol,Nfix,maxIter)
-   use type_progress
+subroutine count_steps(iSector, iComponent, Nfix, stepsWorm, stepsZ)
+  use type_progress
 
-   integer                    :: iSector,iComponent
-   real(KINDR)                :: tol
-   integer(C_INT64_T)         :: Nfix
-   integer                    :: maxIter
+  integer :: iSector, iComponent, Nfix
+  integer                    :: maxIter
+
+  integer, intent(inout) :: stepsWorm, stepsZ
+
 !local
-   real(KINDR)                :: rand_num
-   integer(c_int64_t)         :: i, j
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
-   integer                    :: Sector
-   type(progress)             :: p
+  real(KINDR)                :: rand_num
+  integer(c_int64_t)         :: i, j
+  integer                    :: Sector
+  type(progress)             :: p
 
-   real(KINDR),allocatable    :: taus(:)
-   integer,allocatable        :: orbs(:), spins(:), cas(:),hashybs(:)
-   integer                    :: outer_sst, outer_state
+  real(KINDR),allocatable    :: taus(:)
+  integer,allocatable        :: orbs(:), spins(:), cas(:),hashybs(:)
+  integer                    :: outer_sst, outer_state
 
-   logical                    :: worm_offdiag
-   integer                    :: bs(2), b(2), s(2)
+  logical                    :: worm_offdiag
+  integer                    :: bs(2), b(2), s(2)
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
+
    
-
    !save starting configuration
    allocate(taus(DTrace%NOper),orbs(DTrace%NOper),&
             spins(DTrace%NOper),cas(DTrace%NOper),hashybs(DTrace%NOper))
    call get_mc_config(DTrace%NOper, taus, orbs, spins, cas, hashybs, outer_sst, outer_state)
  
    !starting in partition function space     
-   Sector = 1
+   Sector = SectorZ
 
    p%adaptrate = 0.1
    call pstart(p, int(maxIter,PINT), &
@@ -5278,15 +6199,14 @@ subroutine findEta(iSector,iComponent,tol,Nfix,maxIter)
 
    !determine if off_diagonal one-particle worm
    worm_offdiag=.false.
-   if(b_offdiag .and. iSector .eq. 2) then
+   if(b_offdiag .and. iSector .eq. SectorG) then
       call index2component_general(Nbands, 2, iComponent, bs, b, s)
       if(bs(1).ne.bs(2)) worm_offdiag=.true.
    endif
 
-   do i=1,maxIter
       do j=1,Nfix
-         if(Sector==1) then
-            CntSampling(1) = CntSampling(1) + 1
+         if(Sector==SectorZ) then
+            CntSampling(SectorZ) = CntSampling(SectorZ) + 1
             rand_num=grnd()
             !insertion of hyb pair
             if(rand_num<(1d0-PercentageTauShiftMove-PercentageGlobalMove-PercentageWormInsert)/2d0)then
@@ -5317,7 +6237,7 @@ subroutine findEta(iSector,iComponent,tol,Nfix,maxIter)
                !attempt to go into iSector
                Sector = iSector
 
-               !offdiagonals require mixed worm/hyb for Sector 2
+               !offdiagonals require mixed worm/hyb for SectorG
                if(worm_offdiag) then
                    call StepWormHybAdd(Sector,iComponent)
                else
@@ -5356,12 +6276,163 @@ subroutine findEta(iSector,iComponent,tol,Nfix,maxIter)
                   endif
                endif
             elseif(rand_num<1d0-PercentageWormInsert) then
-               if(Sector .ne. 6 .and. Sector .ne. 7) then
-                  call StepWormReplace(Sector)
-               endif
+               call StepWormReplace(Sector)
             !worm removal
             else
-               !offdiagonals require mixed worm/hyb for Sector 2
+               !offdiagonals require mixed worm/hyb for SectorG
+               if(worm_offdiag) then
+                   call StepWormHybRem(Sector)
+               else
+                   call StepWormRem(Sector)
+               endif
+            endif
+         endif
+
+         if (.not. b_segment) then
+            if (modulo(sum(TryAdd) + sum(TryRem), NSlide) == 0) call shift_window(DTrace)
+         end if
+
+      enddo
+
+  stepsWorm = CntSampling(iSector)
+  stepsZ = CntSampling(SectorZ)
+
+      Sector = SectorZ
+      call init_counters()
+      !reset to initial configuraiton
+      call clear_Trace(DTrace,DStates)
+      call set_mc_config(size(taus), taus, orbs, spins, cas, hashybs, outer_sst, outer_state)
+      
+      call ptick(p)
+   
+   deallocate(taus,orbs,spins,cas,hashybs)
+
+end subroutine count_steps
+
+
+
+
+!===============================================================================
+!> this subroutine tries to dermine the best wormEta for each sector, such that each
+!  sector is equally visited by finding the correct reweighing factor
+subroutine findEta(iSector,iComponent,tol,Nfix,maxIter)
+   use type_progress
+
+   integer                    :: iSector,iComponent
+   real(KINDR)                :: tol
+   integer(C_INT64_T)         :: Nfix
+   integer                    :: maxIter
+!local
+   real(KINDR)                :: rand_num
+   integer(c_int64_t)         :: i, j
+   integer                    :: Sector
+   type(progress)             :: p
+
+   real(KINDR),allocatable    :: taus(:)
+   integer,allocatable        :: orbs(:), spins(:), cas(:),hashybs(:)
+   integer                    :: outer_sst, outer_state
+
+   logical                    :: worm_offdiag
+   integer                    :: bs(2), b(2), s(2)
+
+   
+
+   !save starting configuration
+   allocate(taus(DTrace%NOper),orbs(DTrace%NOper),&
+            spins(DTrace%NOper),cas(DTrace%NOper),hashybs(DTrace%NOper))
+   call get_mc_config(DTrace%NOper, taus, orbs, spins, cas, hashybs, outer_sst, outer_state)
+ 
+   !starting in partition function space     
+   Sector = SectorZ
+
+   p%adaptrate = 0.1
+   call pstart(p, int(maxIter,PINT), &
+               title='EtaSearch' // simstr // ':', fancy=fancy_prog)
+
+   !determine if off_diagonal one-particle worm
+   worm_offdiag=.false.
+   if(b_offdiag .and. iSector .eq. SectorG) then
+      call index2component_general(Nbands, 2, iComponent, bs, b, s)
+      if(bs(1).ne.bs(2)) worm_offdiag=.true.
+   endif
+
+   do i=1,maxIter
+      do j=1,Nfix
+         if(Sector==SectorZ) then
+            CntSampling(SectorZ) = CntSampling(SectorZ) + 1
+            rand_num=grnd()
+            !insertion of hyb pair
+            if(rand_num<(1d0-PercentageTauShiftMove-PercentageGlobalMove-PercentageWormInsert)/2d0)then
+               if(grnd() >= Percentage4OperatorMove)then
+                  call StepAdd(grnd() < PercentageOuterMove,Sector)
+               else
+                  if(.not.b_exch)then
+                     call StepAdd4(Sector)
+                  else
+                     call StepFlavourchange_general()
+                  endif
+               endif
+
+            !removal of hyb pair
+            elseif(rand_num<=1d0-PercentageTauShiftMove-PercentageGlobalMove-PercentageWormInsert)then
+               if(grnd() >= Percentage4OperatorMove)then
+                  call StepRem(grnd() < PercentageOuterMove,Sector)
+               else
+                  if(.not.b_exch)then
+                     call StepRem4()
+                  else
+                     call StepFlavourchange_general()
+                  endif
+               endif
+
+            elseif(rand_num<=1d0-PercentageTauShiftMove-PercentageGlobalMove)then
+               
+               !attempt to go into iSector
+               Sector = iSector
+
+               !offdiagonals require mixed worm/hyb for SectorG
+               if(worm_offdiag) then
+                   call StepWormHybAdd(Sector,iComponent)
+               else
+                   call StepWormAdd(Sector,iComponent)
+               endif
+               
+            elseif (rand_num <= 1d0-PercentageTauShiftMove) then
+               call StepGlob()
+            else
+               call StepShiftTau()
+            endif
+         !elseif(Sector .eq. iSector)
+         else
+            CntSampling(iSector) = CntSampling(iSector) + 1
+            rand_num=grnd()
+            !insertion of hyb pair
+            if(rand_num<(1d0-PercentageWormReplace-PercentageWormInsert)/2d0)then
+               if(grnd() >= Percentage4OperatorMove)then
+                  call StepAdd(grnd() < PercentageOuterMove,Sector)
+               else
+                  if(.not.b_exch)then
+                     call StepAdd4(Sector)
+                  else
+                     call StepFlavourchange_general()
+                  endif
+               endif
+            !removal of of hyb pair
+            elseif(rand_num<1d0-PercentageWormReplace-PercentageWormInsert)then
+               if(grnd() >= Percentage4OperatorMove)then
+                  call StepRem(grnd() < PercentageOuterMove,Sector)
+               else
+                  if(.not.b_exch)then
+                     call StepRem4()
+                  else
+                     call StepFlavourchange_general()
+                  endif
+               endif
+            elseif(rand_num<1d0-PercentageWormInsert) then
+               call StepWormReplace(Sector)
+            !worm removal
+            else
+               !offdiagonals require mixed worm/hyb for SectorG
                if(worm_offdiag) then
                    call StepWormHybRem(Sector)
                else
@@ -5379,16 +6450,16 @@ subroutine findEta(iSector,iComponent,tol,Nfix,maxIter)
       !after a sucessful runthrough we adjust eta
       if(CntSampling(iSector).eq.0) then 
          wormEta(iSector)=wormEta(iSector)*100d0
-      elseif(CntSampling(1).eq.0) then
+      elseif(CntSampling(SectorZ).eq.0) then
          wormEta(iSector)=wormEta(iSector)*0.01d0
       else
-         wormEta(iSector)=wormEta(iSector)*CntSampling(1)/dble(CntSampling(iSector))
+         wormEta(iSector)=wormEta(iSector)*CntSampling(SectorZ)/dble(CntSampling(iSector))
       endif
       
       
       !convergence criteria
-      if(dble(abs(CntSampling(iSector)-CntSampling(1)))/dble((CntSampling(iSector)+CntSampling(1))).lt.tol) then
-         Sector = 1
+      if(dble(abs(CntSampling(iSector)-CntSampling(SectorZ)))/dble((CntSampling(iSector)+CntSampling(SectorZ))).lt.tol) then
+         Sector = SectorZ
          call init_counters()
          !reset to initial configuraiton
          call clear_Trace(DTrace,DStates)
@@ -5402,7 +6473,7 @@ subroutine findEta(iSector,iComponent,tol,Nfix,maxIter)
          wormEta(iSector)=0d0
       endif 
 
-      Sector = 1
+      Sector = SectorZ
       call init_counters()
       !reset to initial configuraiton
       call clear_Trace(DTrace,DStates)
@@ -5472,10 +6543,6 @@ end function equal_large
 subroutine StepAdd_mine()
 !===============================================================================
 !input
-   type(TStates),pointer         :: DStates
-   type(TTrace),pointer          :: DTrace
-   type(TStates_pointer)         :: pDStates
-   type(TTrace_pointer)          :: pDTrace
 !local
    integer                       :: CA,FPos(2),Ntmp
    real(KINDR),pointer           :: temp(:,:)
@@ -5489,15 +6556,11 @@ subroutine StepAdd_mine()
    real(kindr),pointer           :: FullHybr_offdiag(:,:)
    logical                       :: equal_times
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    ! Fortran 90 does not guarantee nullified pointers
    nullify(temp); nullify(Q); nullify(R)
 
-   if(DTrace%iOperPool.eq.0)then
+   if(DTrace%iOperPool < 2)then
       do CA=1,2
          allocate(Oper(CA)%p)
 !        allocate(Oper(CA)%p%normr(DTrace%NTruncStatesMax))
@@ -5743,7 +6806,7 @@ subroutine StepAdd_mine()
    endif
 
    if (.not. (b_offdiag .and. b_full_offdiag)) deallocate(Q,R)
-
+   
 end subroutine StepAdd_mine
 
 
@@ -5752,10 +6815,6 @@ end subroutine StepAdd_mine
 subroutine StepRem_mine()
 !===============================================================================
 !input
-   type(TStates),pointer         :: DStates
-   type(TTrace),pointer          :: DTrace
-   type(TStates_pointer)         :: pDStates
-   type(TTrace_pointer)          :: pDTrace
 !local
    integer                       :: CA, FPos(2), Ntmp
    real(KINDR),pointer           :: temp(:,:)
@@ -5768,10 +6827,6 @@ subroutine StepRem_mine()
    logical                       :: qn,seg,overbeta
    real(kindr),pointer           :: FullHybr_offdiag(:,:)
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
  
    nullify(temp)!; nullify(Element)
 
@@ -5954,15 +7009,7 @@ subroutine MeasOcc_seg()
 
    type(toper),pointer           :: element
    integer                       :: ib1, is1, ib2, is2
-   type(tstates),pointer         :: dstates
-   type(ttrace),pointer          :: dtrace
-   type(tstates_pointer)         :: pdstates
-   type(ttrace_pointer)          :: pdtrace
  
-   pdstates = transfer(ipdstates, pdstates)
-   pdtrace = transfer(ipdtrace, pdtrace)
-   dstates => pdstates%ptr
-   dtrace => pdtrace%ptr
 
    !===============================================================================
    ! singleoccs
@@ -6093,10 +7140,6 @@ end subroutine MeasOcc_seg
 !!! nested loop!
 subroutine MeasSusz_seg()
 !===============================================================================
-   type(tstates),pointer         :: dstates
-   type(ttrace),pointer          :: dtrace
-   type(tstates_pointer)         :: pdstates
-   type(ttrace_pointer)          :: pdtrace
 
    type(toper),pointer           :: e1, e2
    integer                       :: ib1, is1, ib2, is2, ig1, ig2, di
@@ -6106,10 +7149,6 @@ subroutine MeasSusz_seg()
    !www=.true.
    !www=.false.
 
-   pdstates = transfer(ipdstates, pdstates)
-   pdtrace = transfer(ipdtrace, pdtrace)
-   dstates => pdstates%ptr
-   dtrace => pdtrace%ptr
    
    !www=.true.
 
@@ -6500,10 +7539,6 @@ end subroutine MeasSusz_seg
 subroutine StepGlob_mine()
 !===============================================================================
 !input
-   type(TStates),pointer      :: DStates
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
 !local
    type(TLogTr)                  :: tr1, tr2
    real(KINDR)                   :: rand, prob
@@ -6527,10 +7562,6 @@ subroutine StepGlob_mine()
    endif
    !update=1
 
-   pDStates=transfer(ipDStates,pDStates)
-   pDTrace=transfer(ipDTrace,pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    nullify(FullHybr)
 
@@ -6550,18 +7581,11 @@ subroutine StepGlob_mine()
    elseif(update.eq.2)then
 
       !! permute 2 flavours randomly
-      b1=ceiling(grnd()*dble(NBands))
-      s1=ceiling(grnd()*dble(2))
-      if(b1.eq.0)b1=1
-      if(s1.eq.0)s1=1
-      b2=ceiling(grnd()*dble(NBands))
-      s2=ceiling(grnd()*dble(2))
-      if(b2.eq.0)b2=1
-      if(s2.eq.0)s2=1
-      !b1=1
-      !b2=1
-      !s1=1
-      !s2=2
+      b1=randint(1, NBands)
+      s1=randint(1, 2)
+      b2=randint(1, NBands)
+      s2=randint(1, 2)
+
       if((b1.eq.b2).and.(s1.eq.s2))then
          return
       endif
@@ -6774,28 +7798,44 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    real(KINDR)                :: muimp_full(NBands,2,NBands,2)
    real(KINDR)                :: screening_function(NBands,2,NBands,2,Nftau)
 !local
-   type(TStates), pointer     :: DStates
-   type(TTrace), pointer      :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
    real(KINDR), allocatable   :: HEValues(:)
    type(TPsis)                :: DPsis, DTransformed_Psis
    type(TOperator)            :: DH
    type(TOperator)            :: HEVectors
    integer                    :: i
    integer                    :: ib, is
+   integer                    :: orb1, orb2, orb3, orb4
    integer, allocatable       :: states2substates(:)
    integer                    :: nsubstates
    
-   allocate(pDStates%ptr)
-   allocate(pDTrace%ptr)
-   ipDStates=transfer(pDStates,ipDStates)
-   ipDTrace=transfer(pDTrace,ipDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
-   
    allocate(u_matrix(2*NBands,2*NBands,2*NBands,2*NBands))
+   allocate(u_matrix_antisymm_1(2*NBands,2*NBands,2*NBands,2*NBands))
+   allocate(u_matrix_antisymm_2(2*NBands,2*NBands,2*NBands,2*NBands))
+   allocate(u_matrix_antisymm_both(2*NBands,2*NBands,2*NBands,2*NBands))
    u_matrix = u_matrix_in
+   do orb1=1, 2*Nbands
+     do orb2=1, 2*Nbands
+       do orb3=1, 2*Nbands
+         do orb4=1, 2*Nbands
+           u_matrix_antisymm_1(orb1, orb2, orb3, orb4) = 0.5*(u_matrix(orb1, orb2, orb3, orb4) &
+                                                             -u_matrix(orb2, orb1, orb3, orb4))
+           u_matrix_antisymm_2(orb1, orb2, orb3, orb4) = 0.5*(u_matrix(orb1, orb2, orb3, orb4) &
+                                                             -u_matrix(orb1, orb2, orb4, orb3))
+         end do
+       end do
+     end do
+   end do
+
+   do orb1=1, 2*Nbands
+     do orb2=1, 2*Nbands
+       do orb3=1, 2*Nbands
+         do orb4=1, 2*Nbands
+           u_matrix_antisymm_both(orb1, orb2, orb3, orb4) = 0.5*(u_matrix_antisymm_1(orb1, orb2, orb3, orb4) &
+                                                               - u_matrix_antisymm_1(orb1, orb2, orb4, orb3))
+         end do
+       end do
+     end do
+   end do
 
    do ib=1,NBands
    do is=1,2
@@ -6803,6 +7843,9 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
       muimp(ib,is)=muimp_full(ib,is,ib,is)
    enddo
    enddo
+
+   allocate(DStates)
+   allocate(DTrace)
 
    call init_States(DStates)
    call qns2substates(DStates, nsubstates, states2substates)
@@ -6914,18 +7957,12 @@ subroutine ctqmc_calibrate(Ncalibrate, list)
    use type_progress
 
 !local
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
    type(progress)             :: p
    integer(c_int64_t)         :: i, Ncalibrate
    logical                    :: list
    real(KINDR)                :: rand_num
    real(KINDR)                :: time_start, time_end
 
-   pDStates = transfer(ipDStates, pDStates)
-   pDTrace = transfer(ipDTrace, pDTrace)
-   DTrace => pDTrace%ptr
 
    if (list) then
       if (.not. allocated(AccPairTau)) allocate(AccPairTau(1000))
@@ -6983,11 +8020,7 @@ end subroutine ctqmc_calibrate
 
 subroutine set_taudiffmax(taudiffmax)
    real(KINDR), intent(in) :: taudiffmax
-   type(TTrace), pointer   :: DTrace
-   type(TTrace_pointer)    :: pDTrace
 
-   pDTrace = transfer(ipDTrace, pDTrace)
-   DTrace => pDTrace%ptr
 
    call init_window(DTrace, taudiffmax)
 end subroutine set_taudiffmax
@@ -6998,17 +8031,11 @@ subroutine ctqmc_warmup(Nwarmups)
    use type_progress
 
 !local
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
    type(progress)             :: p
    integer(c_int64_t)         :: i, Nwarmups
    real(KINDR)                :: rand_num
    real(KINDR)                :: time_start
 
-   pDStates = transfer(ipDStates, pDStates)
-   pDTrace = transfer(ipDTrace, pDTrace)
-   DTrace => pDTrace%ptr
 
    if (allocated(AccPair)) then
       deallocate(AccPair)
@@ -7080,8 +8107,6 @@ end subroutine ctqmc_warmup
 subroutine ctqmc_worm_warmup(Nwarmups2,iSector,iComponent)
    integer                    :: iSector,iComponent
 !local
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
    integer(c_int64_t)         :: Nwarmups2
    integer                    :: maxIter
    !sector: 1 == partition function, 2 == 1P GF worm
@@ -7091,9 +8116,14 @@ subroutine ctqmc_worm_warmup(Nwarmups2,iSector,iComponent)
    !sector: 7 == 2 legged 2P GF PP
    !sector: 8 == 3 legged 2P GF PH
    !sector: 9 == 3 legged 2P GF PP
- 
-   pDStates = transfer(ipDStates, pDStates)
-   pDTrace = transfer(ipDTrace, pDTrace)
+   !sector: 10 == 1P symmetric IE (QQ) 
+   !sector: 11 == 2P symmetric IE (QQQQ)
+   !sector: 12 == 2P symmetric IE (nqqdag)
+   !sector: 13 == 2P symmetric IE (qqdd)
+   !sector: 14 == 2P symmetric IE (ucaca)
+   !sector: 15 == 2P symmetric IE (uccaa)
+   !sector: 16 == 1P IE
+
 
    if((b_offdiag.eqv..true.).and.(iSector>2)) then
        stop "Worm Sampling with offdiagonal hybridizations not implemented."
@@ -7102,28 +8132,58 @@ subroutine ctqmc_worm_warmup(Nwarmups2,iSector,iComponent)
    !for component sampling, just add one additional sector
    if(iComponent.ne.0) then
       !bufferd transform for g4iw and h4iw
-      allocate(val_worm(10000000))
+      allocate(val_worm(5000000))
+      if(nfft_mode_g4iw .eq. 1) then
+        allocate(val_worm_w(size(val_worm)))
+      endif
       tau_fill = 0
 
-      if(iSector .eq. 2 .or. iSector .eq. 3) then
+      if(iSector .eq. SectorG &
+        .or. iSector .eq. SectorGSigma &
+        .or. iSector .eq. SectorQQ &
+        .or. iSector .eq. SectorQUDdag) then
          allocate(tau_worm(size(val_worm)))
-      elseif(iSector .eq. 4 .or. iSector .eq. 5) then
+
+      elseif(iSector .eq. SectorG4) then
+         if(g4ph .eq. 1) then
+           allocate(tau_worm(3*size(val_worm)))
+           if(nfft_mode_g4iw .eq. 1) then
+             allocate(tau_worm_ft(2*size(val_worm)))
+           endif
+         endif
+         if(g4pp .eq. 1) then
+           allocate(tau_worm_pp(3*size(val_worm)))
+           if(nfft_mode_g4iw .eq. 1) then
+             allocate(tau_worm_pp_ft(2*size(val_worm)))
+           endif
+         endif
+
+      elseif(iSector .eq. SectorH4 &
+        .or. iSector .eq. SectorQ4) then
          allocate(tau_worm(3*size(val_worm)))
-      elseif(iSector .eq. 6 .or. iSector .eq. 7) then
+         
+      elseif(iSector .eq. SectorP2 &
+        .or. iSector .eq. SectorP2pp &
+        .or. iSector .eq. SectorUcaca &
+        .or. iSector .eq. SectorUccaa) then
          allocate(tau_worm(size(val_worm)))
-      elseif(iSector .eq. 8 .or. iSector .eq. 9) then
+
+      elseif(iSector .eq. SectorP3 &
+        .or. iSector .eq. SectorP3pp &
+        .or. iSector .eq. SectorNQQdag &
+        .or. iSector .eq. SectorQQdd) then
          allocate(tau_worm(2*size(val_worm)))
       endif
 
    endif
    
-   !generalize this to components in sector
-   if(get_Integer_Parameter("WormSearchEta")/=0) then
-      !we determine the reweighing matrix eta in n_component preruns
-      !using a root finding algorithm, currently with a 10% tolerance
-      maxIter=15
-      call findEta(iSector,iComponent,0.1d0,Nwarmups2,maxIter)
-   endif
+!   !generalize this to components in sector
+!   if(get_Integer_Parameter("WormSearchEta")/=0) then
+!      !we determine the reweighing matrix eta in n_component preruns
+!      !using a root finding algorithm, currently with a 10% tolerance
+!      maxIter=15
+!      call findEta(iSector,iComponent,0.1d0,Nwarmups2,maxIter)
+!   endif
    
 
 end subroutine ctqmc_worm_warmup
@@ -7141,26 +8201,22 @@ subroutine ctqmc_measure(iSector,iComponent)
 
    integer                    :: iSector,iComponent
 !local
-   type(TTrace),pointer       :: DTrace
-   type(TStates_pointer)      :: pDStates
-   type(TTrace_pointer)       :: pDTrace
-   type(progress)             :: p
+   type(progress)             :: p, ft_progress
    integer                    :: wm,l,lp
    integer(c_int64_t)         :: i,j,iNMeas,iNCorr, k
    integer                    :: ib, is
-   integer                    :: in1, in2, in3
+   integer                    :: in1, in2, in3, accucomps, accublocks
    real(KINDR)                :: rand_num
    real(KINDR)                :: time_start, time_temp
-   real(KINDR)                :: wormScaling(9),zScaling
+   real(KINDR)                :: wormScaling(NWormSectors),zScaling
    integer                    :: Sector
    logical                    :: do_sampling
    real(KINDR)                :: wormNorm
+   real(KINDR)                :: u_sparsity
    logical                    :: worm_offdiag
    integer                    :: bs(2), b(2), s(2)
-
-   pDStates = transfer(ipDStates, pDStates)
-   pDTrace = transfer(ipDTrace, pDTrace)
-   DTrace => pDTrace%ptr
+   real(c_double), pointer    :: buffer1d(:), buffer2d(:,:)
+   integer                    :: i_sample, max_tick
 
    if (allocated(AccPair)) then
       deallocate(AccPair)
@@ -7175,21 +8231,24 @@ subroutine ctqmc_measure(iSector,iComponent)
 
    call cpu_time(time_sim)
 
-   Sector = 1
+   Sector = SectorZ
 
    !determine if off_diagonal one-particle worm
    worm_offdiag=.false.
-   if(b_offdiag .and. iSector .eq. 2) then
+   if(b_offdiag .and. iSector .eq. SectorG) then
       call index2component_general(Nbands, 2, iComponent, bs, b, s)
       if(bs(1).ne.bs(2)) worm_offdiag=.true.
    endif
 
    !only sample if necessary
    do_sampling = .false.
-   if (iSector.eq.1) then
+   if (iSector .eq. SectorZ) then
       do_sampling = .true.
-   else if (iSector > 1) then
+   else if (iSector > SectorZ) then ! FIXME better use iSector != SectorZ
       if (wormEta(iSector).ne.0d0) do_sampling = .true.
+      write(*,*) 
+      write(*,*) 'worm eta', wormEta(iSector)
+      write(*,*) 
    end if
 
    if (do_sampling) then
@@ -7198,13 +8257,12 @@ subroutine ctqmc_measure(iSector,iComponent)
    do iNMeas=1,NMeas
       g_inmeas=inmeas
       !correlation steps in z and worm space
-      !we measure sign with NCorr = 1
 
       call cpu_time(time_start)
       do iNCorr=1, NCorr
          !Z space
          if(any_signal_fired) exit OUTER_LOOP
-         if(Sector==1) then
+         if(Sector==SectorZ) then
             ! This is set by trap_notify in case of a signal
             !increase sampling counter for partition function space
             CntSampling(Sector) = CntSampling(Sector) + 1
@@ -7244,7 +8302,7 @@ subroutine ctqmc_measure(iSector,iComponent)
 
                Sector=iSector
                
-               !offdiagonals require mixed worm/hyb for Sector 2
+               !offdiagonals require mixed worm/hyb for SectorG
                if(worm_offdiag) then
                    call StepWormHybAdd(Sector,iComponent)
                else
@@ -7291,12 +8349,10 @@ subroutine ctqmc_measure(iSector,iComponent)
                   endif
                endif
             elseif(rand_num<1d0-PercentageWormInsert) then
-               if(Sector .ne. 6 .and. Sector .ne. 7) then
-                  call StepWormReplace(Sector)
-               endif
+               call StepWormReplace(Sector)
             !worm removal
             else
-               !offdiagonals require mixed worm/hyb for Sector 2
+               !offdiagonals require mixed worm/hyb for SectorG
                if(worm_offdiag) then
                    call StepWormHybRem(Sector)
                else
@@ -7316,7 +8372,7 @@ subroutine ctqmc_measure(iSector,iComponent)
       call ptick(p)
       
       !partition function space measurements
-      if(Sector==1) then
+      if(Sector==SectorZ) then
          !increase measurement counter for partition function space
          CntMeas(Sector) = CntMeas(Sector) + 1
 
@@ -7324,9 +8380,13 @@ subroutine ctqmc_measure(iSector,iComponent)
          if(b_segment) call MeasOcc_seg()
          if (.not. b_segment) call MeasOuterHistograms()
          call MeasExpOrder()
+
+         if ((b_Eigenbasis .eqv. .true.) .and. .not. b_segment) then
+            if(allocated(densitymatrix)) call MeasDensityMatrix_beta_half()
+         endif
          
          !only measure if component samling not enabled
-         if(iSector==1) then
+         if(iSector==SectorZ) then
             if(b_meas_susz)then
                call MeasSusz_seg()
             else if (b_meas_susz_mat) then
@@ -7339,7 +8399,7 @@ subroutine ctqmc_measure(iSector,iComponent)
                call MeasGtauRem(GtauDetRat)
             endif
 
-            if(allocated(giw)&  ! .or. allocated(gsigmaiw) .or. &
+            if(allocated(giw)&  ! .or. allocated(gsigmaiw)&
                .or. allocated(g4iw) .or. allocated(g4iw_pp)) then
                call minv_matching_taus(DTrace,DTrace%MInv)
             endif
@@ -7347,44 +8407,72 @@ subroutine ctqmc_measure(iSector,iComponent)
             if(.not. b_Giw_lookup .and. allocated(giw)) then  ! .or. allocated(gsigmaiw))) then
                call measure_giw_nfft()
             endif
-            if ((b_Eigenbasis .eqv. .true.) .and. .not. b_segment) then
-               if(allocated(densitymatrix)) call MeasDensityMatrix_beta_half()
-            endif
             if(allocated(expresdensitymatrix)) call MeasExpResDensityMatrix()
 
             if(IAND(FourPnt,GF4_IMAGTIME+GF4_LEGENDRE) /= 0) call MeasGtau4PntLeg()
             if(allocated(g4iw) .or. allocated(g4iw_pp)) call measure_g4iw_nfft()
             !call ptick(p)
          endif
+
+
+
        !worm space measurements
-       elseif(Sector==2) then
+       elseif(Sector==SectorG) then
             CntMeas(Sector) = CntMeas(Sector) + 1            
             if(allocated(Giw_worm)) call measure_giw_worm()
             if(allocated(Gtau_worm)) call measure_gtau_worm()
-       elseif(Sector==4 .and. (allocated(g4iw_worm))) then
+       elseif(Sector==SectorG4 .and. (allocated(g4iw_worm))) then
             CntMeas(Sector) = CntMeas(Sector) + 1
-            call measure_g4iw_worm()
-       elseif(Sector==3 .and. (allocated(gsigmaiw_worm))) then
+            if(nfft_mode_g4iw .eq. 0) then
+              call measure_g4iw_worm()
+            else
+              call measure_g4iw_worm_nfft2d()
+            endif
+       elseif(Sector==SectorGSigma .and. (allocated(gsigmaiw_worm))) then
             CntMeas(Sector) = CntMeas(Sector) + 1
             call measure_ie_sigma_worm()
-       elseif(Sector==5 .and. (allocated(h4iw_worm))) then
+       elseif(Sector==SectorH4 .and. (allocated(h4iw_worm))) then
             CntMeas(Sector) = CntMeas(Sector) + 1
             call measure_ie_chi_worm()
-       elseif(Sector==6) then
+       elseif(Sector==SectorP2) then
             CntMeas(Sector) = CntMeas(Sector) + 1
             if (allocated(p2iw_worm)) call measure_p2iw_worm()
             if (allocated(p2tau_worm))  call measure_p2tau_worm()
-       elseif(Sector==7) then
+       elseif(Sector==SectorP2pp) then
             CntMeas(Sector) = CntMeas(Sector) + 1
             if (allocated(p2iwpp_worm)) call measure_p2iwpp_worm()
             if (allocated(p2taupp_worm)) call measure_p2taupp_worm()
-       elseif(Sector==8 .and. (allocated(p3iw_worm))) then
+       elseif(Sector==SectorP3 .and. (allocated(p3iw_worm))) then
             CntMeas(Sector) = CntMeas(Sector) + 1
             call measure_p3iw_worm()
-       elseif(Sector==9 .and. (allocated(p3iwpp_worm))) then
+       elseif(Sector==SectorP3pp .and. (allocated(p3iwpp_worm))) then
             CntMeas(Sector) = CntMeas(Sector) + 1
             call measure_p3iwpp_worm()
-       endif
+       elseif(Sector==SectorQQ .and. (allocated(qq_worm))) then
+            CntMeas(Sector) = CntMeas(Sector) + 1
+            if(allocated(qq_worm)) call measure_qq_worm()
+            if(allocated(qqtau_worm)) call measure_qqtau_worm()
+       elseif(Sector==SectorQ4 .and. (allocated(qqqq_worm))) then
+            CntMeas(Sector) = CntMeas(Sector) + 1
+            call measure_qqqq_worm()
+       elseif(Sector==SectorNQQdag .and. (allocated(nqqdag_worm))) then
+            CntMeas(Sector) = CntMeas(Sector) + 1
+            call measure_nqqdag_worm()
+       elseif(Sector==SectorQQdd .and. (allocated(qqdd_worm))) then
+            CntMeas(Sector) = CntMeas(Sector) + 1
+            call measure_qqdd_worm()
+       elseif(Sector==SectorUcaca) then
+            CntMeas(Sector) = CntMeas(Sector) + 1
+            if(allocated(ucaca_worm)) call measure_ucaca_worm()
+            if(allocated(ucacatau_worm)) call measure_ucacatau_worm()
+       elseif(Sector==SectorUccaa) then
+            CntMeas(Sector) = CntMeas(Sector) + 1
+            if(allocated(uccaa_worm)) call measure_uccaa_worm()
+            if(allocated(uccaatau_worm)) call measure_uccaatau_worm()
+       elseif(Sector==SectorQUDdag) then
+            CntMeas(Sector) = CntMeas(Sector) + 1
+            if(allocated(quddag_worm)) call measure_quddag_worm()
+       endif 
        
    enddo OUTER_LOOP
 
@@ -7406,6 +8494,8 @@ subroutine ctqmc_measure(iSector,iComponent)
    !endif for if(do_sampling)
    endif
 
+   ! ==================== POSTPROCESSING FROM HERE ON ========================
+
    if(NMeas == 0) then
       write (0,"('Rank', I3, '> ERROR: No measurements')") SimID
    else
@@ -7414,19 +8504,19 @@ subroutine ctqmc_measure(iSector,iComponent)
       mean_sign = meas_sign/real(cnt_sign_z, KINDR)
       
       write(0,*) "Z Mean Sign", mean_sign
-      if (iSector /= 1) then
-         write(0,*) "Steps in Z and wormspaces", CntSampling(1),CntSampling(iSector)
+      if (iSector /= SectorZ) then
+         write(0,*) "Steps in Z and wormspaces", CntSampling(SectorZ),CntSampling(iSector)
       else
-         write(0,*) "Steps in Z", CntSampling(1)
+         write(0,*) "Steps in Z", CntSampling(SectorZ)
       endif
       !acceptance in partition function space
 
       AccGlob=AccGlob/TryGlob
       AccShift=AccShift/TryShift
       
-      AccAdd(1)=AccAdd(1)/TryAdd(1)
-      AccRem(1)=AccRem(1)/TryRem(1)
-      if (iSector /= 1) then
+      AccAdd(SectorZ)=AccAdd(SectorZ)/TryAdd(SectorZ)
+      AccRem(SectorZ)=AccRem(SectorZ)/TryRem(SectorZ)
+      if (iSector /= SectorZ) then
          AccAdd(iSector)=AccAdd(iSector)/TryAdd(iSector)
          AccRem(iSector)=AccRem(iSector)/TryRem(iSector)
          AccWormAdd(iSector)=AccWormAdd(iSector)/TryWormAdd(iSector)
@@ -7434,26 +8524,13 @@ subroutine ctqmc_measure(iSector,iComponent)
          AccWormRep(iSector)=AccWormRep(iSector)/TryWormRep(iSector)
       end if
 
-      !write(*,*) "total:"
-      !write(*,*) "TryAdd4", TryAdd4
-      !write(*,*) "TryRem4", TryRem4
-      !write(*,*) "AccAdd4", AccAdd4
-      !write(*,*) "AccRem4", AccRem4
-
       AccAdd4=AccAdd4/TryAdd4
       AccRem4=AccRem4/TryRem4
-      !write(*,*) "relative:"
-      !write(*,*) "AccAdd4", AccAdd4
-      !write(*,*) "AccRem4", AccRem4
-
-      !write(*,*) "TryFlavc ", TryFlavc 
-      !write(*,*) "AccFlavc ", AccFlavc 
       AccFlavc=AccFlavc/dble(TryFlavc) 
-      !write(*,*) "relative: ", AccFlavc
 
-      zScaling = -1./(dble(CntMeas(1)) * mean_sign)
+      zScaling = -1./(dble(CntMeas(SectorZ)) * mean_sign)
       lhisto(:) = dble(dtrace%lhisto(:))/sum(dtrace%lhisto(:)) !FIXME
-      rhisto(:) = dble(dtrace%rhisto(:))/(AccAdd(1)+AccRem(1)+AccGlob)
+      rhisto(:) = dble(dtrace%rhisto(:))/(AccAdd(SectorZ)+AccRem(SectorZ)+AccGlob)
       if(.not.b_segment)then
          occ(:,:,:,:)=occ(:,:,:,:) * zScaling
       else
@@ -7464,7 +8541,7 @@ subroutine ctqmc_measure(iSector,iComponent)
          densitymatrix(:,:)=densitymatrix(:,:) * zScaling
       endif
 
-      if ((b_Eigenbasis .eqv. .true.) .and. (b_segment .eqv. .false.)) then
+      if (b_Densitymatrix .and. b_Eigenbasis) then
          call Meas_rho1_from_Densitymatrix()
          call Meas_rho2_from_Densitymatrix()
          call MeasSingleOcc_from_Densitymatrix()
@@ -7478,8 +8555,22 @@ subroutine ctqmc_measure(iSector,iComponent)
         endforall
         write (0, *) "WARNING: unimplemented: the measured expansion order resolved density matrix MUST be transformed from eigenbasis to occupation number basis to get correct results!"
       endif
-      Gtau(:,:,:)=-Gtau(:,:,:) * zScaling &
-         *dble(NGtau)/(DTrace%beta)**2
+
+      if (gtau_accum%has_mean()) then
+         accucomps = gtau_accum%num_comp()
+         buffer1d(1:accucomps) => gtau
+         call gtau_accum%get_mean(buffer1d)
+         Gtau(:,:,:)=-Gtau(:,:,:) / (-mean_sign) * dble(NGtau)/(DTrace%beta)**2
+      endif
+
+      if (gtau_accum%has_blocks()) then
+         accucomps = gtau_accum%num_comp()
+         accublocks = gtau_accum%num_blocks()
+         buffer2d(1:accucomps, 1:accublocks) => gtau_blocks
+         call gtau_accum%get_blocks(buffer2d)
+         ! TODO: postprocessing of variances (see above)
+      endif
+
       if (allocated(Gtau_mean_step)) Gtau_mean_step(:,:,:)=Gtau_mean_step(:,:,:)/(DTrace%beta)**2
       if (allocated(Gtau_mid_step)) Gtau_mid_step(:,:,:)=Gtau_mid_step(:,:,:)/(DTrace%beta)**2
 
@@ -7494,16 +8585,16 @@ subroutine ctqmc_measure(iSector,iComponent)
       Gtau_full(:,:,:,:,:)=-Gtau_full(:,:,:,:,:) * zScaling &
          *dble(NGtau)/(DTrace%beta)**2
 
-      Histo(:,:,:) = Histo(:,:,:)/dble(CntMeas(1))
+      Histo(:,:,:) = Histo(:,:,:)/dble(CntMeas(SectorZ))
 
       SignHistoSuperstates(:) = SignHistoSuperstates(:)/OuterSuperstateHisto(:)
       SignHistoStates(:) = SignHistoStates(:)/OuterStateHisto(:)
 
-      OuterSuperstateHisto(:) = OuterSuperstateHisto(:)/dble(CntMeas(1))
-      OuterStateHisto(:) = OuterStateHisto(:)/dble(CntMeas(1))
+      OuterSuperstateHisto(:) = OuterSuperstateHisto(:)/dble(CntMeas(SectorZ))
+      OuterStateHisto(:) = OuterStateHisto(:)/dble(CntMeas(SectorZ))
 
-      TraceContribSuperstates(:) = TraceContribSuperstates(:)/dble(CntMeas(1))
-      TraceContribStates(:) = TraceContribStates(:)/dble(CntMeas(1))
+      TraceContribSuperstates(:) = TraceContribSuperstates(:)/dble(CntMeas(SectorZ))
+      TraceContribStates(:) = TraceContribStates(:)/dble(CntMeas(SectorZ))
 
       do i=1,NLegMax
          GLeg(:,:,i)=GLeg(:,:,i)*sqrt(dble(2*(i-1))+1d0)/DTrace%beta
@@ -7514,7 +8605,9 @@ subroutine ctqmc_measure(iSector,iComponent)
 
       if(SimID.eq.0)then
          write(*,*) "globalmove_check ", globalmove_check 
-         globalmove_check(:)=globalmove_check(:)/(sum(globalmove_check))
+         globalmove_check(0) = globalmove_check(0)&
+            /(sum(globalmove_check(1:))/(NBands*(2.0d0*NBands+1.0d0)))
+         globalmove_check(1:)=globalmove_check(1:)/(sum(globalmove_check(1:)))
          write(*,*) "globalmove_check ", globalmove_check 
       endif
 
@@ -7568,26 +8661,41 @@ subroutine ctqmc_measure(iSector,iComponent)
       !   gsigmaiw(:,:,:) = gsigmaiw(:,:,:) * zScaling/DTrace%beta
       ! endif
       
-      if(iSector==2) wormNorm=4d0/DTrace%beta !(2^2 for spin)
-      if(iSector==3) wormNorm=32d0/(DTrace%beta) !(2^5 for spin)
-      if(iSector==4) wormNorm=16d0/(DTrace%beta**2) !(2^4 for spin)
+      !2^(number of spin-dof)
+      !1/beta for 1P estimator 1/beta**2 for 2P estimator
+      if(iSector==SectorG) wormNorm=4d0/DTrace%beta !(2^2 for spin)
+      if(iSector==SectorGSigma) wormNorm=32d0/(DTrace%beta) !(2^5 for spin)
+      if(iSector==SectorG4) wormNorm=16d0/(DTrace%beta**2) !(2^4 for spin)
       !FIXME: check beta factor for H
-      if(iSector==5) wormNorm=128d0/(DTrace%beta**2) !(2^7 for spin)
-      if(iSector==6) wormNorm=16d0/(DTrace%beta) !(2^4 for spin)
-      if(iSector==7) wormNorm=16d0/(DTrace%beta) !(2^4 for spin)
-      if(iSector==8) wormNorm=16d0/(DTrace%beta**2) !(2^4 for spin)
-      if(iSector==9) wormNorm=16d0/(DTrace%beta**2) !(2^4 for spin)    
+      if(iSector==SectorH4) wormNorm=128d0/(DTrace%beta**2) !(2^7 for spin)
+      if(iSector==SectorP2) wormNorm=16d0/(DTrace%beta) !(2^4 for spin)
+      if(iSector==SectorP2pp) wormNorm=16d0/(DTrace%beta) !(2^4 for spin)
+      if(iSector==SectorP3) wormNorm=16d0/(DTrace%beta**2) !(2^4 for spin)
+      if(iSector==SectorP3pp) wormNorm=16d0/(DTrace%beta**2) !(2^4 for spin)    
+      if(iSector==SectorQQ) wormNorm=256d0/(DTrace%beta) !(2^8 for spin)
+
+      if(iSector==SectorQ4) wormNorm=65536d0/(DTrace%beta**2) !(2^16 for spin)
+      if(iSector==SectorNQQdag) wormNorm=4096d0/(DTrace%beta**2)
+      if(iSector==SectorQQdd) wormNorm=8192d0/(DTrace%beta**2)
+      if(iSector==SectorUcaca) wormNorm=256d0/(DTrace%beta**2)
+      if(iSector==SectorUccaa) wormNorm=256d0/(DTrace%beta**2)
+      if(iSector==SectorQUDdag) wormNorm=256d0/(DTrace%beta**2)
 
       if(CntMeas(iSector).ne.0) then
-         wormScaling(iSector)=dble(CntSampling(iSector))/(dble(CntMeas(iSector))*dble(CntSampling(1)))&
+         wormScaling(iSector)=dble(CntSampling(iSector))/(dble(CntMeas(iSector))*dble(CntSampling(SectorZ)))&
          *wormNorm/mean_sign
       else 
          !capturing 0/0 events
          wormScaling(iSector)=0d0
       endif
       
-      
-      ! worm normalization
+
+      !++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ! Fourier transform of remaining worms, normalization
+      !++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+      ! one-particle Green's function
       if( allocated(Giw_worm) .or. allocated(Gtau_worm)) then
 
          if(allocated(Giw_worm)) then
@@ -7601,17 +8709,185 @@ subroutine ctqmc_measure(iSector,iComponent)
                deallocate(matsubaras,d)
              endif
              
-             Giw_worm(:) = -Giw_worm(:)*wormScaling(2)
+             Giw_worm(:) = -Giw_worm(:)*wormScaling(SectorG) / (real(2 * Nbands, kind=KINDR)**2)
          endif
 
          if(allocated(Gtau_worm)) then
-            Gtau_worm(:) = Gtau_worm(:)*wormScaling(2)*(dble(NGtau)/Dtrace%beta)
+            Gtau_worm(:) = Gtau_worm(:)*wormScaling(SectorG)*(dble(NGtau)/Dtrace%beta) / (real(2 * Nbands, kind=KINDR)**2)
          endif
 
       endif
 
-      ! vertex normalization
-      if( allocated(g4iw_worm) ) then
+      !---------------------------------------------------------------------------------
+
+      ! two-particle Green's function
+      if( allocated(g4iw_worm) ) then !finalize the fourier transform for what is left in val_worm
+         if(tau_fill .ne. 0) then
+           if(nfft_mode_g4iw .eq. 0) then  ! do the normal 3D NFFT
+             call pstart(ft_progress, int(1, PINT), &
+                 fancy=fancy_prog, title='NFFT' // simstr // ':')
+             allocate(matsubaras((4*N4iwf)*(4*N4iwf)*(4*N4iwb+3)),d(3))
+             d(1)=4*N4iwf
+             d(2)=4*N4iwf
+             d(3)=4*N4iwb+3
+             if (g4ph .eq. 1) then
+               call ft_nd(tau_worm(:3*tau_fill),val_worm(:tau_fill),matsubaras,d) ! ph fourier transform
+               do in3=-N4iwb,N4iwb
+                 do in2=-N4iwf,N4iwf-1
+                   do in1=-N4iwf,N4iwf-1
+                     k=(4*N4iwf)*(4*N4iwb+3)*(2*(in1+N4iwf)+1)+(4*N4iwb+3)*(2*(in2+N4iwf)+1)+(2*(in3+N4iwb)+1)+1
+                     g4iw_worm(in1,in2,in3)=g4iw_worm(in1,in2,in3) + matsubaras(k)
+                   enddo
+                 enddo
+               enddo
+               g4iw_worm(:,:,:)=g4iw_worm(:,:,:)*wormScaling(SectorG4)
+             endif
+             if (g4pp .eq. 1) then
+               call ft_nd(tau_worm_pp(:3*tau_fill),val_worm(:tau_fill),matsubaras,d) ! pp fourier transform
+               do in3=-N4iwb,N4iwb
+                 do in2=-N4iwf,N4iwf-1
+                   do in1=-N4iwf,N4iwf-1
+                     k=(4*N4iwf)*(4*N4iwb+3)*(2*(in1+N4iwf)+1)+(4*N4iwb+3)*(2*(in2+N4iwf)+1)+(2*(in3+N4iwb)+1)+1
+                     g4iwpp_worm(in1,in2,in3)=g4iwpp_worm(in1,in2,in3) + matsubaras(k)
+                   enddo
+                 enddo
+               enddo
+               g4iwpp_worm(:,:,:)=g4iwpp_worm(:,:,:)*wormScaling(SectorG4)
+             endif
+             deallocate(matsubaras,d)
+             call ptick(ft_progress)
+           else  ! do the NFFT for bosonic frequencies separately
+             if (g4ph .eq. 1 .and. g4pp .eq. 0) then
+               max_tick = 2 * N4iwb + 1
+             elseif (g4ph .eq. 0 .and. g4pp .eq. 1) then
+               max_tick = 2 * N4iwb + 1
+             elseif (g4ph .eq. 1 .and. g4pp .eq. 1) then
+               max_tick = 2 * (2 * N4iwb + 1)
+             endif
+             ft_progress%adaptrate = 0.1
+             call pstart(ft_progress, int(max_tick, PINT), &
+                 fancy=fancy_prog, title='hybridNFFT' // simstr // ':')
+             allocate(matsubaras((4*N4iwf)*(4*N4iwf)),d(2))
+             d(1)=4*N4iwf
+             d(2)=4*N4iwf
+ 
+             ! Fourier transform in ph notation:
+             if(g4ph .eq. 1) then
+               do k=0,tau_fill-1
+                 tau_worm_ft(2*k+1) = tau_worm(3*k+1)
+                 tau_worm_ft(2*k+2) = tau_worm(3*k+2)
+               enddo
+               do in3=-N4iwb,N4iwb
+                 val_worm_w = 0d0
+                 do i_sample=1,tau_fill
+                   val_worm_w(i_sample) = val_worm(i_sample) * exp(cmplx(0,4d0*in3*pi*tau_worm(3*i_sample)))
+                 enddo
+                 call ft_nd(tau_worm_ft(:2*tau_fill),val_worm_w(:tau_fill),matsubaras,d)
+                 do in2=-N4iwf,N4iwf-1
+                   do in1=-N4iwf,N4iwf-1
+                     k=(4*N4iwf)*(2*(in1+N4iwf)+1)+(2*(in2+N4iwf)+1)+1
+                     g4iw_worm(in1,in2,in3)=g4iw_worm(in1,in2,in3) + matsubaras(k)
+                   enddo
+                 enddo
+                 call ptick(ft_progress)
+               enddo
+               g4iw_worm(:,:,:)=g4iw_worm(:,:,:)*wormScaling(SectorG4)
+             endif  ! g4ph
+
+             ! Fourier transform in pp notation
+             if(g4pp .eq. 1) then
+               do k=0,tau_fill-1
+                 tau_worm_pp_ft(2*k+1) = tau_worm_pp(3*k+1)
+                 tau_worm_pp_ft(2*k+2) = tau_worm_pp(3*k+2)
+               enddo
+               do in3=-N4iwb,N4iwb
+                 val_worm_w = 0d0
+                 do i_sample=1,tau_fill
+                   val_worm_w(i_sample) = val_worm(i_sample) * exp(cmplx(0,4d0*in3*pi*tau_worm_pp(3*i_sample)))
+                 enddo
+                 call ft_nd(tau_worm_pp_ft(:2*tau_fill),val_worm_w(:tau_fill),matsubaras,d)
+                 do in2=-N4iwf,N4iwf-1
+                   do in1=-N4iwf,N4iwf-1
+                     k=(4*N4iwf)*(2*(in1+N4iwf)+1)+(2*(in2+N4iwf)+1)+1
+                     g4iwpp_worm(in1,in2,in3)=g4iwpp_worm(in1,in2,in3) + matsubaras(k)
+                   enddo
+                 enddo
+                 call ptick(ft_progress)
+               enddo
+               g4iwpp_worm(:,:,:)=g4iwpp_worm(:,:,:)*wormScaling(SectorG4)
+             endif  ! g4pp
+             deallocate(matsubaras,d)
+           endif  ! nfft_mode_g4iw 0 or 1      
+         endif  ! tau_fill > 0
+      endif  ! allocated g4iw_worm
+      
+      !---------------------------------------------------------------------------------
+
+      ! IE-SIGMA normalization
+      ! FIXME: we dont do this for the full estimator
+      if( allocated(gsigmaiw_worm) ) then
+         if(tau_fill .ne. 0) then
+            allocate(matsubaras(4*NGiw),d(1))
+            d(1)=size(matsubaras)
+ 
+            call ft_nd(tau_worm(:tau_fill),val_worm(:tau_fill),matsubaras,d)
+            gsigmaiw_worm(:)=gsigmaiw_worm(:)+matsubaras(2::2)         
+ 
+            deallocate(matsubaras,d)
+         endif
+
+         Gsigmaiw_worm(:) = Gsigmaiw_worm(:)*wormScaling(SectorGSigma) / (real(-4, kind=KINDR) * real(2 * Nbands, kind=KINDR)**2)
+      endif
+
+      !---------------------------------------------------------------------------------
+
+      if( allocated(quddag_worm) ) then
+         if(tau_fill .ne. 0) then
+            allocate(matsubaras(4*NGiw),d(1))
+            d(1)=size(matsubaras)
+ 
+            call ft_nd(tau_worm(:tau_fill),val_worm(:tau_fill),matsubaras,d)
+            quddag_worm(:)=quddag_worm(:)+matsubaras(2::2)         
+ 
+            deallocate(matsubaras,d)
+         endif
+         u_sparsity = array_nonzero_elements(reshape(u_matrix_antisymm_1(u_g(1),:,:,:), (/(2*Nbands)**3/))) &
+                    * array_nonzero_elements(reshape(u_matrix_antisymm_both(u_g(3),:,u_g(2),u_g(4)), (/(2*Nbands)**1/))) &
+                    / (real(2*Nbands, kind=KINDR)**4)
+         quddag_worm(:) = quddag_worm(:)*wormScaling(SectorQUDdag)*u_sparsity
+      endif
+
+      !---------------------------------------------------------------------------------
+
+      ! qq
+      if( allocated(qq_worm) .or. allocated(qqtau_worm)) then
+        
+         if(allocated(qq_worm) .and. tau_fill .ne. 0) then
+            allocate(matsubaras(4*NGiw),d(1))
+            d(1)=size(matsubaras)
+
+            call ft_nd(tau_worm(:tau_fill),val_worm(:tau_fill),matsubaras,d)
+            qq_worm(:)=qq_worm(:)+matsubaras(2::2)
+
+            deallocate(matsubaras,d)
+         endif
+
+
+         !u_sparsity = real(i, kind=KINDR) * real(j, kind=KINDR) / (real(2 * Nbands, kind=KINDR)**6)
+         u_sparsity = array_nonzero_elements(reshape(u_matrix_antisymm_1(u_g(1),:,:,:), (/(2*Nbands)**3/))) &
+                    * array_nonzero_elements(reshape(u_matrix_antisymm_2(:,:,u_g(2),:), (/(2*Nbands)**3/))) &
+                    / (real(2 * Nbands, kind=KINDR)**6)
+         if(allocated(qq_worm)) then
+           qq_worm(:) = qq_worm(:) * wormScaling(SectorQQ) * u_sparsity / (real(2 * Nbands, kind=KINDR)**2)
+         endif
+         if(allocated(qqtau_worm)) then
+           qqtau_worm(:) = qqtau_worm(:) * wormScaling(SectorQQ) * u_sparsity * (dble(NGtau)/Dtrace%beta) / (real(2 * Nbands, kind=KINDR)**2)
+         endif
+      endif
+
+      !---------------------------------------------------------------------------------
+
+      if( allocated(qqqq_worm) ) then
       
         !finalize the fourier transform for what is left in wormSum
          if(tau_fill .ne. 0) then
@@ -7627,7 +8903,7 @@ subroutine ctqmc_measure(iSector,iComponent)
                   do in3=-N4iwb,N4iwb
 
                    k=(4*N4iwf)*(4*N4iwb+3)*(2*(in1+N4iwf)+1)+(4*N4iwb+3)*(2*(in2+N4iwf)+1)+(2*(in3+N4iwb)+1)+1
-                   g4iw_worm(in1,in2,in3)=g4iw_worm(in1,in2,in3) + matsubaras(k)
+                   qqqq_worm(in1,in2,in3)=qqqq_worm(in1,in2,in3) + matsubaras(k)
 
                   enddo
                enddo
@@ -7635,26 +8911,17 @@ subroutine ctqmc_measure(iSector,iComponent)
 
             deallocate(matsubaras,d)         
          endif
+         u_sparsity = array_nonzero_elements(reshape(u_matrix_antisymm_1(u_g(1),:,:,:), (/(2*Nbands)**3/))) &
+                    * array_nonzero_elements(reshape(u_matrix_antisymm_2(:,:,u_g(2),:), (/(2*Nbands)**3/))) &
+                    * array_nonzero_elements(reshape(u_matrix_antisymm_1(u_g(3),:,:,:), (/(2*Nbands)**3/))) &
+                    * array_nonzero_elements(reshape(u_matrix_antisymm_2(:,:,u_g(4),:), (/(2*Nbands)**3/))) &
+                    / (real(2 * Nbands, kind=KINDR)**12)
 
-         g4iw_worm(:,:,:)=g4iw_worm(:,:,:)*wormScaling(4)
+         qqqq_worm(:,:,:)=qqqq_worm(:,:,:)*wormScaling(SectorQ4)*u_sparsity
       endif
-      
-      ! IE-SIGMA normalization
-      ! FIXME: we dont do this for the full estimator
-      if( allocated(gsigmaiw_worm) ) then
-         if(tau_fill .ne. 0) then
-            allocate(matsubaras(4*NGiw),d(1))
-            d(1)=size(matsubaras)
- 
-            call ft_nd(tau_worm(:tau_fill),val_worm(:tau_fill),matsubaras,d)
-            gsigmaiw_worm(:)=gsigmaiw_worm(:)+matsubaras(2::2)         
- 
-            deallocate(matsubaras,d)
-         endif
 
-         Gsigmaiw_worm(:) = Gsigmaiw_worm(:)*wormScaling(3)
-      endif
-      
+      !---------------------------------------------------------------------------------
+
       ! IE-CHI normalization
       if( allocated(h4iw_worm) ) then
 
@@ -7681,11 +8948,13 @@ subroutine ctqmc_measure(iSector,iComponent)
             deallocate(matsubaras,d)
          endif
         
-         h4iw_worm(:,:,:)=h4iw_worm(:,:,:)*wormScaling(5)
+         h4iw_worm(:,:,:)=h4iw_worm(:,:,:)*wormScaling(SectorH4)
       endif
           
+      !---------------------------------------------------------------------------------
+
       ! p2iw normalization
-      if( allocated(p2iw_worm) ) then
+      if(allocated(p2iw_worm)) then
 
         !finalize the fourier transform for what is left in wormSum
         if(tau_fill .ne. 0) then
@@ -7698,11 +8967,43 @@ subroutine ctqmc_measure(iSector,iComponent)
            deallocate(matsubaras,d)
         endif
    
-        p2iw_worm(:)=p2iw_worm(:)*wormScaling(6)
+        p2iw_worm(:)=p2iw_worm(:)*wormScaling(SectorP2)
       endif
       
+      !---------------------------------------------------------------------------------
+
+      ! ucaca normalization
+      if(allocated(ucaca_worm)) then
+
+        !finalize the fourier transform for what is left in wormSum
+        if(tau_fill .ne. 0) then
+           allocate(matsubaras(4*N2iwb+3),d(1))
+           d(1)=size(matsubaras)
+ 
+           call ft_nd(tau_worm(:tau_fill),val_worm(:tau_fill),matsubaras,d)
+           ucaca_worm(:)=ucaca_worm(:)+matsubaras(2::2)
+
+           deallocate(matsubaras,d)
+        endif
+   
+        u_sparsity = array_nonzero_elements(reshape(u_matrix_antisymm_both(u_g(1),:,u_g(2),:), (/(2*Nbands)**2/))) &
+                   * array_nonzero_elements(reshape(u_matrix_antisymm_both(u_g(3),:,u_g(4),:), (/(2*Nbands)**2/))) &
+                   / (real(2 * Nbands, kind=KINDR)**4)
+        ucaca_worm(:)=ucaca_worm(:)*wormScaling(SectorUcaca)*u_sparsity
+      endif
+
+      !---------------------------------------------------------------------------------
+
+      if( allocated(ucacatau_worm)) then
+        u_sparsity = array_nonzero_elements(reshape(u_matrix_antisymm_both(u_g(1),:,u_g(2),:), (/(2*Nbands)**2/))) &
+                   * array_nonzero_elements(reshape(u_matrix_antisymm_both(u_g(3),:,u_g(4),:), (/(2*Nbands)**2/))) &
+                   / (real(2 * Nbands, kind=KINDR)**4)
+        ucacatau_worm(:)=ucacatau_worm(:)*wormScaling(SectorUcaca)*(dble(NGtau)/Dtrace%beta)*u_sparsity
+      endif
+      !---------------------------------------------------------------------------------
+
       ! p2iwpp normalization
-      if( allocated(p2iwpp_worm) ) then
+      if(allocated(p2iwpp_worm)) then
       
         !finalize the fourier transform for what is left in wormSum
         if(tau_fill .ne. 0) then
@@ -7715,20 +9016,58 @@ subroutine ctqmc_measure(iSector,iComponent)
            deallocate(matsubaras,d)
         endif
 
-        p2iwpp_worm(:)=p2iwpp_worm(:)*wormScaling(7)
+        p2iwpp_worm(:)=p2iwpp_worm(:)*wormScaling(SectorP2pp)
       endif
+
+      !---------------------------------------------------------------------------------
+
+      ! uccaa normalization
+      if(allocated(uccaa_worm)) then
+      
+        !finalize the fourier transform for what is left in wormSum
+        if(tau_fill .ne. 0) then
+           allocate(matsubaras(4*N2iwb+3),d(1))
+           d(1)=size(matsubaras)
+
+           call ft_nd(tau_worm(:tau_fill),val_worm(:tau_fill),matsubaras,d)
+           uccaa_worm(:)=uccaa_worm(:)+matsubaras(2::2)
+
+           deallocate(matsubaras,d)
+        endif
+
+        u_sparsity = array_nonzero_elements(reshape(u_matrix_antisymm_2(:,:,u_g(2),u_g(4)), (/(2*Nbands)**2/))) &
+                   * array_nonzero_elements(reshape(u_matrix_antisymm_1(u_g(1),u_g(3),:,:), (/(2*Nbands)**2/))) &
+                   / (real(2 * Nbands, kind=KINDR)**4)
+        
+        uccaa_worm(:)=uccaa_worm(:)*wormScaling(SectorUccaa)*u_sparsity
+      endif
+
+
+      !---------------------------------------------------------------------------------
+      if( allocated(uccaatau_worm)) then
+        u_sparsity = array_nonzero_elements(reshape(u_matrix_antisymm_2(:,:,u_g(2),u_g(4)), (/(2*Nbands)**2/))) &
+                   * array_nonzero_elements(reshape(u_matrix_antisymm_1(u_g(1),u_g(3),:,:), (/(2*Nbands)**2/))) &
+                   / (real(2 * Nbands, kind=KINDR)**4)
+        uccaatau_worm(:)=uccaatau_worm(:)*wormScaling(SectorUccaa)*(dble(NGtau)/Dtrace%beta)*u_sparsity
+      endif
+      !---------------------------------------------------------------------------------
+
 
       if( allocated(p2tau_worm)) then
-        p2tau_worm(:)=p2tau_worm(:)*wormScaling(6)*(dble(NGtau)/Dtrace%beta)
+        p2tau_worm(:)=p2tau_worm(:)*wormScaling(SectorP2)*(dble(NGtau)/Dtrace%beta)
       endif
 
+      !---------------------------------------------------------------------------------
+
       if( allocated(p2taupp_worm)) then
-        p2taupp_worm(:)=p2taupp_worm(:)*wormScaling(7)*(dble(NGtau)/Dtrace%beta)
+        p2taupp_worm(:)=p2taupp_worm(:)*wormScaling(SectorP2pp)*(dble(NGtau)/Dtrace%beta)
       endif
       
+      !---------------------------------------------------------------------------------
+
       ! p3iw normalization
       ! FIXME: we dont do this for the full estimator
-      if( allocated(p3iw_worm) ) then
+      if(allocated(p3iw_worm)) then
         
         !finalize the fourier transform for what is left in wormSum
         if(tau_fill .ne. 0) then
@@ -7748,8 +9087,45 @@ subroutine ctqmc_measure(iSector,iComponent)
            deallocate(matsubaras,d)
          endif
       
-         p3iw_worm(:,:)=p3iw_worm(:,:)*wormScaling(8)
+         p3iw_worm(:,:)=p3iw_worm(:,:)*wormScaling(SectorP3)
       endif
+
+
+      !---------------------------------------------------------------------------------
+
+
+      ! nqqdag normalization
+      if(allocated(nqqdag_worm)) then
+        
+        !finalize the fourier transform for what is left in wormSum
+        if(tau_fill .ne. 0) then
+           allocate(matsubaras((4*N3iwf)*(4*N3iwb+3)),d(2))
+           d(1)=4*N3iwf
+           d(2)=4*N3iwb+3
+
+           call ft_nd(tau_worm(:2*tau_fill),val_worm(:tau_fill),matsubaras,d)
+
+           do i=-N3iwf,N3iwf-1
+              do j=-N3iwb,N3iwb
+                  k=(4*N3iwb+3)*(2*(i+N3iwf)+1)+(2*(j+N3iwb)+1)+1
+                  nqqdag_worm(i,j)=nqqdag_worm(i,j)+matsubaras(k)
+              enddo
+           enddo
+
+           deallocate(matsubaras,d)
+         endif
+      
+        ! u_sparsity=0.25/16 for one-orbital case
+         u_sparsity = array_nonzero_elements(reshape(u_matrix_antisymm_1(u_g(1),:,:,:), (/(2*Nbands)**3/))) &
+                    * array_nonzero_elements(reshape(u_matrix_antisymm_2(:,:,u_g(2),:), (/(2*Nbands)**3/))) &
+                    * array_nonzero_elements(reshape(u_matrix_antisymm_both(u_g(3),:,u_g(4),:), (/(2*Nbands)**2/))) &
+                    / (real(2 * Nbands, kind=KINDR)**8)
+         nqqdag_worm(:,:)=nqqdag_worm*wormScaling(SectorNQQdag)*u_sparsity
+      endif
+
+
+      !---------------------------------------------------------------------------------
+
 
 
       ! p3iwpp normalization
@@ -7774,12 +9150,46 @@ subroutine ctqmc_measure(iSector,iComponent)
            deallocate(matsubaras,d)
         endif
 
-         p3iwpp_worm(:,:)=p3iwpp_worm(:,:)*wormScaling(9)
+        p3iwpp_worm(:,:)=p3iwpp_worm(:,:)*wormScaling(SectorP3pp)
       endif
+
+      !---------------------------------------------------------------------------------
+
+
+      ! qqdd
+      if(allocated(qqdd_worm)) then
+        ! finalize the fourier transform for what is left in wormSum
+        if(tau_fill .ne. 0) then
+          allocate(matsubaras(4*N3iwf*4*N3iwf),d(2))
+          d(1) = 4*N3iwf
+          d(2) = 4*N3iwf
+
+          call ft_nd(tau_worm(:2*tau_fill), val_worm(:tau_fill), matsubaras, d)
+
+          do i=-N3iwf, N3iwf-1
+            do j=-N3iwf, N3iwf-1
+              k=(4*N3iwf)*(2*(i+N3iwf)+1) + (2*(j+N3iwf)+1)+1
+              qqdd_worm(i,j) = qqdd_worm(i,j) + matsubaras(k)
+            end do
+          end do
+          
+          deallocate(matsubaras, d)
+        end if
+
+        ! u_sparsity=0.5/16 for one-orbital case
+         u_sparsity = array_nonzero_elements(reshape(u_matrix_antisymm_1(u_g(1),:,:,:), (/(2*Nbands)**3/))) &
+                    * array_nonzero_elements(reshape(u_matrix_antisymm_2(:,u_g(3),:,:), (/(2*Nbands)**3/))) &
+                    * array_nonzero_elements(reshape(u_matrix_antisymm_both(:,:,u_g(2),u_g(4)), (/(2*Nbands)**2/))) &
+                    / (real(2 * Nbands, kind=KINDR)**8)
+        qqdd_worm(:,:) = qqdd_worm * wormScaling(SectorQQdd)*u_sparsity
+      endif
+
+      !---------------------------------------------------------------------------------
 
       write (0,"('Done post-processing, CTQMC ', A4, 'complete.')") simstr
    endif   
    
+
    call reset_notify()
    call clear_trap(SIGNAL_TERM)
    call clear_trap(SIGNAL_INT)
@@ -7788,13 +9198,7 @@ end subroutine ctqmc_measure
 
 subroutine get_mc_config_scalars(N, outer_sst, outer_state)
    integer, intent(out)                                :: N, outer_sst, outer_state
-   type(TTrace), pointer                               :: DTrace
-   type(TStates_pointer)                               :: pDStates
-   type(TTrace_pointer)                                :: pDTrace
 
-   pDStates = transfer(ipDStates, pDStates)
-   pDTrace = transfer(ipDTrace, pDTrace)
-   DTrace => pDTrace%ptr
 
    N = DTrace%NOper
    outer_sst = DTrace%outer_sst
@@ -7807,11 +9211,7 @@ subroutine get_mc_config(N, taus, orbs, spins, cas, hashybs, outer_sst, outer_st
    integer, dimension(N), intent(out)                  :: orbs, spins, cas, hashybs
    !f2py depend(N) taus, orbs, spins, cas, hashybs
    integer, intent(out)                                :: outer_sst, outer_state
-   type(TTrace), pointer                               :: DTrace
-   type(TTrace_pointer)                                :: pDTrace
 
-   pDTrace = transfer(ipDTrace, pDTrace)
-   DTrace => pDTrace%ptr
 
    call dump_mc_config_into_arrays(DTrace, taus, orbs, spins, cas, hashybs, outer_sst, outer_state)
 end subroutine get_mc_config
@@ -7823,15 +9223,7 @@ subroutine set_mc_config(N, taus, orbs, spins, cas, hashybs, outer_sst, outer_st
    integer, dimension(N), intent(in)      :: orbs, spins, cas, hashybs
    !f2py depend(N) taus, orbs, spins, cas, hashybs
    integer, intent(in)                    :: outer_sst, outer_state
-   type(TStates), pointer                 :: DStates
-   type(TTrace), pointer                  :: DTrace
-   type(TStates_pointer)                  :: pDStates
-   type(TTrace_pointer)                   :: pDTrace
 
-   pDStates = transfer(ipDStates, pDStates)
-   pDTrace = transfer(ipDTrace, pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    call set_mc_config_from_arrays(DTrace, DStates, taus, orbs, spins, cas,&
                                   hashybs, outer_sst, outer_state)
@@ -7840,17 +9232,9 @@ end subroutine set_mc_config
 subroutine set_empty_mc_config(outer_sst, outer_state)
    !input
    integer, intent(in)                    :: outer_sst, outer_state
-   type(TStates), pointer                 :: DStates
-   type(TTrace), pointer                  :: DTrace
-   type(TStates_pointer)                  :: pDStates
-   type(TTrace_pointer)                   :: pDTrace
    real(KINDR), dimension(0)              :: taus
    integer, dimension(0)                  :: orbs, spins, cas, hashybs
 
-   pDStates = transfer(ipDStates, pDStates)
-   pDTrace = transfer(ipDTrace, pDTrace)
-   DStates => pDStates%ptr
-   DTrace => pDTrace%ptr
 
    call set_mc_config_from_arrays(DTrace, DStates, taus, orbs, spins, cas,&
                                   hashybs, outer_sst, outer_state)
@@ -8009,7 +9393,7 @@ enddo
 enddo
 
 ! Here we write the linearized 1 particle GF using the function get_GLin.
-! Arbitrary tau´s are here allowed. The points off the tau-grid given by
+! Arbitrary taus are here allowed. The points off the tau-grid given by
 ! beta and NGtau are calculated by linearization.
 ! Additionally we mirrow the GF about beta/2 to meet the Toschi convention.
 ! This is done by writing G(beta-tau) instead of G(tau).
