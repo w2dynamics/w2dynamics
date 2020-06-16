@@ -5,7 +5,7 @@
 
 Compute ΔN(k).
 """
-
+from __future__ import print_function
 import sys
 from configobj import ConfigObj
 #import optparse -- deprecated in favor of
@@ -16,8 +16,13 @@ from warnings import warn
 try:
     import numpy as np
     import h5py as hdf5
+    h5ustrs = hdf5.special_dtype(vlen=(str
+                                       if sys.version_info >= (3, )
+                                       else unicode))
+
 except ImportError:
-    print >> sys.stderr, "error: script requires the h5py package to run"; sys.exit(3)
+    print("error: script requires the h5py package to run", file=sys.stderr)
+    sys.exit(3)
 
 import w2dyn.auxiliaries.wien2k as wien2k
 import w2dyn.auxiliaries.config as config
@@ -51,17 +56,17 @@ del parser
 try:
     # Get desired iteration
     iterpat = re.compile(r"^(?:dmft|stat)-\d+$")
-    iterations = sorted([k for k in args.hf.iterkeys() if iterpat.match(k)])
+    iterations = sorted([k for k in args.hf.keys() if iterpat.match(k)])
 
     try:
         iter = args.hf[iterations[args.iteration]]
     except IndexError:
-        print >> sys.stderr, "iteration %d not present" % args.iteration
+        print("iteration %d not present" % args.iteration, file=sys.stderr)
         sys.exit(1)
 
     # Checks for old run
     if myname in iter and not args.update:
-        print >> sys.stderr, "error: quantity already present (-u to replace)"
+        print("error: quantity already present (-u to replace)", file=sys.stderr)
         sys.exit(1)
 
     # HERE STARTS THE REAL WORK
@@ -72,7 +77,7 @@ try:
 
     has_spin_orbit = cfg["General"]["DOS"] == 'ReadInSO'
     if has_spin_orbit:
-       print >> sys.stderr, "Spin-Orbit Hamiltonians not supported - adapt wien2k.py"
+       print("Spin-Orbit Hamiltonians not supported - adapt wien2k.py", file=sys.stderr)
        sys.exit()
 
     hkfile = file(cfg["General"]["HkFile"], "r")
@@ -93,7 +98,7 @@ try:
     Siw = np.zeros((0, 2, nw))
     DC  = np.zeros((0, 2))
     istart = 0
-    for i in xrange(1,nneq+1):
+    for i in range(1,nneq+1):
         ineq = "ineq-%03d"%i
         s = iter[ineq]['siw/value'].value
         nds = args.hf['.config'].attrs['atoms.'+str(i)+'.nd']
@@ -123,7 +128,8 @@ try:
     else:
         g = args.hf['.quantities'].create_group(myname)
         g.attrs['desc'] = "DMFT-induced change of occupancy matrix"
-        g.attrs['axes'] = ["lda-band", "lda-band", "spin", "kpoint"]
+        g.attrs.create('axes', ["lda-band", "lda-band", "spin", "kpoint"],
+                       dtype=h5ustrs)
 
     iter.create_group(myname).create_dataset('value', data=dnk)
 

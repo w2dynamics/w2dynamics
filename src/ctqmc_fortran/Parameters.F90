@@ -22,6 +22,27 @@ module MParameters
    type(TParameter),pointer,private    :: first=>null()
    type(TParameter),pointer,private    :: last=>null()
 
+   ! NWormSectors has to be defined in CTQMC.F90
+   !integer, parameter :: NWormSectors = 15
+   
+   integer, parameter :: SectorZ = 1
+   integer, parameter :: SectorG = 2
+   integer, parameter :: SectorGSigma = 3
+   integer, parameter :: SectorG4 = 4
+   integer, parameter :: SectorH4 = 5
+   integer, parameter :: SectorP2 = 6
+   integer, parameter :: SectorP2pp = 7
+   integer, parameter :: SectorP3 = 8
+   integer, parameter :: SectorP3pp = 9
+   integer, parameter :: SectorQQ = 10
+   integer, parameter :: SectorQ4 = 11
+   integer, parameter :: SectorNQQdag = 12
+   integer, parameter :: SectorQQdd = 13
+   integer, parameter :: SectorUcaca = 14
+   integer, parameter :: SectorUccaa = 15
+   integer, parameter :: SectorQUDdag = 16
+   !number of worm operators in specific sector
+   integer, parameter, dimension(2:16)   :: NOperWorm = (/2,4,4,6,4,4,4,4,6,12,8,8,4,4,4/)
 contains
 !===============================================================================
 logical elemental function eq(real1,real2)

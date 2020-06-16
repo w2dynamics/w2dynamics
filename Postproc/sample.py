@@ -3,13 +3,20 @@
 
 Add description of your script here. PLEASE DO THAT!
 """
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
+import sys
 from sys import exit, stderr as err
 import optparse, re
 try:
     import numpy as np
     import h5py as hdf5
+    h5ustrs = hdf5.special_dtype(vlen=(str
+                                       if sys.version_info >= (3, )
+                                       else unicode))
 except ImportError:
-    print >> err, "error: script requires the h5py package to run"; exit(3)
+    print("error: script requires the h5py package to run", file=err)
+    exit(3)
     
 __version__ = "1.1"
 
@@ -29,13 +36,13 @@ try:
     hf = hdf5.File(filename, "r+")
 except IndexError:
     parser.error("no file specified")
-except IOError, e:
+except IOError:
     parser.error("unable to open HDF5 output file `%s'." % filename)
 
 try:
     # Get desired iteration
     iterpat = re.compile(r"^(?:dmft|stat)-\d+$")
-    iterations = sorted([k for k in hf.iterkeys() if iterpat.match(k)])
+    iterations = sorted([k for k in hf.keys() if iterpat.match(k)])
     try:
         iter = hf[iterations[options.iter]]
     except IndexError:
@@ -46,7 +53,7 @@ try:
         if options.update:
             del iter["gtau-relerr"]
         else:
-            print >> err, "error: quantity already present (-u to override, -h for help)"
+            print("error: quantity already present (-u to override, -h for help)", file=err)
             exit(1)
 
     # HERE STARTS THE REAL WORK
@@ -68,11 +75,12 @@ try:
 
     iter.create_group("gtau-relerr")
     iter["gtau-relerr"].attrs["desc"] = "Relative error of G(tau)" 
-    iter["gtau-relerr"].attrs["axes"] = ["ineq", "band", "spin", "tau"]
+    iter["gtau-relerr"].attrs.create("axes", ["ineq", "band", "spin", "tau"],
+                                     dtype=h5ustrs)
     
     iter["gtau-relerr"].create_dataset("value", data=gtau_rel_error)
     # iter.create_dataset("gtau-relerr/error", data=???)
 
-    print >> err, "success."
+    print("success.", file=err)
 finally:
     hf.close()  # cleanup

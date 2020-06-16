@@ -18,10 +18,10 @@ ELSEIF (USE_OPENMP)
     UNSET (MPI_COMPILER CACHE)
     UNSET (MPI_LIBRARY CACHE)
 ELSEIF (USE_MPI)
-    # Find MPI
-    IF (NOT MPI_Fortran_FOUND)
-        FIND_PACKAGE (MPI REQUIRED)
-    ENDIF (NOT MPI_Fortran_FOUND)
+    # Do not attempt to find MPI as we only use it indirectly through mpi4py which we require
+    # IF (NOT MPI_Fortran_FOUND)
+    #     FIND_PACKAGE (MPI REQUIRED)
+    # ENDIF (NOT MPI_Fortran_FOUND)
     # Turn off OpenMP
     SET (OMP_NUM_PROCS 0 CACHE
          STRING "Number of processors OpenMP may use" FORCE)

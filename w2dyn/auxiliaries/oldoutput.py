@@ -2,8 +2,10 @@
 Provides class QmcOutput, which is used to convert old text output files to
 a python object convenient for analysis in pylab.
 """
-import re;
-import warnings;
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
+import re
+import warnings
 import numpy as np
 import configobj as cfo
 from sys import stdout
@@ -36,12 +38,15 @@ class MatchFile(object):
         self._file = file
         self.pattern = pattern
         
-    def next(self):
+    def __next__(self):
         """ For use in the line iterators (for line in file:) """
         line = self.readline()
         if line == "":
             raise StopIteration()
         return line
+
+    def next(self):
+        return self.__next__()
 
     def peekline(self):
         """ Retrieves the next line without changing the file pointer """
@@ -94,9 +99,12 @@ class MatchFile(object):
         
     def read(self, size=None):
         """ Returns all matching lines as a string """
-        import StringIO
+        try:
+            from io import StringIO
+        except ImportError:
+            from StringIO import StringIO
         line = "s"
-        output = StringIO.StringIO()
+        output = StringIO()
         
         while line != "":
             if size is None:
@@ -127,7 +135,7 @@ class ArrayBuilder:
     """
     def __init__(self, ndims, elements, dimnames, nelements=None, elemtypes=None):
         self.ndims = ndims
-        self.axisvals = [[] for i in xrange(ndims)]
+        self.axisvals = [[] for i in range(ndims)]
         self.fixedsize = nelements is not None
         if self.fixedsize:
             assert elemtypes is not None, "elemtypes must be set if nelements is set"
@@ -151,7 +159,7 @@ class ArrayBuilder:
         else:
             # Assertions guarantee right indexing
             assert indices != self._prev, "Duplicate index"
-            dim,val = ((i,v) for i,v in enumerate(indices) if v!=self._prev[i]).next()
+            dim,val = next(((i,v) for i,v in enumerate(indices) if v!=self._prev[i]))
             
             for i in range(dim+1, self.ndims):
                 # check beginning of locked dim and end of old
@@ -171,20 +179,20 @@ class ArrayBuilder:
         self._prev = indices
         if self.fixedsize:
             assert self._count < self._target, "Exceeded nelements"
-            for k,v in self.values.iteritems():
-                v[self._count] = values[k]
+            for k in self.values:
+                self.values[k][self._count] = values[k]
             self._count += 1
         else:
-            for k,v in self.values.iteritems():
-                v.append(values[k])
+            for k in self.values:
+                self.values[k].append(values[k])
             
     def compile(self):
         """ Compiles the built-in arrays into numpy arrays """
         shape = [ len(axis) for axis in self.axisvals ]
         out = Element()
 
-        for k,v in self.values.iteritems():
-            array = np.array(v).reshape(shape)
+        for k in self.values:
+            array = np.array(self.values[k]).reshape(shape)
             setattr(out, k, array)
         for name,vals in zip(self.dimnames, self.axisvals):
             setattr(out, name, vals)
@@ -216,14 +224,15 @@ def _valueit(lineit):
         if i % 1000 == 999: 
            stdout.write(".")
            if i % 100000 == 99999:
-               print
+               print()
            stdout.flush()
            
         toks = line.split()
         indices = [int(digit) for digit in _re_prefix.match(toks[0]).group(2)]
         numbers = [_tonum(tok) for tok in toks[1:]]
         yield indices + numbers
-    if i >= 999: print
+    if i >= 999:
+        print()
 
 class QmcOutput(IterationData):
     """ Structure for parsing and holding text output of the CT-QMC algorithm.
@@ -243,10 +252,10 @@ class QmcOutput(IterationData):
     Example usage:
     
        import OldOutput
-       output = OldOutput.QmcOutput(file("output_file.out", "r"))
-       print output.data.GTau.mean[0,0,0,:]  # plot G(tau)
+       output = OldOutput.QmcOutput(open("output_file.out", "r"))
+       print(output.data.GTau.mean[0,0,0,:])  # plot G(tau)
        import pickle
-       pickle.dump(output, file("output_file.p","w"), -1)
+       pickle.dump(output, open("output_file.p","w"), -1)
     
     @param fname: Filename of the text input file.
     @returns: Object with three main attributes:
@@ -258,7 +267,7 @@ class QmcOutput(IterationData):
     def __init__(self, fname):
         #
         # Read configuration
-        mf = MatchFile(file(fname,"r"), re.compile("^[^:]"))
+        mf = MatchFile(open(fname,"r"), re.compile("^[^:]"))
         self.config = cfo.ConfigObj(infile=mf.readlines(), indent_type="\t")
         # 
         self.it = []
@@ -279,10 +288,10 @@ class QmcOutput(IterationData):
                 # if we had that before, then start a new iteration
                 self.it.append(iter)
                 iter = IterationData()
-                print "New iteration: ", len(self.it)
+                print("New iteration: ", len(self.it))
             
             # reset the pattern in order to read the right scope
-            print "Found id:", id
+            print("Found id:", id)
             mf.pattern = re.compile(":"+id+"[^a-zA-Z_]")
             value = None
             

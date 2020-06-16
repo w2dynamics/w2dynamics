@@ -1,10 +1,11 @@
 #!/usr/bin/env python
 """Program for single-shot QMC runs"""
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import os.path
-import random
 from subprocess import Popen, PIPE
 import sys
-import time  # necessary for tokyo cluster
+import time
 import optparse
 import warnings
 
@@ -15,9 +16,11 @@ from w2dyn.auxiliaries import transform as tf
 from w2dyn.auxiliaries import hdfout
 from w2dyn.auxiliaries import config
 from w2dyn.auxiliaries import input as aux_input
+from w2dyn.auxiliaries.utilities import diagonal_covariance
 
 from w2dyn.dmft import impurity
 from w2dyn.dmft import orbspin
+from w2dyn.dmft import worm
 
 def git_revision():
     try:
@@ -26,6 +29,7 @@ def git_revision():
         pass
     try:
         return Popen(["git", "rev-parse", "HEAD"], stdout=PIPE,
+                     stderr=open(os.path.devnull, 'w'),
                      cwd=os.path.dirname(os.path.realpath(__file__))
                      ).communicate()[0]
     except Exception:
@@ -44,7 +48,8 @@ if use_mpi:
         sys.stderr.write("Error: Exception at top-level on rank %s "
                          "(see previous output for error message)\n" %
                          mpi_rank)
-        mpi_comm.Abort()
+        sys.stderr.flush()
+        mpi_comm.Abort(1)
 
     sys.excepthook = mpi_abort
 
@@ -75,7 +80,7 @@ if mpi_iamroot:
     rerr = sys.stderr
 else:
     log = lambda s, *a: None
-    rerr = file(os.devnull, "w")
+    rerr = open(os.devnull, "w")
 
 # Print banners and general information
 log(aux.BANNER, aux.CODE_VERSION_STRING, aux.CODE_DATE)
@@ -101,13 +106,9 @@ cfg =  mpi_on_root(lambda: config.get_cfg(cfg_file_name, key_value_args,
                                           err=rerr))
 
 del cfg_file_name, key_value_args, argv, parser
-
 # Finished argument parsing, cfg now contains the configuration for the run
 
-# creating output file
-Output = hdfout.HdfOutput
-
-# write important stuff to output file
+# create output file and write metadata
 log("Writing basic data for the run ...")
 output = hdfout.HdfOutput(cfg, git_revision(), mpi_comm=mpi_comm)
 
@@ -159,7 +160,7 @@ if cfg["General"]["muimpFile"] is not None:
 if cfg["General"]["DOS"] == "EDcheck":
     iwf = tf.matfreq(beta, 'fermi', niw)
     nftau = cfg["QMC"]["Nftau"]
-    tauf = np.arange(nftau)*beta/(nftau - 1.0)
+    tauf = np.linspace(0., beta, num=nftau, endpoint=True)
     diag, epsk, vki = mpi_on_root(lambda: aux_input.read_epsk_vk_file("epsk", "Vk"))
     fiw, ftau = tf.hybr_from_sites(epsk, vki, iwf, tauf, beta)
     fmom = vki.conj().T.dot(vki)
@@ -229,12 +230,12 @@ for iter_no in range(stat_iterations+worm_iterations):
         iter_type = "stat"
         iter_no -= worm_iterations
         if mpi_iamroot:
-            output.next_iteration("stat", iter_no)
+            output.open_iteration("stat", iter_no)
     else:
         iter_type = "worm"
         iter_no -= stat_iterations
         if mpi_iamroot:
-            output.next_iteration("worm", iter_no)
+            output.open_iteration("worm", iter_no)
 
     log("Writing impurity problem ...")
     output.write_quantity("fiw",   [fiw])
@@ -263,90 +264,77 @@ for iter_no in range(stat_iterations+worm_iterations):
        else:
           result = solver.solve(iter_no)
        result.postprocessing(siw_method, smom_method)
+       output.write_quantity("giw", [result.giw.mean()])
+       output.write_quantity("siw", [result.siw.mean()])
+       output.write_quantity("smom", [result.smom.mean()])
        output.write_impurity_result(0, result.other)
-       output.write_quantity("giw", [result.giw])
-       output.write_quantity("giw-full", [result.giw])
-       output.write_quantity("siw", [result.siw])
-       output.write_quantity("smom", [result.smom])
-       output.write_quantity("siw-full", [result.siw])
-       output.write_quantity("smom-full", [result.smom])
+
+       if cfg["QMC"]["WriteCovMeanGiw"]:
+           output.write_impurity_result(0,
+                                        {'giw-cov':
+                                         diagonal_covariance(result.giw)})
+       if cfg["QMC"]["WriteCovMeanSigmaiw"]:
+           output.write_impurity_result(0,
+                                        {'siw-cov':
+                                         diagonal_covariance(result.siw)})
+
+       # write quantities not contained in result.other after
+       # pulling band and spin dimensions to the front
+       output.write_impurity_result(
+           0,
+           {'siw-full': result.siw
+            .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
+            'giw-full': result.giw
+            .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
+            'smom-full': result.smom
+            .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
+            })
     
     if iter_type == "worm":
-       log("Solving impurity problem ...")
+        log("Solving impurity problem by worm sampling...")
 
-       #empty mc configuration for first run
-       mccfgcontainer = []
+        #empty mc configuration for first run
+        mc_cfg_container = []
+        worm_sector = worm.get_sector_index(cfg['QMC'])
 
-       #looping over all worm spaces
-       maxsector = 9
-       for isector in xrange(2, maxsector + 1):
-          #skipping sectors if measurement is not enabled
-          if isector == 2 and not (cfg["QMC"]["WormMeasGiw"] == 1 or cfg["QMC"]["WormMeasGtau"] == 1):
-             log("Skipping worm sector %d ...", isector)
-             continue
-          if isector == 3 and not cfg["QMC"]["WormMeasGSigmaiw"] == 1:
-             log("Skipping worm sector %d ...", isector)
-             continue
-          if isector == 4:
-             if not cfg["QMC"]["WormMeasG4iw"] == 1:
-                log("Skipping worm sector %d ...", isector)
-                continue
-             if cfg["QMC"]["FourPnt"] != 8:
-                log("Set FourPnt to '8' to measure worm")
-                sys.exit()
-          if isector == 5:
-             if not cfg["QMC"]["WormMeasH4iw"] == 1:
-                log("Skipping worm sector %d ...", isector)
-                continue
-             if cfg["QMC"]["FourPnt"] != 8:
-                log("Set FourPnt to '8' to measure worm")
-                sys.exit()
-          if isector == 6 and not (cfg["QMC"]["WormMeasP2iwPH"] == 1 or cfg["QMC"]["WormMeasP2tauPH"] == 1):
-             log("Skipping worm sector %d ...", isector)
-             continue
-          if isector == 7 and not (cfg["QMC"]["WormMeasP2iwPP"] == 1 or cfg["QMC"]["WormMeasP2tauPP"] == 1): 
-             log("Skipping worm sector %d ...", isector)
-             continue
-          if isector == 8 and not cfg["QMC"]["WormMeasP3iwPH"]:
-             log("Skipping worm sector %d ...", isector)
-             continue
-          if isector == 9 and not cfg["QMC"]["WormMeasP3iwPP"]:
-             log("Skipping worm sector %d ...", isector)
-             continue
+        log("Sampling components of worm sector %d ...", worm_sector)
+        
+        #if WormComponents not specified -> sample all
+        if not cfg['QMC']['WormComponents']:
+            log("Sampling all components.")
+            if worm_sector in [2, 3, 10]:
+                component_list = range(1, imp_problem.nflavours**2 + 1)
+            else:
+                component_list = range(1, imp_problem.nflavours**4 + 1)
+        else:
+            log("Sampling components from configuration file")
+            #only integer components 1,... are considered
+            component_list = [int(s) for s in cfg['QMC']['WormComponents'] if int(s)>0]
 
-          log("Sampling components of worm sector %d ...", isector)
-          
-          #if WormComponents not specified -> sample all
-          if not cfg["QMC"]["WormComponents"]:
-             log("Sampling all components")
-             if isector < 4:
-                component_list = xrange(1,imp_problem.nflavours**2+1)
-             else:
-                component_list = xrange(1,imp_problem.nflavours**4+1)
-          else:
-             log("Sampling components from configuration file")
-             #only integer components 1,... are considered
-             component_list = [int(s) for s in cfg["QMC"]["WormComponents"] if int(s)>0]
+        for icomponent in component_list:
+            log("Sampling component %d", icomponent)
+            solver.set_problem(imp_problem, compute_fourpnt)
+            result_gen, result_comp = solver.solve_comp_stats(iter_no, worm_sector, icomponent, mc_cfg_container)
 
-          for icomponent in component_list:
-             log("Sampling component %d", icomponent)
-             solver.set_problem(imp_problem, compute_fourpnt)
-             result, result_aux = solver.solve_component(iter_no,isector,icomponent,mccfgcontainer)
-
-             #only write result if component returns ne 0
-             if np.any([np.any(result.other[ky]["value"])  for ky in result.other.keys()]):
-                output.write_impurity_component(0, result.other)
+            #only write result if component returns ne 0
+            if (cfg["QMC"]["WormComponents"] or
+                    any(np.any(entry["value"])
+                        for key, entry in result_comp.other.items())):
+                output.write_impurity_result(0, result_comp.other)
                 try:
-                   output.write_impurity_component(0, result_aux.other)
-                except ValueError:
-                   sys.stderr.write(
-                    "\nWARNING: Ignoring auxiliary entries for multiple worm estimators.\n\n")
+                    output.write_impurity_result(0, result_gen.other)
+                except OSError:
+                    sys.stderr.write(
+                        "\nWARNING: Ignoring auxiliary entries for multiple worm estimators.\n\n")
 
-          log("Done with component")
+            log("Done with component {}".format(icomponent))
 
     if solver.abort:
         log("CT-HYB was aborted ...")
         break
+
+    if mpi_iamroot:
+        output.close_iteration(iter_type, iter_no)
 
 log("Finished calculation.")
 

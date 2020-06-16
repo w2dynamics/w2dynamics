@@ -1,6 +1,6 @@
 """Package abstracting details of the lattice model."""
-
-from __future__ import division
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import numpy as np
 import scipy.ndimage
 import scipy.signal
@@ -12,7 +12,6 @@ import w2dyn.auxiliaries.transform as tr
 
 import w2dyn.dmft._compat as _linalg
 import w2dyn.dmft.orbspin as orbspin
-import h5py
 import copy
 
 def fermi(x, beta, warn_complex=True):
@@ -50,7 +49,7 @@ def rmap(values, mapping):
     indices = mapping.reshape(-1).searchsorted(values, 'left')
     if not (indices % 2).all():
         problem = (indices % 2 == 0).nonzero()
-        print values[problem], "\n", mapping
+        print(values[problem], "\n", mapping)
         raise ValueError("Inverse mapping failed: illegal values")
     return indices // 2
 
@@ -637,7 +636,7 @@ class NanoLattice(KspaceHamiltonian):
 #           leadsiw.real += self.hk[0,...].real   #adding a (band, spin, band, spin) array to a (w, lead, band, spin, band, spin) one
 #GS:!!!!!!  leadsiw.real += self.hk.mean(0).real  #here I am less sure about the right indices, but it seems to work. Ask Markus!
             leadsmom = tr.transform(tr.wre_int(beta, w_hyb), -leadsw.imag/np.pi)
-            print "leadsmom = ", leadsmom.shape
+            print("leadsmom = ", leadsmom.shape)
             leadsmom = leadsmom.transpose(5, 0, 1, 2, 3, 4)
 #           print "leadsmom = ", leadsmom
         else:
@@ -656,8 +655,8 @@ class NanoLattice(KspaceHamiltonian):
 #GS: 	In the moments of G0 there is however also a contribution from V (Eq. B.21), which will have to be taken into account at some point
         KspaceHamiltonian.__init__(self, beta, hk, check_herm=True)
 
-        print "norbitals, nspins, nflavours = ", self.norbitals , self.nspins , self.nflavours
-        print "total # of Matsubara (positive + negative) = ", niw
+        print("norbitals, nspins, nflavours = ", self.norbitals , self.nspins , self.nflavours)
+        print("total # of Matsubara (positive + negative) = ", niw)
 
         # store the Delta(w) for the computation of the DOS
         self.leadsw = leadsw.transpose(5, 0, 1, 2, 3, 4)
@@ -682,7 +681,7 @@ class NanoLattice(KspaceHamiltonian):
 
 #GS: In order to use it as argument for the function transform, the frequency must be the last argument:
 #GS!!!!!!   leadsiw = leadsiw.transpose(5, 0, 1, 2, 3, 4)   # w, lead, band, spin, band, spin
-        print "leadsiw -> ", self.leadsiw.shape
+        print("leadsiw -> ", self.leadsiw.shape)
 
 #GS:        add hk[0:...] to the real part of leadsiw
 #           leadsiw.real += hk[0,...].real   #adding a (band, spin, band, spin) array to a (w, lead, band, spin, band, spin) one
@@ -706,8 +705,8 @@ class NanoLattice(KspaceHamiltonian):
         self.hmom2 = np.einsum("kasbt,kbtcu->ascu", self.hk,
                                self.hk)/self.nkpoints - self.hloc**2 + leadsmom.sum(1)
         
-        print "LMOM"
-        print leadsmom.sum(1)
+        print("LMOM")
+        print(leadsmom.sum(1))
 
     def compute_dos(self, fixmu, mu=None, totdens=None):
 #AV:    as the gloc method is written for the Matsubara representation,

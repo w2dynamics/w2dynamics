@@ -3,18 +3,25 @@
 
 Computes siw-smooth and giw-smooth and adds it to output file
 """
+from __future__ import print_function
+import sys
 from sys import exit, stderr as err
 import optparse, re
 try:
     import numpy as np
     import h5py as hdf5
+    h5ustrs = hdf5.special_dtype(vlen=(str
+                                       if sys.version_info >= (3, )
+                                       else unicode))
 except ImportError:
-    print >> err, "error: script requires the h5py package to run"; exit(3)
+    print("error: script requires the h5py package to run", file=err)
+    exit(3)
 
 try:
     import w2dyn.auxiliaries.transform as tf
 except ImportError:
-    print >> err, "error: script cannot discover w2dynamics libraries"; exit(3)
+    print("error: script cannot discover w2dynamics libraries", file=err)
+    exit(3)
     
 
 __version__ = "1.1"
@@ -38,13 +45,13 @@ try:
     hf = hdf5.File(filename, "r+")
 except IndexError:
     parser.error("no file specified")
-except IOError, e:
+except IOError:
     parser.error("unable to open HDF5 output file `%s'." % filename)
 
 try:
     # Get desired iteration
     iterpat = re.compile(r"^(?:dmft|stat)-\d+$")
-    iterations = sorted([k for k in hf.iterkeys() if iterpat.match(k)])
+    iterations = sorted([k for k in hf.keys() if iterpat.match(k)])
     try:
         iter = hf[iterations[options.iter]]
     except IndexError:
@@ -57,24 +64,24 @@ try:
             del iter["giw-smooth"]
             del iter["siw-smooth"]
         else:
-            print >> err, "error: quantity already present (-u to override, -h for help)"
+            print("error: quantity already present (-u to override, -h for help)", file=err)
             exit(1)
 
     gleg = iter["gleg/value"].value
     gleg_error = iter["gleg/error"].value
-    print >> err, "Initial number of coefficients:", gleg.shape[-1]
+    print("Initial number of coefficients:", gleg.shape[-1], file=err)
 
     # Use hard legendre order cut-off    
     if options.maxorder:
-        print >> err, "Hard cut of %d coefficients" % (gleg.shape[-1]-options.maxorder-1)
+        print("Hard cut of %d coefficients" % (gleg.shape[-1]-options.maxorder-1), file=err)
         gleg = gleg[...,:options.maxorder+1]
         gleg_error = gleg_error[...,:options.maxorder+1]
     
     # Use soft sigma cut-off
     if options.threshold:
         noisy = np.abs(gleg)/gleg_error < options.threshold
-        print >> err, "Number of cut noisy coefficients:", 
-        print >> err, ", ".join(map(str, np.sum(noisy, -1).flat))
+        print("Number of cut noisy coefficients:", end=' ', file=err) 
+        print(", ".join(map(str, np.sum(noisy, -1).flat)), file=err)
         gleg[noisy] = 0.
 
     iw = 1j * hf["axes/iw"].value
@@ -84,7 +91,8 @@ try:
     
     grp = iter.create_group("giw-smooth")
     grp.attrs["desc"] = "Smoothened Green's function from Legendre" 
-    grp.attrs["axes"] = ["ineq", "band", "spin", "iw"]
+    grp.attrs.create("axes", ["ineq", "band", "spin", "iw"],
+                     dtype=h5ustrs)
     grp.create_dataset("value", data=gliw)
     grp.create_dataset("error", data=gliw_error)
     
@@ -100,9 +108,10 @@ try:
     
     grp = iter.create_group("siw-smooth")
     grp.attrs["desc"] = "Smoothened self energy from Legendre" 
-    grp.attrs["axes"] = ["ineq", "band", "spin", "iw"]
+    grp.attrs.create("axes", ["ineq", "band", "spin", "iw"],
+                     dtype=h5ustrs)
     grp.create_dataset("value", data=sliw)
 
-    print >> err, "success."
+    print("success.", file=err)
 finally:
     hf.close()  # cleanup

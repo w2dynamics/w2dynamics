@@ -1,10 +1,10 @@
 """Auxiliary functions for working with spins and orbitals"""
-
-from __future__ import division
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 from warnings import warn
 import numpy as np
 
-import _compat as _linalg
+from . import _compat as _linalg
 
 STD_TOL = 1e-8
 
@@ -115,3 +115,17 @@ def symm_spins(arr):
     new_arr[...,1,:,0] = arr[...,1,:,0] + arr[...,0,:,1].conj()
     new_arr /= 2.
     return new_arr
+
+def multiply(arr1,arr2):
+    """
+    multiply two arrays of shape (nfreq, b, s, b, s) in orbital space
+    """
+    nfreq = arr1.shape[0]
+    nb = arr1.shape[1]
+    ns = arr1.shape[2]
+    arr1 = arr1.reshape((nfreq, nb*ns, nb*ns))
+    arr2 = arr2.reshape((nfreq, nb*ns, nb*ns))
+
+    arr3 = np.einsum('vij,vjk->vik',arr1,arr2)
+    return arr3.reshape((nfreq, nb, ns, nb, ns))
+

@@ -1,5 +1,6 @@
 """Module for generation of stuff from configurations"""
-
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 from warnings import warn
 import os.path
 import sys
@@ -60,18 +61,18 @@ def get_cfg(cfg_file_name="Parameters.in", kvargs={}, err=sys.stderr):
             return validate.is_float_list(value)
 
     # config 
-    configspec = file(os.path.dirname(__file__) + '/configspec','r')
-    cfg = configobj.ConfigObj(infile=file(cfg_file_name, 'r'),
+    configspec = open(os.path.dirname(__file__) + '/configspec', 'r')
+    cfg = configobj.ConfigObj(infile=open(cfg_file_name, 'r'),
                               configspec=configspec.readlines(),
                               indent_type="\t")
 
     # update command line parameters
-    for key, value in kvargs.iteritems():
+    for key in kvargs:
         groups = key.split(".")
         parent = cfg
         for group in groups[:-1]:
             parent = parent[group]
-        parent[groups[-1]] = value
+        parent[groups[-1]] = kvargs[key]
 
     validator = validate.Validator()
     validator.functions["integer"] = is_sci_integer
@@ -81,18 +82,18 @@ def get_cfg(cfg_file_name="Parameters.in", kvargs={}, err=sys.stderr):
     try:
         pairs = configobj.get_extra_values(cfg)
     except AttributeError:
-        print >> err, "WARNING: cannot check unknown entries in config"
+        print("WARNING: cannot check unknown entries in config", file=err)
         pairs = False
 
     if pairs:
-        print >> err, "error: unknown entries in config: %s" % cfg_file_name
-        print >> err, ">>>", ", ".join(".".join(e[0] + e[1:]) for e in pairs)
+        print("error: unknown entries in config: %s" % cfg_file_name, file=err)
+        print(">>>", ", ".join(".".join(e[0] + e[1:]) for e in pairs), file=err)
         raise CfgException()
 
     if valid is not True:
-        print >> err, "error: invalid entries in config: %s" % cfg_file_name
-        print >> err, ">>>", ", ".join(str(entry) for entry, ok 
-                                       in flat_items(valid) if not ok)
+        print("error: invalid entries in config: %s" % cfg_file_name, file=err)
+        print(">>>", ", ".join(str(entry) for entry, ok 
+                               in flat_items(valid) if not ok), file=err)
         raise CfgException()
 
     return cfg
@@ -102,22 +103,32 @@ def lattice_from_cfg(cfg):
     beta = cfg["General"]["beta"]
     if latt_type == 'ReadIn' or latt_type == 'ReadInSO':
         has_spin_orbit = latt_type == 'ReadInSO'
-        hkfile = file(cfg["General"]["HkFile"], "r")
+        hkfile = open(cfg["General"]["HkFile"], "r")
         hk, _ = _input.read_hamiltonian(hkfile, has_spin_orbit)
         mylattice = lattice.KspaceHamiltonian(beta, hk)
     elif latt_type == 'Bethe' or latt_type == 'semicirc':
-        # TODO: crystal field
         half_bw = np.array(cfg["General"]["half-bandwidth"], np.float)
         half_bw = half_bw[:, np.newaxis].repeat(2, 1)
-        mylattice = lattice.Bethe(beta, half_bw)
+
+        # set "crystal field" terms
+        centers = np.zeros_like(half_bw)
+        start = 0
+        for atom_cfg in cfg["Atoms"].values():
+            norb = atom_cfg["Nd"] + atom_cfg["Np"]
+            if atom_cfg["crystalfield"] is not None:
+                centers_atom = np.array(atom_cfg["crystalfield"], float)
+                centers[start:start+norb,:] = centers_atom[:,None]
+            start += norb
+
+        mylattice = lattice.Bethe(beta, half_bw, centers)
     elif latt_type == 'nano':
     #GS:
         niw = 2*cfg["QMC"]["Niw"]
         readleads = cfg["General"]["readleads"]
-        leadsfile = file(cfg["General"]["leadsfile"], "r")
+        leadsfile = open(cfg["General"]["leadsfile"], "r")
         dos_deltino = cfg["General"]["dos_deltino"]
         beta = cfg["General"]["beta"]    # beta is needed for the Matsubara frequencies, in case leadsiw needs to be constructed
-        hkfile = file(cfg["General"]["HkFile"], "r")
+        hkfile = open(cfg["General"]["HkFile"], "r")
         has_spin_orbit = False
         hk, _ = _input.read_hamiltonian(hkfile, has_spin_orbit)
         norbitals = hk.shape[1]
@@ -166,31 +177,37 @@ def interaction_from_cfg(atom_cfg, cfg):
 
         if Uw == 1:
           _Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(0, zero_umatrix, Uw_Mat, 1)
-          if _Retarded2Shifts.Uw == False:
-            _Retarded2Shifts.U_shift = [0,0]
-          if _Retarded2Shifts.Jw == False:
-            _Retarded2Shifts.J_shift = [0,0]
-          if _Retarded2Shifts.Vw == False:
-            _Retarded2Shifts.V_shift = [0,0]
+          #if _Retarded2Shifts.Uw == False:
+            #_Retarded2Shifts.U_shift = [0,0]
+          #if _Retarded2Shifts.Jw == False:
+            #_Retarded2Shifts.J_shift = [0,0]
+          #if _Retarded2Shifts.Vw == False:
+            #_Retarded2Shifts.V_shift = [0,0]
+          #result = interaction.Density(norbitals, float(atom_cfg["Udd"] + _Retarded2Shifts.U_shift[0]),
+                        #float(atom_cfg["Vdd"] + _Retarded2Shifts.V_shift[0]), float(atom_cfg["Jdd"] + _Retarded2Shifts.J_shift[0])
+                        #)
 
-          result = interaction.Density(norbitals, float(atom_cfg["Udd"] + _Retarded2Shifts.U_shift[0]),
-                        float(atom_cfg["Vdd"] + _Retarded2Shifts.V_shift[0]), float(atom_cfg["Jdd"] + _Retarded2Shifts.J_shift[0])
-                        )
-          print ' ==> The shifted interaction potentials in the U(w) implementation are:'
-          print '       U=', float(atom_cfg["Udd"]), ' > U=' , float(atom_cfg["Udd"] + _Retarded2Shifts.U_shift[0])
-          print '       J=', float(atom_cfg["Jdd"]), ' > J=' , float(atom_cfg["Jdd"] + _Retarded2Shifts.J_shift[0])
-          print '       V=', float(atom_cfg["Vdd"]), ' > V=' , float(atom_cfg["Vdd"] + _Retarded2Shifts.V_shift[0])
-          print "         ****************************"
-          print "         **** U(w) Config Message ***"
-          print "         ****************************"
-          print " "
+          result = interaction.Density(norbitals,
+                                       float(atom_cfg["Udd"]),
+                                       float(atom_cfg["Vdd"]),
+                                       float(atom_cfg["Jdd"]))
+          result.u_matrix = _Retarded2Shifts.shift_instantaneous_densitydensity_potentials_from_Parametersin_config(result.u_matrix)
+          print(' ==> The shifted interaction potentials in the U(w) implementation are:')
+          #print('       U=', float(atom_cfg["Udd"]), ' > U=' , float(atom_cfg["Udd"] + _Retarded2Shifts.U_shift[0]))
+          #print('       J=', float(atom_cfg["Jdd"]), ' > J=' , float(atom_cfg["Jdd"] + _Retarded2Shifts.J_shift[0]))
+          #print('       V=', float(atom_cfg["Vdd"]), ' > V=' , float(atom_cfg["Vdd"] + _Retarded2Shifts.V_shift[0]))
+          print("""\
+         ****************************
+         **** U(w) Config Message ***
+         ****************************
+""")
 
         else:
           result = interaction.Density( norbitals, float(atom_cfg["Udd"]), float(atom_cfg["Vdd"]), float(atom_cfg["Jdd"]) )
 
     elif int_type == "Kanamori":
         if Uw == 1:
-          print 'Config.py: Invalid U(w) Configuration: Kanamori. Please use Density for now.'
+          print('Config.py: Invalid U(w) Configuration: Kanamori. Please use Density for now.')
           exit()
         result = interaction.Kanamori(norbitals, float(atom_cfg["Udd"]),
                         float(atom_cfg["Vdd"]), float(atom_cfg["Jdd"])
@@ -198,7 +215,7 @@ def interaction_from_cfg(atom_cfg, cfg):
 
     elif int_type == "Coulomb":
         if Uw == 1:
-          print 'Config.py: Invalid U(w) Configuration: Coulomb. Please use Density for now.'
+          print('Config.py: Invalid U(w) Configuration: Coulomb. Please use Density for now.')
           exit()
         if norbitals == 5:
            # this is a hack for the case, that F6 is not set in parameters file.
@@ -220,7 +237,7 @@ def interaction_from_cfg(atom_cfg, cfg):
 
     elif int_type == "ReadUmatrix":
         if Uw == 1:
-          print 'Config.py: Invalid U(w) configuration: ReadUmatrix. Please use Density for now.'
+          print('Config.py: Invalid U(w) configuration: ReadUmatrix. Please use Density for now.')
           exit()
         u_matrix = _input.read_u_matrix(atom_cfg["umatrix"], True)
         result = interaction.CustomFull(u_matrix)
@@ -230,11 +247,11 @@ def interaction_from_cfg(atom_cfg, cfg):
         if Uw == 1:
           _Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(0, zero_umatrix, Uw_Mat,1)
           orb_u_matrix = _Retarded2Shifts.shift_instantaneous_densitydensity_potentials_from_ReadNormalUmatrix_config(orb_u_matrix)
-          print ' ==> The orbital interaction potentials (umatrix entries) were shifted'
-          print "         ****************************"
-          print "         **** U(w) Config Message ***"
-          print "         ****************************"
-          print " "
+          print(' ==> The orbital interaction potentials (umatrix entries) were shifted')
+          print("         ****************************")
+          print("         **** U(w) Config Message ***")
+          print("         ****************************")
+          print(" ")
         result = interaction.CustomSU2Invariant(orb_u_matrix)
 
     else:
@@ -255,7 +272,7 @@ def atomlist_from_cfg(cfg, norbitals=None):
     atom_list = []
     if norbitals is None:
         norbitals = sum(acfg["Nd"] + acfg["Np"] for acfg in cfg["Atoms"])
-    for atom_cfg in cfg["Atoms"].itervalues():
+    for atom_cfg in cfg["Atoms"].values():
         nds = atom_cfg["Nd"]
         nps = atom_cfg["Np"]
         nlig =  atom_cfg["Nlig"]
@@ -269,8 +286,8 @@ def atomlist_from_cfg(cfg, norbitals=None):
         # construct crystal field
         crystalfield = atom_cfg["crystalfield"]
         if crystalfield is not None:
-            if len(crystalfield) == nds:
-                raise ValueError("expecting number of d-orbitals")
+            if len(crystalfield) != nds + nps:
+                raise ValueError("expecting entry for each d-orbital")
             crystalfield = np.diag(crystalfield)
         
         # add d atom
@@ -340,7 +357,8 @@ def find_file(path):
 
 def flat_items(d, prefix=""):
     items = []
-    for k, v in d.iteritems():
+    for k in d:
+        v = d[k]
         fullk = prefix + k
         if isinstance(v, dict): 
             items.extend(flat_items(v, fullk + "."))
@@ -390,8 +408,8 @@ class Hdf5Type(object):         # OOP can be a joy :-)
 
             fname = max(files, key=lambda f: os.stat(f).st_mtime)
 
-            print >> self.notify, \
-                "Using latest file from current directory: `%s'" % fname
+            print("Using latest file from current directory: `%s'" % fname,
+                  file=self.notify)
 
         return hdf5.File(fname, self.mode, self.driver, self.libver, **self.kwargs)
 

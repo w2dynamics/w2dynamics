@@ -7,7 +7,8 @@ The subsequent wrapper functions mirror the Fortran subroutine defined
 CompoundIndex.F90.
 
 Authors: Josef Kaufmann, Patrik Gunacker""" 
-
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import numpy as np
 
 
@@ -40,9 +41,8 @@ class GFComponent(object):
 
         if index is not None and bands is None: # initialize from compound index
             self.index = index
-            self.bandspin = np.unravel_index(self.index-1, dims_bs)
-            self.bands,self.spins = np.unravel_index(
-                list(self.bandspin), dims_1)
+            self.bandspin = list(np.unravel_index(self.index-1, dims_bs))
+            self.bands,self.spins = np.unravel_index(self.bandspin, dims_1)
 
         elif bands is not None and index is None: # initialize from bands (and spins)
             self.bands = bands

@@ -17,7 +17,7 @@ endif()
 
 if(NOT SCIPY_FOUND AND PYTHONINTERP_FOUND)
     execute_process(COMMAND
-      "${PYTHON_EXECUTABLE}" "-c" "exec(\"try:\\n import scipy;\\n print(scipy.__version__);\\n print(scipy.get_include())\\nexcept:\\n exit(1)\")"
+      "${PYTHON_EXECUTABLE}" "-c" "exec(\"try:\\n import numpy;\\n import scipy;\\n print(scipy.__version__);\\n print(numpy.get_include())\\nexcept:\\n exit(1)\")"
       OUTPUT_VARIABLE _SCIPY_VALUES
       RESULT_VARIABLE SCIPY_COMMAND_RESULT
       OUTPUT_STRIP_TRAILING_WHITESPACE)

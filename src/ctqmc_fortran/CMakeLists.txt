@@ -13,7 +13,8 @@
   endforeach(_dir)
 
 #separate off the names of the source files
-set(CTQMCSRCNAMES AngularMomentum.F90
+set(CTQMCSRCNAMES Accumulators.F90
+AngularMomentum.F90
 Ausgabe.F90
 CompoundIndex.F90
 Lanczos.F90
@@ -36,24 +37,16 @@ Trace.F90
   foreach(src ${CTQMCSRCNAMES})
     list(APPEND CTQMC_src "${SRCCTQMC}/${src}")
   endforeach(src)
-  
+
 # Define the executable in terms of the source files
-ADD_LIBRARY(CTQMCLIB OBJECT ${CTQMC_src})
+ADD_LIBRARY(CTQMCLIB STATIC ${CTQMC_src})
 SET_PROPERTY(TARGET CTQMCLIB PROPERTY POSITION_INDEPENDENT_CODE ON)
 set_target_properties(CTQMCLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
 add_dependencies(CTQMCLIB mtrng)
- 
-  # create a string that contains the path of the objects.
-  set(F2PYOBJS)
-
-  foreach(obj ${CTQMCSRCNAMES})
-    list(APPEND F2PYOBJS ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/CTQMCLIB.dir/${obj}.o)#HACK: only works for UNIX makefiles...cmake has different behaviour for VS.
-  endforeach(obj)
 
   set(_name CTQMC)
   set (CPPSTDLIBRARY "-lstdc++")#placeholder if we decide to better parse platforms in the future...
   set(SWITCHES ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
-#  set(EXTERNAL_LIBRARIES ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} ${NFFT_LIBRARIES}  ${FFTW_LIBRARIES})
   if(APPLE)
     set(SWITCHES "--link-lapack_opt" "--link-fftw")
   endif()
@@ -79,29 +72,30 @@ add_dependencies(CTQMCLIB mtrng)
 
   # Define the command to generate the Fortran to Python interface module. The
   # output will be a shared library that can be imported by python.
-    add_custom_command(OUTPUT "${_name}${F2PY_SUFFIX}" COMMAND ${F2PY_EXECUTABLE} --quiet -m ${_name} #-c "${CMAKE_CURRENT_BINARY_DIR}/f2py-${_name}/${_name}.pyf"
-              --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
-              ${_fcompiler_opts} --opt="-O3"
-              ${SWITCHES}
-              ${LIB}/libmtrng.a
-              ${CPPSTDLIBRARY}
-              ${CMAKE_THREAD_LIBS_INIT} -c ${_inc_opts} ${F2PYOBJS} ${SRCCTQMC}/CTQMC.F90 ${NFFT_LIBRARIES} ${FFTW_LIBRARIES}
-      DEPENDS ${SRCCTQMC}/CTQMC.F90 
-      WORKING_DIRECTORY ${SRCCTQMC}
-#      WORKING_DIRECTORY ${BIN}/ctqmc
-      COMMENT "[F2PY] Building Fortran to Python interface module ${_name}")
+  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}"
+    COMMAND ${CMAKE_COMMAND} -E copy "${SRCCTQMC}/.f2py_f2cmap" "${CMAKE_CURRENT_BINARY_DIR}/.f2py_f2cmap"
+    COMMAND ${F2PY_EXECUTABLE} -c $<$<CONFIG:RELEASE>:--quiet> -m ${_name}
+      --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
+      ${_fcompiler_opts}
+      ${SWITCHES}
+      ${LIB}/libmtrng.a
+      ${CPPSTDLIBRARY}
+      ${CMAKE_THREAD_LIBS_INIT} ${_inc_opts} $<TARGET_LINKER_FILE:CTQMCLIB> ${NFFT_LIBRARIES} ${FFTW_LIBRARIES} ${SRCCTQMC}/CTQMC.F90
+    DEPENDS "${SRCCTQMC}/CTQMC.F90" "${SRCCTQMC}/.f2py_f2cmap" CTQMCLIB
+    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+    COMMENT "[F2PY] Building Fortran to Python interface module ${_name}")
   # Add a custom target <name> to trigger the generation of the python module.
 IF(USE_NFFT AND NOT NFFT_FOUND)
-  add_custom_target(${_name} ALL DEPENDS "${_name}${F2PY_SUFFIX}" nfft_local)
+  add_custom_target(${_name} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" nfft_local)
 ELSE()
-  add_custom_target(${_name} ALL DEPENDS "${_name}${F2PY_SUFFIX}")
+  add_custom_target(${_name} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
 ENDIF(USE_NFFT AND NOT NFFT_FOUND)
-  add_dependencies(${_name} CTQMCLIB)  
+  add_dependencies(${_name} CTQMCLIB)
   # CTQMC.so is generated in the source directory since f2py doesn't allow to specify the output directory of the object file.
   # Therefore we have to move it
-  add_custom_command(TARGET ${_name} POST_BUILD 
+  add_custom_command(TARGET ${_name} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy
-                    ${SRCCTQMC}/${_name}${F2PY_SUFFIX} ${CMAKE_SOURCE_DIR}/w2dyn/auxiliaries/${_name}${F2PY_SUFFIX})
+                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/auxiliaries/${_name}${F2PY_SUFFIX}")
 
 
 IF(WIN32)

@@ -20,8 +20,9 @@ string(REGEX REPLACE "\n$" "" F2PY_SUFFIX "${F2PY_SUFFIX}")
 ## Path to the f2py executable
 find_program(F2PY_EXECUTABLE NAMES "f2py${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}"
                                    "f2py-${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}"
+                                   "f2py"  # if a user-installed distribution comes with 'f2py' only, prefer it to potentially incompatible system-wide 'f2pyx'
                                    "f2py${PYTHON_VERSION_MAJOR}"
-                                   "f2py"
+                             PATHS ~/.local/bin
                              REQUIRED)
 
 # Get the compiler-id and map it to compiler vendor as used by f2py.
@@ -72,7 +73,7 @@ find_program(F2PY_EXECUTABLE NAMES "f2py${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION
     endif(NOT F2PY_FCOMPILER)
   endif(NOT F2PY_FCOMPILER)
 
-  # Set f2py compiler options: compiler vendor and path to Fortran77/90 compiler.
+   # Set f2py compiler options: compiler vendor and path to Fortran77/90 compiler.
   if(F2PY_FCOMPILER)
     string(REPLACE " " ";" CMAKE_Fortran_FLAGS_LST ${CMAKE_Fortran_FLAGS})
     set(_fcompiler_opts --fcompiler=${F2PY_FCOMPILER})
@@ -84,4 +85,4 @@ find_program(F2PY_EXECUTABLE NAMES "f2py${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION
       list(APPEND CMAKE_Fortran_FLAGS -DF2PY -fopenmp)
       list(APPEND _fcompiler_opts --f90flags="${CMAKE_Fortran_FLAGS_LST}")
     endif(USE_OPENMP)
-  endif(F2PY_FCOMPILER)
+endif(F2PY_FCOMPILER)

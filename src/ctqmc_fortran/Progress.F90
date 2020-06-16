@@ -13,7 +13,7 @@ module type_progress
         integer(PINT) :: unit      = 0        !< Output unit
         real          :: updateint = 60.      !< Desired update interval [s]
         real          :: adaptrate = 0.5      !< How fast the system adapts (0, 1)
-        logical(PINT) :: fancy     = .false.  !< Interactive display (walltime)
+        logical       :: fancy     = .false.  !< Interactive display (walltime)
 
         integer(PINT) :: ticks     = 0        !< Current value
         integer(PINT) :: target    = -1       !< Target count

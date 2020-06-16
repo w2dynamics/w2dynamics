@@ -1,8 +1,9 @@
 """Tools for selecting data from HDF output files"""
-import sys
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import re
 import os
-import itertools
+from itertools import product as iter_product
 import numpy as np
 import h5py as hdf5
 from warnings import warn
@@ -10,11 +11,9 @@ from warnings import warn
 debug = None
 
 try:
-    from compatibility import iter_product
-    from postprocessing import derived_quantities
+    from .postprocessing import derived_quantities
 except ImportError:
     warn("import problems, reduced functionality")
-    from itertools import product as iter_product
     derived_quantities = {}
 
 def ineq_quantity(iter, qname, field=("value", "error"), ineq=None, 
@@ -36,7 +35,7 @@ def ineq_quantity(iter, qname, field=("value", "error"), ineq=None,
                                    if k.startswith("ineq-")), dtype=np.string_)
         for ineq_key in key_pool[ineq]:
             qnode = iter[ineq_key][qname]
-            yield tuple(qnode[key].value if key in qnode else None
+            yield tuple(qnode[key][()] if key in qnode else None
                         for key in field)
     else:
         raise ValueError("quantity not found in iteration")
@@ -180,8 +179,9 @@ class SelectorPool:
             self.named[key] = value
     
     def __str__(self):
-        return " ".join(map(str, self.positional) +
-                        ["%s=%s" % (k,v) for k,v in self.named.iteritems()])
+        return " ".join(list(map(str, self.positional)) +
+                        ["%s=%s" % (k, self.named[k])
+                         for k in self.named])
 
     def append_from_string(self, str, override=False):
         """Appends a selector by string"""
@@ -274,7 +274,7 @@ class AxisSelection(IndexedSelection):
 
     def __init__(self, selector, axis, lst):
         self.selector = AxisSelection.transform(selector, axis)
-        self._pairs = self._select(zip(axis, lst))
+        self._pairs = self._select(list(zip(axis, lst)))
 
 class IterationSelection(OneBasedSelection):
     """Selection of an iteration in a HDF5 file"""
@@ -286,7 +286,24 @@ class IterationSelection(OneBasedSelection):
             iters = [("start", f["start"])]
         except KeyError:
             raise RuntimeError("output file has no start iteration")
-        iters.extend(p for p in sorted(f.items()) if cls.ITERRE.match(p[0]))
+
+        def numeric_iterkey(key):
+            """Converts string key ending in a dash followed by an integer into a
+            list of the substring before the dash and the integer as
+            int, suitable for numerically ordering such strings even
+            if the length of the substring representing the integer is
+            not fixed.
+            """
+            partlist = key.rsplit('-', maxsplit=1)
+            try:
+                partlist[1] = int(partlist[1])
+            except (IndexError, ValueError):
+                partlist = [key]
+            return partlist
+
+        iters.extend(p for p in sorted(f.items(),
+                                       key=lambda x: numeric_iterkey(x[0]))
+                     if cls.ITERRE.match(p[0]))
         try:
             iters.append(("finish", f["finish"]))
         except KeyError:
@@ -347,7 +364,7 @@ class DatasetSelectionFactory:
         """Returns the corresponding sink slots for a selection""" 
         selection = Selector()
         pos = 0
-        arr = range(dimsize)
+        arr = list(range(dimsize))
         for sel in selector:
             if isinstance(sel, slice):
                 sllen = len(arr[sel])
@@ -393,7 +410,7 @@ class DatasetSelectionFactory:
             self.sink_axes.append(IndexedSelection(selector, axis).values())
         
         if debug: debug("sink_shape = %s", self.sink_shape)
-        if debug: debug("sink_selectors = %s", map(str, self.sink_selectors))
+        if debug: debug("sink_selectors = %s", list(map(str, self.sink_selectors)))
         if debug: debug("sink_axes = %s", ["%s..." % str(a[:10]) 
                                            for a in self.sink_axes])
         
@@ -459,8 +476,9 @@ class DictSelection(IndexedSelection):
             sel = str(sel)
             if sel.find("*") >= 0:
                 import fnmatch
-                for k, v in dct.iteritems():
-                    if fnmatch.fnmatch(k, sel): self._pairs.append((k,v))
+                for k in dct:
+                    if fnmatch.fnmatch(k, sel):
+                        self._pairs.append((k, dct[k]))
             else:
                 self._pairs.append((sel, dct.get(sel)))
 
@@ -486,7 +504,7 @@ class QuantityContainer:
         try:
             if self.file_version >= (2,0):
                 if debug: debug("fetching quantity metadata (new way)")
-                attrs = self.hdf_file[".quantities"][self.qname].attrs
+                attrs = self.hdf_file[".quantities"][self.qname.split('/')[0]].attrs
             else:
                 if debug: debug("fetching quantity metadata (old way)")
                 attrs = next(group for key, group in 
@@ -496,10 +514,22 @@ class QuantityContainer:
             raise KeyError("quantity `%s' not found in HDF5 file `%s'" % 
                            (self.qname, self.hdf_file.filename))
         self.meta = dict(attrs)
+
+        # decode bytestrings for compatibility with old files
+        for k in self.meta:
+            if isinstance(self.meta[k], bytes):
+                self.meta[k] = self.meta[k].decode()
+            elif (isinstance(self.meta[k], np.ndarray)
+                  and self.meta[k].dtype.type == np.bytes_):
+                self.meta[k] = np.char.decode(self.meta[k])
+
         if debug: debug("quantity metadata: %s", self.meta)
         # get axes metadata
         try:
-            self.axes_names = list(attrs["axes"])
+            if any(isinstance(x, bytes) for x in attrs["axes"]):
+                self.axes_names = [x.decode() for x in attrs["axes"]]
+            else:
+                self.axes_names = list(attrs["axes"])
         except KeyError:
             self.axes_names = ()
         
@@ -519,7 +549,7 @@ class QuantityContainer:
         axes_group = self.hdf_file[("axes", ".axes")[self.file_version[0]-1]]
         for axis_name in self.axes_names:
             try:
-                self.axes_values.append(axes_group[axis_name].value)
+                self.axes_values.append(axes_group[axis_name][()])
                 if debug: debug("found axis %s: %s...", axis_name, self.axes_values[-1][:10])
             except KeyError:
                 self.axes_values.append(None)
@@ -584,9 +614,9 @@ class DerivedQttyContainer(QuantityContainer):
             valargs = []
             errargs = []
             for node in bqnodes:
-                valargs.append(node["value"].value)
+                valargs.append(node["value"][()])
                 try:
-                    errargs.append(node["error"].value)
+                    errargs.append(node["error"][()])
                 except KeyError:
                     errargs.append(None)
             if debug: debug("arguments: %s", str(valargs + errargs)[:200])
@@ -618,7 +648,7 @@ class MetaQttyContainer:
                                  self.hdf_file[self.nodename].attrs)
         else:
             return PairListSelection(pool.expect("item"), 
-                                     self.hdf_file[self.nodename].value)
+                                     self.hdf_file[self.nodename][()])
 
 class FieldContainer:
     def __init__(self, node):
@@ -660,7 +690,8 @@ class FieldSelection(DictSelection):
     def __init__(self, selector, node):
         dct = {}
         self.shape = None
-        for field_name, field_node in node.iteritems():
+        for field_name in node:
+            field_node = node[field_name]
             self.shape = field_node.shape
             if issubclass(field_node.dtype.type, np.complexfloating):
                 dct[field_name + "-re"] = RealContainer(field_node)

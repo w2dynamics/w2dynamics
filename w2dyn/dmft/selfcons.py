@@ -1,4 +1,5 @@
-from __future__ import division
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 from warnings import warn
 import numpy as np
 import scipy.optimize as opt
@@ -9,6 +10,7 @@ import w2dyn.dmft.impurity as impurity
 import w2dyn.dmft.doublecounting as doublecounting
 import w2dyn.dmft.orbspin as orbspin
 import w2dyn.dmft.gw as gw
+import w2dyn.dmft.mixing as mixing
 
 import w2dyn.auxiliaries.transform as tf
 
@@ -70,7 +72,7 @@ class FrequencyDistribution:
             self.sizes[-iw_excess:] += 1
 
         slice_ends = self.sizes.cumsum()
-        self.slices = map(slice, slice_ends - self.sizes, slice_ends)
+        self.slices = list(map(slice, slice_ends - self.sizes, slice_ends))
 
         self.myniw = self.sizes[rank]
         self.myslice = self.slices[rank]
@@ -103,15 +105,15 @@ class FrequencyDistribution:
 class DMFTStep:
     def __init__(self, beta, lattice, ineq_list, niwf, nftau, dc_dp, dc_dp_orbitals, GW, GW_KAverage, natoms, dc=None,
                  udd_full=None, udp_full=None, upp_full=None, paramag=False,
-                 siw_mix_strategy=None, mu_mix_strategy=None, mpi_comm=None):
+                 siw_mixer=None, mu_mixer=None, mpi_comm=None):
 
         if beta < 0: raise ValueError("beta must be positive")
         if niwf <= 0 or niwf % 2 != 0: raise ValueError("niwf must be even")
         if nftau <= 1: raise ValueError("nftau must be greater than 1")
         if dc is None: dc = doublecounting.Zero()
-        if siw_mix_strategy is None: siw_mix_strategy = LinearMixingStrategy()
-        if mu_mix_strategy is None: mu_mix_strategy = LinearMixingStrategy()
-        
+        if siw_mixer is None: siw_mixer = mixing.FlatMixingDecorator(mixing.LinearMixer())
+        if mu_mixer is None: mu_mixer = mixing.LinearMixer()
+
         self.mpi_comm = mpi_comm
 
         self.beta = beta
@@ -123,16 +125,13 @@ class DMFTStep:
         self.upp_full = upp_full
         self.paramag = paramag
 
-        self.init_siws = True
-        self.init_mu = True
-
         if self.udp_full is None or upp_full is None:
             self.use_hartree = False
         else:
             self.use_hartree = udp_full.any() or upp_full.any()
 
-        self.siw_mix_strategy = siw_mix_strategy
-        self.mu_mix_strategy = mu_mix_strategy
+        self.siw_mixer = siw_mixer
+        self.mu_mixer = mu_mixer
 
         self._eye = lattice.eye
 
@@ -166,8 +165,8 @@ class DMFTStep:
             try:
                 dummy_try = self.lattice.nkpoints
             except:
-                print '********* GW MODULE IS NOT AVAILABLE FOR BETHE LATTICE *********'
-                print '...exiting'''
+                print('********* GW MODULE IS NOT AVAILABLE FOR BETHE LATTICE *********')
+                print('...exiting')
                 exit()
             self.gw = gw.GWInclusion(self.lattice.norbitals, natoms, self.lattice.nkpoints, self.my_niwf, self.paramag, self.use_gw_kaverage)
 
@@ -193,12 +192,12 @@ class DMFTStep:
                     siw_block[:,:,1,:,1] -= .5 * ineq.se_shift
 
                 siw_dd.append(siw_block)
-                smom_dd.append(siw_block[:1].real)
+                smom_dd.append(siw_block[:2].real)
 
         if smom_dd is None:
             warn("extracting moments from Sigma. Better use siw_mom",
                  UserWarning, 2)
-            smom_dd = [siw_block[:1].real for siw_block in siw_dd]
+            smom_dd = [siw_block[:2].real for siw_block in siw_dd]
 
         # Enforce paramagnetic option
         if self.paramag:
@@ -238,26 +237,14 @@ class DMFTStep:
                 siw_dd[ineq_no][:] += ineq.d_downfold(self.sigma_hartree)
                 ineq.d_setpart(self.sigma_hartree, 0)
 
-        # Perform mixing of self-energy and double-counting with the same
-        # strategy: this is important as to keep them "consistent", i.e.,
-        # double-count correlations at the same rate as switching them on.
-        if init:
-            # First iteration: initialise mixers
-            self.dc_mixer = self.siw_mix_strategy.mixer(dc_full)
-            self.siw_mixer = [self.siw_mix_strategy.mixer(siw_block)
-                              for siw_block in siw_dd]
-            self.smom_mixer = [self.siw_mix_strategy.mixer(smom_block)
-                               for smom_block in smom_dd]
-
-            self.siw_dd = siw_dd
-            self.smom_dd = smom_dd
-        else:
-            # In-the-middle iteration: perform mixing
-            self.dc_full = self.dc_mixer(self.dc_full)
-            self.siw_dd = [mixer(siw_block) for mixer, siw_block
-                           in zip(self.siw_mixer, siw_dd)]
-            self.smom_dd = [mixer(smom_block) for mixer, smom_block
-                            in zip(self.smom_mixer, smom_dd)]
+        # Perform mixing of self-energy, its moments and
+        # double-counting with the same mixer. This is important to
+        # keep them "consistent", i.e., double-count correlations at
+        # the same rate as switching them on, and with DIIS, the
+        # mixing of all related quantities using the same mixer is
+        # necessary in particular because the earlier values
+        # themselves influence the ratios in which they are mixed in.
+        self.dc_full, self.siw_dd, self.smom_dd = self.siw_mixer(self.dc_full, siw_dd, smom_dd)
 
         # Fix the distance between selected d-orbitals and the p-manifold to the original distance of the LDA/GW Hamiltonian
         if self.dc_dp == 1:
@@ -300,7 +287,8 @@ class DMFTStep:
                                     self.densities)
                 self.sigma_hartree = orbspin.promote_diagonal(hartree)
             else:
-                self.sigma_hartree = np.zeros_like(self.siw_full[0])
+                self.sigma_hartree = np.zeros(self.siw_full.shape[1:],
+                                              dtype=self.siw_full.dtype)
 
         self.siw_full += self.sigma_hartree
         self.siw_moments[0] += self.sigma_hartree.real
@@ -342,12 +330,7 @@ class DMFTStep:
         self.set_mu(mu)
 
     def set_mu(self, mu, init=False):
-        if self.init_mu or init:
-            self.mu = mu
-            self.mu_mixer = self.mu_mix_strategy.mixer(mu)
-            self.init_mu = False
-        else:
-            self.mu = self.mu_mixer(mu)
+        self.mu = self.mu_mixer(mu)
         self.trace = None
 
     def siw2gloc(self):
@@ -372,8 +355,11 @@ class DMFTStep:
             output.write_distributed("glocold",
                                   self.mpi_strategy.parts(self.glociw),
                                   self.mpi_strategy.shape(self.glociw))
+            glociw = self.mpi_strategy.allgather(orbspin.extract_diagonal(self.glociw))
+            output.write_quantity("glocold-lattice", glociw)
         else:
             output.write_quantity("glocold", self.glociw)
+            output.write_quantity("glocold-lattice", orbspin.extract_diagonal(self.glociw))
 
         output.write_quantity("gdensold", self.densmatrix)
 
@@ -384,8 +370,11 @@ class DMFTStep:
             output.write_distributed("glocnew",
                                   self.mpi_strategy.parts(self.glociw),
                                   self.mpi_strategy.shape(self.glociw))
+            glociw = self.mpi_strategy.allgather(orbspin.extract_diagonal(self.glociw))
+            output.write_quantity("glocnew-lattice", glociw)
         else:
             output.write_quantity("glocnew", self.glociw)
+            output.write_quantity("glocnew-lattice", orbspin.extract_diagonal(self.glociw))
 
         output.write_quantity("dc", self.dc_full)
         output.write_quantity("dc-latt", self.dc_full)
@@ -502,46 +491,100 @@ class DMFTStep:
         g0iw = [orbspin.invert(p.g0inviw) for p in self.imp_problems]
 
         output.write_quantity("g0iw-full", g0iw)
-        output.write_quantity("g0iw",  g0iw)
-        output.write_quantity("fiw",   [p.fiw for p in self.imp_problems])
-        output.write_quantity("fmom",  [p.fmom for p in self.imp_problems])
-        output.write_quantity("ftau",  [p.ftau for p in self.imp_problems])
-        output.write_quantity("ftau-full",  [p.ftau for p in self.imp_problems])
+        output.write_quantity("g0iw", g0iw)
+        output.write_quantity("fiw", [p.fiw for p in self.imp_problems])
+        output.write_quantity("fmom", [p.fmom for p in self.imp_problems])
+        output.write_quantity("ftau", [p.ftau for p in self.imp_problems])
+        output.write_quantity("ftau-full", [p.ftau for p in self.imp_problems])
         output.write_quantity("muimp", [p.muimp for p in self.imp_problems])
         output.write_quantity("muimp-full", [p.muimp for p in self.imp_problems])
 
-class LinearMixingStrategy(object):
-    """Allows (linear) under relaxation of quantities in the DMFT loop.
+class KappaMuExtrapolator:
+    def __init__(self, totdens, last_mudiff=None, forced_kappa_sign=None):
+        self.totdens = totdens
+        if forced_kappa_sign is not None and np.sign(forced_kappa_sign) == 0:
+            raise ValueError("Forced sign of kappa must not be 0")
+        self.forced_kappa_sign = (np.sign(forced_kappa_sign)
+                                  if forced_kappa_sign is not None
+                                  else None)
+        self.kappa = None
+        self.mus = []
+        self.ns = []
+        self.last_n = None
+        self.last_mudiff = last_mudiff
+        self.last_kappa = None
+        self.kappa_sign_volatile = False
+        self.max_inc = 5.0
+        self.max_dec = 10.0
 
-    This is achieved by mixing into the new self-energy a certain share of the
-    previous self-energy (controlled by `oldshare`) every time that `mix()` is
-    called:
+    def initialize(self, last_mu, last_n, start_kappa=None, last_mudiff=None):
+        self.last_mu = last_mu
+        self.last_n = last_n
+        self.mus.append(last_mu)
+        self.ns.append(last_n)
+        if (start_kappa is not None
+           and (self.forced_kappa_sign is None
+                or np.sign(start_kappa) == self.forced_kappa_sign)):
+            self.kappa = start_kappa
+        self.last_mudiff = last_mudiff
 
-            A^{mixed}_n = (1-oldshare) * A_n + oldshare * A^{mixed}_{n-1}
+    def has_mu(self):
+        return self.kappa is not None and self.last_n is not None
 
-    thereby exponentially decreasing the influence of the old iterations by
-    `\exp(-n \log oldshare)`. This strategy dampens strong statistical
-    fluctuations in the QMC solver and ill-defined chemical potentials in
-    insulating cases.
-    """
-    def __init__(self, oldshare=0.):
-        if not (0 <= oldshare <= 1):
-            raise ValueError("Mixing factor must be between 0 and 1")
-        self.oldshare = float(oldshare)
+    def next_mu(self):
+        diff = (self.totdens - self.last_n) / self.kappa
 
-    def mixer(self, init_value=None):
-        return self.__class__.Mixer(self, init_value)
+        if self.last_mudiff is None:
+            self.last_mudiff = diff
+            return self.last_mu + diff
 
-    class Mixer:
-        def __init__(self, strategy, init_value):
-            self.strategy = strategy
-            self.oldvalue = init_value
-
-        def __call__(self, newvalue):
-            if newvalue is None: raise ValueError("new value must not be None")
-            oldsh = self.strategy.oldshare
-            if self.oldvalue is None:
-                self.oldvalue = newvalue
+        # heuristic: if the sign of kappa changed, force the first
+        #            step with the new kappa to be smaller to prevent
+        #            DMFT lag and error from erasing too much
+        #            convergence progress
+        max_inc = self.max_inc
+        if self.forced_kappa_sign is None:
+            if (self.last_kappa is not None
+                    and np.sign(self.last_kappa) != np.sign(self.kappa)):
+                if not self.kappa_sign_volatile:
+                    max_inc = 1.0/3.0
+                else:
+                    max_inc = 3.0 * max_inc
+                self.kappa_sign_volatile = not self.kappa_sign_volatile
             else:
-                self.oldvalue = oldsh * self.oldvalue + (1-oldsh) * newvalue
-            return self.oldvalue
+                self.kappa_sign_volatile = False
+
+        # heuristic: limit ratio of successive step size changes (to
+        #            prevent wild swings due to outliers and freezing)
+        sign = (np.sign(diff) if diff != 0.0 else 1.0)
+        if abs(diff) > max_inc * abs(self.last_mudiff):
+            diff = sign * max_inc * abs(self.last_mudiff)
+        elif abs(diff) < abs(self.last_mudiff) / self.max_dec:
+            diff = sign * abs(self.last_mudiff) / self.max_dec
+
+        self.last_mudiff = diff
+
+        return self.last_mu + diff
+
+    def step(self, mu, n, nerr=None):
+        # reduce max step size change factor if within error or after
+        # first crossing the target value
+        if nerr is not None and (abs(n - self.totdens) <= nerr):
+            self.max_inc = 2.0
+            self.max_dec = 5.0
+        elif ((nerr is None or np.isnan(nerr)) and self.last_n is not None
+              and (self.totdens - self.last_n) * (self.totdens - n) < 0.0):
+            self.max_inc = 2.0
+            self.max_dec = 5.0
+
+        self.last_kappa = self.kappa
+        if self.last_n is not None:
+            kappa = (n - self.last_n)/(mu - self.last_mu)
+            if (self.forced_kappa_sign is None
+               or np.sign(kappa) == self.forced_kappa_sign):
+                self.kappa = kappa
+
+        self.last_mu, self.last_n = mu, n
+        self.mus.append(self.last_mu)
+        self.ns.append(self.last_n)
+

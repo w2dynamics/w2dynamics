@@ -26,18 +26,11 @@ set(MAXENTSRCNAMES ${MAXENTSRCNAMES} PARENT_SCOPE)
   endforeach(src)
 
 # Define the executable in terms of the source files
-ADD_LIBRARY(MAXENTLIB OBJECT ${MAXENT_src})
+ADD_LIBRARY(MAXENTLIB STATIC ${MAXENT_src})
 SET_PROPERTY(TARGET MAXENTLIB PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 set_target_properties(MAXENTLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
 
-  # create a string that contains the path of the objects.
-  set(MAXENTF2PYOBJS)
-
-  foreach(obj ${MAXENTSRCNAMES})
-    list(APPEND MAXENTF2PYOBJS ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/MAXENTLIB.dir/${obj}.o)#HACK: only works for UNIX makefiles...cmake has different behaviour for VS.
-  endforeach(obj)
-set(MAXENTF2PYOBJS ${MAXENTF2PYOBJS} PARENT_SCOPE)
 set(EXTERNAL_LIBRARIES ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
 if(APPLE)
     set(EXTERNAL_LIBRARIES "--link-lapack_opt")
@@ -46,24 +39,25 @@ endif()
   set( _name MAXENT )
   # Define the command to generate the Fortran to Python interface module. The
   # output will be a shared library that can be imported by python.
-  set(ADDITIONAL_OPTS -O3 -fPIC -DLAPACK77_Interface)
-    add_custom_command(OUTPUT "${_name}${F2PY_SUFFIX}"
-      COMMAND ${F2PY_EXECUTABLE} --quiet -m ${_name} #-c "${CMAKE_CURRENT_BINARY_DIR}/f2py-${_name}/${_name}.pyf"
-              --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
-              ${_fcompiler_opts} --opt="${ADDITIONAL_OPTS}" -c ${_inc_opts}
-                                 ${EXTERNAL_LIBRARIES}
-                                ${CMAKE_THREAD_LIBS_INIT} ${MAXENTF2PYOBJS} ${SRCMAXENT}/MaximumEntropy.F90
-      DEPENDS ${SRCMAXENT}/MaximumEntropy.F90
-      WORKING_DIRECTORY ${SRCMAXENT}
+  set(ADDITIONAL_OPTS -fPIC -DLAPACK77_Interface)
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}"
+      COMMAND ${CMAKE_COMMAND} -E copy "${SRCMAXENT}/.f2py_f2cmap" "${CMAKE_CURRENT_BINARY_DIR}/.f2py_f2cmap"
+      COMMAND ${F2PY_EXECUTABLE} -c $<$<CONFIG:RELEASE>:--quiet> -m ${_name}
+        --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
+        ${_fcompiler_opts} --opt="${ADDITIONAL_OPTS}" ${_inc_opts}
+        ${EXTERNAL_LIBRARIES}
+        ${CMAKE_THREAD_LIBS_INIT} $<TARGET_LINKER_FILE:MAXENTLIB> ${SRCMAXENT}/MaximumEntropy.F90
+      DEPENDS "${SRCMAXENT}/MaximumEntropy.F90" "${SRCMAXENT}/.f2py_f2cmap" MAXENTLIB
+      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
       COMMENT "[F2PY] Building Fortran to Python interface module ${_name}")
   # Add a custom target <name> to trigger the generation of the python module.
-  add_custom_target(${_name} ALL DEPENDS "${_name}${F2PY_SUFFIX}")
+  add_custom_target(${_name} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
   # MAXENT.so is generated in the source directory since f2py doesn't allow to specify the output directory of the object file.
   # Therefore we have to move it
   add_custom_command(TARGET ${_name} POST_BUILD 
                     COMMAND ${CMAKE_COMMAND} -E copy
-                    ${SRCMAXENT}/${_name}${F2PY_SUFFIX} ${CMAKE_SOURCE_DIR}/w2dyn/maxent/${_name}${F2PY_SUFFIX})
-                    
+                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/maxent/${_name}${F2PY_SUFFIX}")
+
   add_dependencies(${_name} MAXENTLIB)
 
 #####################################

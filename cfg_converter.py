@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 from configobj import ConfigObj
 from configobj import Section
 import optparse
@@ -48,23 +50,23 @@ if __name__ == "__main__":
    options, filenames = parser.parse_args()
    
    if options.cfg_file is not None:
-      print "Reading Config File " + options.cfg_file
+      print("Reading Config File " + options.cfg_file)
       cfg_infile = ConfigObj(options.cfg_file,file_error=True)
       if cfg_infile is None:
          raise IOError("Cannot find Config File ") + options.cfg_file
    else:
-      print "Reading default Config File Parameters.in"
+      print("Reading default Config File Parameters.in")
       cfg_infile = ConfigObj("Parameters.in",file_error=True)
       if cfg_infile is None:
          raise IOError("Cannot find default Config File Parameters.in")
    
    if options.cspc_file is not None:
-      print "Reading ConfigSpec File " + options.cspc_file
+      print("Reading ConfigSpec File " + options.cspc_file)
       config_spec = ConfigObj(options.cspc_file,file_error=True,list_values=False,_inspec=True)
       if config_spec is None:
          raise IOError("Cannot find ConfigSpec File ") + options.cspc_file
    else:
-      print "Reading default ConfigSpec File ./auxiliaries/configspec"
+      print("Reading default ConfigSpec File ./auxiliaries/configspec")
       #default path to configpsec
       path = os.path.dirname(__file__) + "/auxiliaries/configspec"
       config_spec = ConfigObj(path,file_error=True,list_values=False,_inspec=True)
@@ -90,7 +92,7 @@ if __name__ == "__main__":
    #NAt is necessary to determine how many ineqs need to be created
    try: 
       cfg_infile["NAt"]
-   except Exception :   
+   except Exception:
       raise ValueError("Please set NAt in Input File")
    
    cfg_outfile = ConfigObj()
@@ -98,7 +100,7 @@ if __name__ == "__main__":
    
    for key in cfg_infile:
       if key in section_list["Atoms"]["__many__"]:
-         for i in xrange(int(cfg_infile["NAt"])):
+         for i in range(int(cfg_infile["NAt"])):
             cfg_out.write_to_section(("Atoms",str(i+1)),key,cfg_infile[key])
       elif key in section_list["QMC"]:
          cfg_out.write_to_section(("QMC",),key,cfg_infile[key])
@@ -108,7 +110,7 @@ if __name__ == "__main__":
          raise KeyError("Key not in configspec")
    
    if options.outfile is not None:
-      print "Creating Output File " + options.outfile
+      print("Creating Output File " + options.outfile)
       cfg_outfile.filename=options.outfile
       if cfg_outfile is None:
          raise IOError("Cannot create Output File ") + options.outfile
@@ -119,7 +121,7 @@ if __name__ == "__main__":
          if cfg_outfile is None:
             raise IOError("Cannot create Output File ") + options.outfile
       else:
-         print "Writing to standard Output File"
+         print("Writing to standard Output File")
          shutil.copy2("./Parameters.in","./Parameters_old.in")
          cfg_outfile.filename="Parameters.in"
          if cfg_outfile is None:

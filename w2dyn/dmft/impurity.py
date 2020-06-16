@@ -7,18 +7,39 @@ DMFT self-consistency loop. Their relation can be visualised as follows:
         ------------------>| ImpuritySolver |----------------->
           ImpurityProblem  +----------------+  ImpurityResult
 """
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import time
 from warnings import warn
 import numpy as np
 import scipy.optimize as opt
+import sys
 
 from w2dyn.auxiliaries.CTQMC import mctqmc as ctqmc
 import w2dyn.auxiliaries.transform as tf
 import w2dyn.auxiliaries.postprocessing as postproc
-import dynamicalU as dynamicalU
-import copy
+import w2dyn.auxiliaries.compound_index as ci
+import w2dyn.auxiliaries.statistics as statistics
+from w2dyn.auxiliaries.statistics import (DistributedSample,
+                                          DistributedJackknife)
+import w2dyn.dmft.dynamicalU as dynamicalU
+# import copy
 
 import w2dyn.dmft.orbspin as orbspin
+
+# deprecated function time.clock removed in python >= 3.8
+if not hasattr(time, 'clock'):
+    time.clock = time.perf_counter
+
+
+def lattice_convention(qtty):
+    """Function to be used for tranposing and reshaping three-dimensional
+    band/spin-diagonal arrays with (band, spin) as first two
+    dimensions as obtained from the solver for some quantities into
+    full five-dimensional band/spin-matrices with (band, spin, band,
+    spin) as last four dimensions as used in the DMFT code.
+    """
+    return orbspin.promote_diagonal(qtty.transpose(2, 0, 1))
 
 
 class CtHybConfig:
@@ -93,38 +114,6 @@ class DummyMpiCommunicator:
     def allreduce(self, rank_result): return rank_result
     def allgather(self, rank_result): return rank_result
 
-def reduce_stderr(mpi_comm, qtty_rank):
-    mpi_size = mpi_comm.Get_size()
-    
-    if mpi_size == 1:
-        # no need for such stuff
-        qtty_err = np.empty_like(np.abs(qtty_rank))
-        qtty_err[...] = np.nan
-        return qtty_rank, qtty_err
-
-    # make sure we have a numpy array
-    qtty_rank = np.asarray(qtty_rank)
-    qtty_mean = np.zeros_like(qtty_rank)
-    
-    # sum of the quantity
-    mpi_comm.Allreduce(qtty_rank, qtty_mean)
-
-    # sum abs-squared of the quantity
-    qtty_rank = np.abs(qtty_rank)**2
-    qttysq_mean = np.zeros_like(qtty_rank)
-    mpi_comm.Allreduce(qtty_rank, qttysq_mean)
-
-    # compute mean and standard deviation
-    qtty_mean /= mpi_size
-    qttysq_mean /= mpi_size
-    qttysq_mean = np.sqrt(qttysq_mean - np.abs(qtty_mean)**2)
-
-    # Get the standard error rather than the sample variance. This assumes that
-    # the samples are uncorrelated, which is true in practise since they come
-    # from completely different MC runs.
-    qttysq_mean /= np.sqrt(mpi_size - 1.)
-    return qtty_mean, qttysq_mean
-
 
 class ImpurityProblem:
     """Specification of a single-impurity Anderson problem.
@@ -197,12 +186,67 @@ class ImpurityProblem:
 
 class ImpurityResult:
     """Result of an Anderson impurity problem"""
-    def postprocessing(self, siw_method="improved", smom_method="estimate"):
-        # This function is disjoint from the initialisation, because it is a
-        # "derived" quantity that should be computed after averaging over bins
-        fallback = False
 
-        if siw_method == "dyson":
+    def __init__(self, problem, giw, gsigmaiw=None, smom=None,
+                 g_diagonal_only=False, **other):
+
+        #if g_diagonal_only:
+        #    if not orbspin.is_diagonal(giw, 0):
+        #        raise ValueError("Giw contains offdiagonals even though"
+        #                         "the result is marked as diagonal")
+        #    if not (gsigmaiw is None or orbspin.is_diagonal(gsigmaiw, 0)):
+        #        raise ValueError("GSigmaiw contains offdiagonals even though"
+        #                         "the result is marked as diagonal")
+
+        self.problem = problem
+        self.giw = giw
+        self.gsigmaiw = gsigmaiw
+        self.smom = smom
+        self.g_diagonal_only = g_diagonal_only
+        self.other = other
+
+    def postprocessing(self, siw_method="dyson", smom_method="estimate"):
+        """Set self-energy `self.siw` and its moment `self.smom`.
+
+        Parameters
+        ----------
+        siw_method : {'dyson', 'improved_worm', 'symmetric_improved_worm'}, optional
+            whether to calculate self-energy from Dyson equation,
+            from improved estimators: `self.gsigmaiw/self.giw`,
+            or from symmetric improved estimators: `(\Sigma_H + \theta) / (1 + \mathcal{G}(\Sigma_H + \theta))`
+        smom_method : {'extract', 'estimate'}, optional
+            whether to calculate the moment from self-energy data ('extract')
+            or from calculated densities ('estimate').
+
+        """
+        # This function is disjoint from the initialization, because it is a
+        # "derived" quantity that should be computed after averaging over bins
+        self.siw = self.calculate_siw(siw_method)
+        self.smom = self.calculate_smom(smom_method)
+
+    def calculate_siw(self, method):
+        """Calculate the self-energy from impurity data.
+
+        Parameters
+        ----------
+        method : {'dyson', 'improved_worm', 'symmetric_improved_worm'}, optional
+            whether to calculate self-energy from Dyson equation or
+            from improved estimators: `self.gsigmaiw/self.giw`,
+            or from symmetric improved estimators: `(\Sigma_H + \theta) / (1 + \mathcal{G}(\Sigma_H + \theta))`
+
+        Returns
+        -------
+        siw : complex ndarray
+            The self-energy.
+
+        Raises
+        ------
+        NotImplementedError
+            If a different method is given.
+
+        """
+        method = method.lower()  # ignore case
+        if method == "dyson":
             if self.g_diagonal_only:
                 # If the solver is only capable of supplying the spin/orbital-
                 # diagonal terms of the Green's function, we need to make sure
@@ -210,91 +254,94 @@ class ImpurityResult:
                 # account in the Dyson equation, otherwise Sigma erroneously
                 # "counteracts" these terms.  As an added performance benefit,
                 # we can use 1/giw rather than the inversion in this case.
-                self.siw = orbspin.promote_diagonal(
-                                orbspin.extract_diagonal(self.problem.g0inviw) -
-                                1/orbspin.extract_diagonal(self.giw))
+                get_siw = lambda giw: orbspin.promote_diagonal(
+                            orbspin.extract_diagonal(self.problem.g0inviw)
+                            - 1/orbspin.extract_diagonal(giw))
             else:
-                self.siw = self.problem.g0inviw - orbspin.invert(self.giw)
+                get_siw = lambda giw: self.problem.g0inviw - orbspin.invert(giw)
 
-        elif siw_method == "improved":
+        elif method == "improved":
             if self.gsigmaiw is None:
                 warn("Cannot compute improved estimators - GSigmaiw missing\n"
                      "Falling back to Dyson equation", UserWarning, 2)
-                siw_method = "dyson"
-                fallback = True
-
+                return self.calculate_siw("dyson")
             raise NotImplementedError()  # FIXME
 
-        elif siw_method == 'improved_worm':
+        elif method == 'improved_worm':
             if self.gsigmaiw is None:
                 warn("Cannot compute improved estimators - GSigmaiw missing\n"
                      "Falling back to Dyson equation", UserWarning, 2)
-                siw_method = "dyson"
-                fallback = True
-            
-            if self.g_diagonal_only: 
-                #TODO: check gsigma sign
-                self.siw = -orbspin.promote_diagonal(
-                              orbspin.extract_diagonal(self.gsigmaiw) / 
-                              orbspin.extract_diagonal(self.giw))
+                return self.calculate_siw("dyson")
+
+            if self.g_diagonal_only:
+                get_siw = lambda giw: orbspin.promote_diagonal(
+                    orbspin.extract_diagonal(self.problem.g0inviw)
+                    - 1./orbspin.extract_diagonal(giw))
             else:
+                self.siw = self.problem.g0inviw - orbspin.invert(self.giw)
                 raise NotImplementedError("Offdiagonal worm improved \n"
                                           "estimators not implemented")
 
-        else:
-            raise ValueError("unknown siw_method: %s" % siw_method)
+        elif method == 'symmetric_improved_worm':
 
-        if smom_method == "extract":
+            if self.g_diagonal_only:
+                #pseudo_se = orbspin.promote_diagonal(self.qqiw) + self.smom.value
+                #se = pseudo_se / (1.
+                #        + orbspin.promote_diagonal(orbspin.invert(self.problem.g0inviw)) * pseudo_se)
+                #return se
+                get_siw = lambda giw: orbspin.promote_diagonal(
+                    orbspin.extract_diagonal(self.problem.g0inviw)
+                    - 1./orbspin.extract_diagonal(giw))
+            else:
+                self.siw = self.problem.g0inviw - orbspin.invert(self.giw)
+                raise NotImplementedError("Offdiagonal worm improved \n"
+                                          "estimators not implemented")
+        else:
+            raise ValueError("unknown siw_method: %s" % method)
+
+        giw_jk_input = DistributedJackknife(self.giw)
+        return giw_jk_input.transform(get_siw)
+
+    def calculate_smom(self, method):
+        """Calculate the moment of the self-energy.
+
+        Parameters
+        ----------
+        method : {'extract', 'estimate'}, optional
+            whether to calculate the moment from self-energy data ('extract')
+            or from calculated densities ('estimate').
+
+        Returns
+        -------
+        smom : float ndarray
+            The moment of the self-energy.
+
+        Raises
+        ------
+        NotImplementedError
+            If a different method is given.
+
+        """
+        method = method.lower()
+        if method == "extract":
             warn("Extracting moment of self-energy from the data",
                  UserWarning, 2)
-            self.smom = self.siw[:1].real.copy()
-        elif smom_method == "estimate":
+            return statistics.DistributedSample(
+                self.siw.local[:, :2].real.copy(),
+                self.siw.mpi_comm
+            )
+        if method == "estimate":
             if self.smom is None:
                 warn("Cannot compute smom estimate - rho1 and rho2 missing\n"
                      "Falling back to extraction", UserWarning, 2)
-                smom_method = "extract"
-                fallback = True
-        else:
-            raise ValueError("unknown smom_method: %s" % smom_method)
+                return self.calculate_smom("extract")
+            return self.smom
+        raise ValueError("unknown smom_method: %s" % method)
 
-        if fallback:
-            self.postprocessing(siw_method, smom_method)
-
-    def __init__(self, problem, giw, gsigmaiw=None, smom=None,
-                 g_diagonal_only=False, **other):
-
-        if g_diagonal_only:
-            if not orbspin.is_diagonal(giw, 0):
-                raise ValueError("Giw contains offdiagonals even though"
-                                 "the result is marked as diagonal")
-            if not (gsigmaiw is None or orbspin.is_diagonal(gsigmaiw, 0)):
-                raise ValueError("GSigmaiw contains offdiagonals even though"
-                                 "the result is marked as diagonal")
-
-        self.problem = problem
-        self.giw = np.asarray(giw)
-        self.gsigmaiw = gsigmaiw
-        self.smom = smom
-        self.g_diagonal_only = g_diagonal_only
-        self.other = other
 
 class StatisticalImpurityResult(ImpurityResult):
-    def collect(self, mpi_comm):
-        # Provide an estimate for the error by averaging over bins
-        self.giw, self.giw_err = reduce_stderr(mpi_comm, self.giw)
-        if self.gsigmaiw is not None:
-            self.gsigmaiw, self.gsigmaiw_err = reduce_stderr(mpi_comm, self.gsigmaiw)
-        if self.smom is not None:
-            self.smom, self.smom_err = reduce_stderr(mpi_comm, self.smom)
+    pass
 
-        # the reduce the others:
-        other = {}
-        for qtty_name, qtty_value in self.other.iteritems():
-            qtty_mean, qtty_error = reduce_stderr(mpi_comm, qtty_value)
-            qtty_value = np.rec.fromarrays((qtty_mean, qtty_error),
-                                           names=("value", "error"))
-            other[qtty_name] = qtty_value
-        self.other = other
 
 class ImpuritySolver(object):
     """Solver that takes an ImpurityProblem and yields an ImpurityResult."""
@@ -349,10 +396,10 @@ class CtHybSolver(ImpuritySolver):
           self._Retarded2Shifts = dynamicalU.Replace_Retarded_Interaction_by_a_Shift_of_instantaneous_Potentials(beta, umatrixdummy, self.Uw_Mat)
           screeningdummy = np.zeros((Nd,2,Nd,2,Nftau))
           self.screening = self._Retarded2Shifts.create_tau_dependent_UV_screening_function(Nftau, beta, screeningdummy)
-          print "         ****************************"
-          print "         ******* U(w) Message *******"
-          print "         ****************************"
-          print " "
+          print("         ****************************")
+          print("         ******* U(w) Message *******")
+          print("         ****************************")
+          print(" ")
 
     def set_problem(self, problem, compute_fourpoint=0):
         # problem
@@ -413,7 +460,7 @@ class CtHybSolver(ImpuritySolver):
 
             ### ===> UPDATE This is now done in the init above.
             ### ===> UPDATE self.screening = _Retarded2Shifts.create_tau_dependent_UV_screening_function(problem.nftau, problem.beta, self.screening)
-          
+
             # Perform chemical potential shift in each DMFT iteration
             if problem.norbitals == 1 and self.epsn == 0:
                 self.muimp = self._Retarded2Shifts.shift_chemical_potential_for_single_band_case(self.muimp, self.umatrix)
@@ -425,8 +472,10 @@ class CtHybSolver(ImpuritySolver):
 
 
     def solve(self, iter_no, mc_config_inout=None):
-        def lattice_convention(qtty):
-            return orbspin.promote_diagonal(qtty.transpose(2,0,1))
+        sys.stdout.flush()
+        sys.stderr.flush()
+        if self.mpi_comm is not None:
+            self.mpi_comm.Barrier()
 
         # Call CT-QMC solver
         ctqmc.simid = self.mpi_rank
@@ -439,23 +488,10 @@ class CtHybSolver(ImpuritySolver):
             mc_config_inout.pop().set_to_ctqmc(ctqmc)
 
         if self.config["QMC"]["segment"] == 0:
-            if self.config["QMC"]["TaudiffMax"] <= 0:
-                ctqmc.init_counters()
-                while ctqmc.apt_index <= 1000:
-                    ctqmc.ctqmc_calibrate(10000, True)
-                acctaulist = ctqmc.accpairtau
-                acctaulist.sort()
-                taudiffmax = reduce_stderr(self.mpi_comm,
-                                           np.array((acctaulist[995],)))[0]
-                ctqmc.set_taudiffmax(taudiffmax)
-                ctqmc.init_counters()
-                ctqmc.ctqmc_calibrate(100000, False)
-                ctqmc.set_taudiffmax(self.estimate_taudiff_max(self.config,
-                                                               self.mpi_comm,
-                                                               ctqmc.accpair,
-                                                               taudiffmax))
-            else:
-                ctqmc.set_taudiffmax(self.config["QMC"]["TaudiffMax"])
+            ctqmc.set_taudiffmax(self.config["QMC"]["TaudiffMax"]
+                                 if self.config["QMC"]["TaudiffMax"] > 0.0
+                                 else self.calibrate_taudiff_max())
+
         ctqmc.ctqmc_warmup(self.config["QMC"]["Nwarmups"]
                            if firstrun or self.config["QMC"]["Nwarmups2Plus"] < 0
                            else self.config["QMC"]["Nwarmups2Plus"])
@@ -482,14 +518,15 @@ class CtHybSolver(ImpuritySolver):
         if self.config["QMC"]["offdiag"] == 0:
             giw = lattice_convention(giw)
         else:
-            ### this has to be done later in offiagonal case!
-            #giw=giw.transpose(4,0,1,2,3)
-            pass
+            giw = np.ascontiguousarray(giw.transpose(4, 0, 1, 2, 3))
+        giw = DistributedSample([giw], self.mpi_comm)
+
 
         # Extract improved estimators
         gsigmaiw = self.get_gsigmaiw(self.config, self.problem, result)
         if gsigmaiw is not None:
             gsigmaiw = lattice_convention(gsigmaiw)
+            gsigmaiw = DistributedSample([gsigmaiw], self.mpi_comm)
 
         # Extract moments of the self-energy from 1- and 2-particle reduced
         # density matrix
@@ -503,46 +540,38 @@ class CtHybSolver(ImpuritySolver):
                                                 [self.problem.nflavours] * 4)
             smom = postproc.get_siw_mom(umatrix_ctr, rho1, rho2)
             smom = lattice_convention(smom)
+            smom = DistributedSample([smom], self.mpi_comm)
 
+        result = {key: DistributedSample([value], self.mpi_comm)
+                  for (key, value) in result.items()}
 
         # Construct result object from result set and collect it from all nodes
         result = StatisticalImpurityResult(self.problem, giw, gsigmaiw, smom,
                                            self.g_diagonal_only, **result)
 
-        if self.mpi_comm is not None:
-            result.collect(self.mpi_comm)
-
-
         # Cleanup
         ctqmc.dest_ctqmc()
         ctqmc.dest_paras()
 
-        ### I have to reshape the giw at the very end, since the shitty mpi will not 
-        ### process the giw array in its full form?!
-        if self.config["QMC"]["offdiag"] == 1:
-            result.giw=result.giw.reshape(self.problem.norbitals, 2,
-                                          self.problem.norbitals, 2, self.problem.niw)
-            result.giw=result.giw.transpose(4,0,1,2,3)
-
         return result
-     
-     
+
+
     def solve_component(self,iter_no,isector,icomponent,mc_config_inout=[]):
         """ This solver returns the worm estimator for a given component. 
            This results in several advantages:
-           
+
               1. the balancing between worm space and partition function space
                  (i.e. eta-search) is done for specified component, and not in
                  an integrated way
-                 
+
               2. memory requirements are lowered for 2P quantities
                  (averaging can be done in python)
-           
+
               3. (following 2.) no need for task-local files, postprocessing
                  formula to calculate H2->chi_conn can be implemented directly
-                 
+
            Convention of sampling spaces (Sector):
-           
+
            Sector=1: Z (partition function, always sampled)
            Sector=2: G1 (one particle Green's function)
            Sector=3: GSigma (one particle improved estimator)
@@ -552,38 +581,32 @@ class CtHybSolver(ImpuritySolver):
            Sector=7: P2PP (single-freqeuncy 2P-GF in PP channel)
            Sector=8: P3PH (two-freqeuncy 2P-GF in PH channel)
            Sector=9: P3PP (two-freqeuncy 2P-GF in PP channel)
+           Sector=10: QQ (one-particle symmetric IE)
+           Sector=11: QQQQ (two-particle symmetric IE)
+           Sector=12: NQQdag
+           Sector=13: QQdd
+           Sector=14: Ucaca (P2 with U matrices)
+           Sector=15: Uccaa (P2pp with U matrices)
+           Sector=16: QUDdag
         """
-        
-        def lattice_convention(qtty):
-            return orbspin.promote_diagonal(qtty.transpose(2,0,1))
+        sys.stdout.flush()
+        sys.stderr.flush()
+        if self.mpi_comm is not None:
+            self.mpi_comm.Barrier()
 
         # Call CT-QMC solver
         ctqmc.simid = self.mpi_rank
         time_qmc = time.clock()
         ctqmc.init_solver(self.umatrix, self.ftau, self.muimp, self.screening, iter_no+1)
-        
+
         if type(mc_config_inout) is list and len(mc_config_inout) > 0:
             mc_config_inout[0].set_to_ctqmc(ctqmc)
 
-        if self.config["QMC"]["TaudiffMax"] <= 0:
-            ctqmc.init_counters()
-            while ctqmc.apt_index <= 1000:
-                ctqmc.ctqmc_calibrate(10000, True)
-            acctaulist = ctqmc.accpairtau
-            acctaulist.sort()
-            taudiffmax = reduce_stderr(self.mpi_comm,
-                                       np.array((acctaulist[995],)))[0]
-            ctqmc.set_taudiffmax(taudiffmax)
-            ctqmc.init_counters()
-            ctqmc.ctqmc_calibrate(100000, False)
-            ctqmc.set_taudiffmax(self.estimate_taudiff_max(self.config,
-                                                           self.mpi_comm,
-                                                           ctqmc.accpair,
-                                                           taudiffmax))
-        else:
-            ctqmc.set_taudiffmax(self.config["QMC"]["TaudiffMax"])
-       
-        #first warm-up 
+        ctqmc.set_taudiffmax(self.config["QMC"]["TaudiffMax"]
+                             if self.config["QMC"]["TaudiffMax"] > 0.0
+                             else self.calibrate_taudiff_max())
+
+        # first warm-up
         if not mc_config_inout:
            ctqmc.ctqmc_warmup(self.config["QMC"]["Nwarmups"])
            mc_config_inout.append(CtHybConfig.get_from_ctqmc(ctqmc))
@@ -594,39 +617,101 @@ class CtHybSolver(ImpuritySolver):
         else:
            WormWarmups=self.config["QMC"]["Nwarmups2Plus"]
 
+        if int(self.config['QMC']['WormSearchEta']) == 1:
+            # Patrik's eta search: bisection (?)
+            ctqmc.wormeta[:] = np.float(self.config['QMC']['WormEta'])
+            max_iter = 50
+            for i_try in range(max_iter):
+                steps_worm = np.array(0, dtype=np.int)
+                steps_z = np.array(0, dtype=np.int)
+                ctqmc.count_steps(isector, icomponent, WormWarmups, steps_worm, steps_z)
+                if not (steps_worm + steps_z == WormWarmups):
+                    raise ValueError('{} steps in worm, {} steps in Z, '
+                                     'some steps missing!'.format(steps_worm, steps_z))
+                res = abs(float(steps_worm - steps_z)) / float(steps_worm + steps_z)
+                print('At eta={}: {} steps in worm, {} steps in Z -> {}'.format(ctqmc.wormeta[0], steps_worm, steps_z, res))
+                if res > 0.1:
+                    if i_try == max_iter - 1 or steps_worm == 0:
+                        print('No suitable value of eta found, setting it to 0.')
+                        ctqmc.wormeta[:] = 0.
+                        break
+                    else:
+                        ctqmc.wormeta[:] = ctqmc.wormeta[:] * float(steps_z) / float(steps_worm)
+                else:
+                    break
+            eta_stat = DistributedSample([ctqmc.wormeta[0]], self.mpi_comm)
+            eta_mean, eta_err = eta_stat.mean(), eta_stat.stderr()
+            print('final eta on core: {}'.format(ctqmc.wormeta[0]))
+            print('final eta={}, stdev={}'.format(eta_mean, eta_err))
+
+        elif int(self.config['QMC']['WormSearchEta']) == 2:
+            # Josef's eta search: brentq root finding
+            def eta_root(eta):
+                '''
+                Eta is determined by the root of this function. 
+                The ctqmc module function count_steps is called 
+                to get the number of steps in Z and worm space
+                for a given eta. 
+                '''
+                steps_worm = np.array(0, dtype=np.int)
+                steps_z = np.array(0, dtype=np.int)
+                ctqmc.wormeta[:] = eta # TODO: is it impossible to set a single array element?
+                ctqmc.count_steps(isector, icomponent, WormWarmups, steps_worm, steps_z)
+                if not (steps_worm + steps_z == WormWarmups):
+                    raise ValueError('{} steps in worm, {} steps in Z, '
+                                     'some steps missing!'.format(steps_worm, steps_z))
+                res = float(steps_worm - steps_z) / float(steps_worm + steps_z)
+                print('At eta={}: {} steps in worm, {} steps in Z -> {}'.format(eta, steps_worm, steps_z, res))
+                return res
+
+            bracket_min = 1e-4
+            bracket_max = 1e2
+            try:
+                eta = opt.brentq(eta_root, bracket_min, bracket_max, xtol=0.001, rtol=0.001, maxiter=50, disp=True)
+            except ValueError:
+                try:  # for practical purposes, enlarging once should be sufficient.
+                    print('Trying larger bracket for eta-search.')
+                    eta = opt.brentq(eta_root, 0.01 * bracket_min, 100. * bracket_max, xtol=0.001, rtol=0.001, maxiter=50, disp=True)
+                except ValueError:
+                    print('No suitable value of eta found, setting it to 0.')
+                    eta = 0.
+
+            eta_stat = DistributedSample([eta], self.mpi_comm)
+            eta_mean, eta_err = eta_stat.mean(), eta_stat.stderr()
+            print('final eta on core: {}'.format(eta))
+            print('final eta={}, stdev={}'.format(eta_mean, eta_err))
+
+        else:
+            eta_mean, eta_err = float(self.config['QMC']['WormEta']), 0.
+
+        ctqmc.wormeta[:] = eta_mean # TODO: is it impossible to set a single array element?
+
         ctqmc.ctqmc_worm_warmup(WormWarmups,isector,icomponent)
         ctqmc.ctqmc_measure(isector,icomponent)
 
         time_qmc = time.clock() - time_qmc
-       
+
         if ctqmc.aborted == 2:  # no data, kill run
            raise KeyboardInterrupt("CTQMC was interrupted by signal")
         elif ctqmc.aborted == 1:
            self.abort = True
            warn("CT-QMC was aborted before all measurements were conducted.\n"
            "Expect larger errorbars.", UserWarning, 2)
-        
-       
+
+
         # set dummy Green's function
         giw = np.zeros_like(self.problem.g0inviw)
-                
+
         # Get result for the component specified - normalize to component
         result = {}
-        if isector == 2 and self.config["QMC"]["WormMeasGiw"] == 1:
-           result["giw-worm/" + str(icomponent).zfill(5)] = \
-                ctqmc.giw_worm.copy()/(self.problem.nflavours**2)
-
-        if isector == 2 and self.config["QMC"]["WormMeasGtau"] == 1:
-           result["gtau-worm/" + str(icomponent).zfill(5)] = \
-                ctqmc.gtau_worm.copy()/(self.problem.nflavours**2)
-
-        if isector == 3:
-           result["gsigmaiw-worm/" + str(icomponent).zfill(5)] = \
-                ctqmc.gsigmaiw_worm.copy()/(self.problem.nflavours**2)
 
         if isector == 4:
-           result["g4iw-worm/" + str(icomponent).zfill(5)] = \
-                ctqmc.g4iw_worm.copy()/(self.problem.nflavours**4)
+           if self.config['QMC']['G4ph'] == 1:
+               result["g4iw-worm/" + str(icomponent).zfill(5)] = \
+                    ctqmc.g4iw_worm.copy()/(self.problem.nflavours**4)
+           if self.config['QMC']['G4pp'] == 1:
+               result["g4iwpp-worm/" + str(icomponent).zfill(5)] = \
+                    ctqmc.g4iwpp_worm.copy()/(self.problem.nflavours**4)
 
         if isector == 5:
            result["h4iw-worm/" + str(icomponent).zfill(5)] = \
@@ -655,28 +740,180 @@ class CtHybSolver(ImpuritySolver):
         if isector == 9:
            result["p3iwpp-worm/" + str(icomponent).zfill(5)] = \
                 ctqmc.p3iwpp_worm.copy()/(self.problem.nflavours**4)
-         
-        # Construct result object from result set and collect it from all nodes        
-        result = StatisticalImpurityResult(self.problem, giw, None, None,
-                                           self.g_diagonal_only, **result)
 
-        if self.mpi_comm is not None:
-            result.collect(self.mpi_comm)
-        
-        #auxiliary data
-        result_aux = self.get_resultset_worm(str(icomponent).zfill(5))
-        result_aux = StatisticalImpurityResult(self.problem, giw, None, None,
-                                               self.g_diagonal_only, **result_aux)
+        if isector == 11:
+           result["qqqq-worm/" + str(icomponent).zfill(5)] = \
+                ctqmc.qqqq_worm.copy()/(self.problem.nflavours**4)
 
-        if self.mpi_comm is not None:
-            result_aux.collect(self.mpi_comm)
+        if isector == 12:
+            result["nqqdag-worm/{:05}".format(icomponent)] = \
+                ctqmc.nqqdag_worm.copy()/(self.problem.nflavours**4)
+
+        if isector == 13:
+            result["qqdd-worm/{:05}".format(icomponent)] = \
+                ctqmc.qqdd_worm.copy()/(self.problem.nflavours**4)
+
+        if isector == 14 and self.config['QMC']['WormMeasUcaca'] == 1:
+            result["ucaca-worm/{:05}".format(icomponent)] = \
+                ctqmc.ucaca_worm.copy()/(self.problem.nflavours**4)
+
+        if isector == 14 and self.config['QMC']['WormMeasUcacatau'] == 1:
+            result["ucacatau-worm/{:05}".format(icomponent)] = \
+                ctqmc.ucacatau_worm.copy()/(self.problem.nflavours**4)
+
+        if isector == 15 and self.config['QMC']['WormMeasUccaa'] == 1:
+            result["uccaa-worm/{:05}".format(icomponent)] = \
+                ctqmc.uccaa_worm.copy()/(self.problem.nflavours**4)
+
+        if isector == 15 and self.config['QMC']['WormMeasUccaatau'] == 1:
+            result["uccaatau-worm/{:05}".format(icomponent)] = \
+                ctqmc.uccaatau_worm.copy()/(self.problem.nflavours**4)
+
+        if isector == 16 and self.config['QMC']['WormMeasQUDdag'] == 1:
+            result['quddag-worm/{:05}'.format(icomponent)] = \
+                    ctqmc.quddag_worm.copy()/(self.problem.nflavours**4)
+
+        # Get set of result quantities NOT grouped by component
+        result_gen = self.get_resultset(self.config["QMC"])
+        result_gen = StatisticalImpurityResult(self.problem, giw, None, None,
+                                               self.g_diagonal_only,
+                                               **result_gen)
+
+        # Get set of result quantities grouped by component and update
+        # with previously extracted component of sector-defining
+        # quantity
+        result_comp = self.get_resultset_worm(str(icomponent).zfill(5),
+                                              self.config['QMC'])
+        result_comp.update(result)
+        result_comp = StatisticalImpurityResult(self.problem, giw, None, None,
+                                                self.g_diagonal_only,
+                                                **result_comp)
 
         # Cleanup
         ctqmc.dest_ctqmc()
         ctqmc.dest_paras()
-        return result, result_aux
+        return result_gen, result_comp
 
-    # -------- auxiliary helper methods ------------
+    def solve_comp_stats(self, iter_no, isector, icomponent,
+                         mc_config_inout=[]):
+        result_gen, result_comp = self.solve_component(iter_no,
+                                                       isector,
+                                                       icomponent,
+                                                       mc_config_inout)
+        result_gen.other = {key: DistributedSample([value], self.mpi_comm)
+                            for key, value in result_gen.other.items()}
+        result_comp.other = {key: DistributedSample([value], self.mpi_comm)
+                             for key, value in result_comp.other.items()}
+        return result_gen, result_comp
+
+    def solve_worm(self, iter_no, log_function=None):
+        """
+        Solve all non-vanishing components of G or GSigma or QQ by component sampling.
+        Then convert the component list to standard format (matrix in orbitals).
+        From this, compute the impurity Green's function and put it in a StatisticalImpurityResult.
+        Furthermore, put all worm quantities to a separate StatisticalImpurityResult.
+        Both of them are returned.
+        :return: (StatisticalImpurityResult, StatisticalImpurityResult)
+        """
+        # get the components to be sampled
+        conf_comp = self.config["QMC"]["WormComponents"]
+        if conf_comp is not None: # use the ones specified in the parameters file
+            components = map(int, conf_comp)
+        if self.config['QMC']['offdiag'] == 0: # generate all diagonal components
+            components = [ci.GFComponent(bandspin=(iflav, iflav), n_ops=2, n_bands=self.problem.nflavours//2).index
+                          for iflav in range(self.problem.nflavours)]
+        else: # generate the full list
+            components = 1 + np.arange(self.problem.nflavours**2) # one-based
+
+        # introduce booleans for the measurement mode
+        meas_g = self.config["QMC"]["WormMeasGiw"] != 0
+        meas_gs = self.config["QMC"]["WormMeasGSigmaiw"] != 0
+        meas_qq = self.config["QMC"]["WormMeasQQ"] != 0
+
+        if meas_g and not meas_gs and not meas_qq:
+            sector = 2
+            sector_name = 'giw-worm'
+        elif not meas_g and meas_gs and not meas_qq:
+            sector = 3
+            sector_name = 'gsigmaiw-worm'
+        elif not meas_g and not meas_gs and meas_qq:
+            sector = 10
+            sector_name = 'qqiw-worm'
+        else:
+            raise ValueError("Only one of (WormMeasGiw, "
+                             "WormMeasGSigmaiw, WormMeasQQ) can be chosen")
+
+        # perform a solve_component worm sampling run for each component.
+        # in this run, the specified worm estimator is measured,
+        # and also the densities in Z space, since we need them for moments etc.
+        result_list_z = []
+        result_list_worm = []
+        conf_container = []
+        for component in components:
+            log_function("sampling component {}".format(component))
+            self.set_problem(self.problem, self.config["QMC"]["FourPnt"])
+            res_z, res_worm = self.solve_component(iter_no, sector, component, conf_container)
+            result_list_z.append((component, res_z))
+            result_list_worm.append((component, res_worm))
+
+
+        # merge worm results from all component runs
+        # (they are distinguishable, since their names always contain the component number,
+        # e.g. qqiw-worm/00001)
+        worm_dict_complete = {}
+        for res in result_list_worm:
+            worm_dict_complete.update(res[1].other)
+        worm_dict_complete = {key: DistributedSample([value], self.mpi_comm)
+                              for key, value in worm_dict_complete.items()}
+
+        # Z-sampling quantities, such as occ, are sampled together with each component.
+        # To exploit all measurements, we take the average.
+        def component_avg(qtty_name, result_list, mpi_comm):
+            val_list = []
+            for res in result_list:
+                qtty = res[1].other[qtty_name]
+                val_list.append(DistributedSample([qtty], mpi_comm))
+            return statistics.join(*val_list)
+
+        # average Z-sampled quantities from all worm component runs
+        result_z_other = {key: component_avg(key, result_list_z, self.mpi_comm)
+                          for key in result_list_z[0][1].other.keys()}
+
+        # Extract moments of the self-energy from 1- and 2-particle reduced
+        # density matrix
+        umatrix_ctr = self.problem.interaction.u_matrix.reshape(
+                                            [self.problem.nflavours] * 4)
+        smom = postproc.get_siw_mom(np.asarray(umatrix_ctr),
+                                    np.asarray(result_z_other['rho1'].mean()),
+                                    np.asarray(result_z_other['rho2'].mean()))
+        smom = lattice_convention(smom)
+        smom = DistributedSample([smom], self.mpi_comm)
+
+        if meas_g:
+            # convert component list of g to matrix
+            giw = self.get_giw(self.config, self.problem, result_list_worm)
+            gsigmaiw = None # not needed here
+        if meas_gs:
+            # convert component list of gsigma to matrix,
+            # then apply IE equation to calculate giw
+            gsigmaiw = self.get_gsigmaiw_worm(self.config, self.problem, result_list_worm)
+            giw = self.giw_from_gsigmaiw_worm(self.config, self.problem, gsigmaiw)
+        if meas_qq:
+            # convert component list of qq to matrix,
+            # then apply SIE equation to calculate giw
+            gsigmaiw = None # not needed here
+            qqiw = self.get_qqiw_worm(self.config, self.problem, result_list_worm)
+            giw = self.giw_from_qqiw_worm(self.config, self.problem, qqiw, smom.local[0][0])
+
+        giw = DistributedSample([giw], self.mpi_comm)
+
+        return (StatisticalImpurityResult(self.problem, giw, gsigmaiw, smom, self.g_diagonal_only,
+                                          **result_z_other),
+                StatisticalImpurityResult(self.problem, giw, gsigmaiw, smom, self.g_diagonal_only,
+                                          **worm_dict_complete))
+
+
+        # -------- auxiliary helper methods ------------
 
     @classmethod
     def config_to_pstring(cls, config):
@@ -698,7 +935,7 @@ class CtHybSolver(ImpuritySolver):
             warn("Quantity has non-vanishing imaginary part", UserWarning, 2)
         qtty = qtty.real
         if qtty.ndim == 5:
-            axes_list = [-4, -3, -2, -1] + range(qtty.ndim - 4)
+            axes_list = [-4, -3, -2, -1] + list(range(qtty.ndim - 4))
             qtty = qtty.transpose(axes_list)
         return qtty
 
@@ -710,7 +947,7 @@ class CtHybSolver(ImpuritySolver):
             warn("Quantity has non-vanishing imaginary part", UserWarning, 2)
         qtty = qtty.real
         if qtty.ndim > 2:
-            axes_list = [-2, -1] + range(qtty.ndim - 2)
+            axes_list = [-2, -1] + list(range(qtty.ndim - 2))
             qtty = qtty.transpose(axes_list)
         return qtty
 
@@ -723,9 +960,12 @@ class CtHybSolver(ImpuritySolver):
         if typ == "none":
             giw = -result["giw-meas"]
         elif typ == "none_worm":
-            giw = result["giw-worm"]
-            giw = orbspin.extract_diagonal(giw.transpose(4,0,1,2,3)) \
-                         .transpose(1,2,0)
+            giw = np.zeros_like(problem.g0inviw).transpose((1,2,3,4,0))
+            for icomp, res in result:
+                comp_ind = ci.GFComponent(index=icomp, n_ops=2,
+                    n_bands=problem.nflavours//problem.nspins).bsbs()
+                giw[comp_ind] = res.other['giw-worm/{:05}'.format(icomp)]
+            giw = giw.transpose((4,0,1,2,3))
         elif typ == "plain":
             ntau = config["QMC"]["Ntau"]
             tf_matrix = tf.tau2mat(problem.beta, ntau, 'fermi',
@@ -739,31 +979,17 @@ class CtHybSolver(ImpuritySolver):
         elif typ == "legendre_full":
             nleg = config["QMC"]["NLegOrder"]
             tf_matrix = -tf.leg2mat(nleg, problem.niw)
-            nbands=result["gleg-full"].shape[0]
-            giw=np.zeros(shape=(nbands,2,nbands,2,problem.niw),dtype=complex)
+            nbands = result["gleg-full"].shape[0]
+            giw = np.zeros(shape=(nbands, 2, nbands, 2, problem.niw),
+                           dtype=complex)
 
             for b in range(0,nbands):
                for s in range(0,2):
                   giw[b,s,:,:,:] = tf.transform(tf_matrix, result["gleg-full"][b,s,:,:,:], None,
                                      onmismatch=tf.Truncate.tofirst, warn=False)
 
-                  #### the old one
-                  #tmp = tf.transform(tf_matrix, result["gleg-full"][b,s,:,:,:], None,
-                                     #onmismatch=tf.Truncate.tofirst, warn=False)
-                  #for b2 in range(0,nbands):
-                     #for s2 in range(0,2):
-                        #for w in range(0,problem.niw):
-                           #print "w", w
-                           #giw[b,s,b2,s2,w] = tmp[b2,s2,w]
-
-            giw=giw.reshape(nbands*2,nbands*2,problem.niw)
-
-            giw_new=np.zeros_like(giw,dtype=complex)
-            for i in range(0,problem.niw):
-               tmp=giw[:,:,i]
-               giw_new[:,:,i]=0.5*(tmp.transpose(1,0)+tmp)
-
-            giw=giw_new
+            giw += giw.transpose(2, 3, 0, 1, 4)
+            giw /= 2.0
 
         else:
             raise RuntimeError("Invalid transform type: `%s'" % typ)
@@ -771,23 +997,72 @@ class CtHybSolver(ImpuritySolver):
         return giw   # copy not necessary here.
 
     @classmethod
+    def get_gsigmaiw_worm(cls, config, problem, result):
+        gsigma = np.zeros_like(problem.g0inviw).transpose((1,2,3,4,0))
+        for icomp, res in result:
+            comp_ind = ci.GFComponent(index=icomp, n_ops=2,
+                n_bands=problem.nflavours//problem.nspins).bsbs()
+            gsigma[comp_ind] = res.other['gsigmaiw-worm/{:05}'.format(icomp)]
+        return gsigma.transpose((4,0,1,2,3))
+
+    @classmethod
+    def get_qqiw_worm(cls, config, problem, result):
+        qq = np.zeros_like(problem.g0inviw).transpose((1, 2, 3, 4, 0))
+        for icomp, res in result:
+            comp_ind = ci.GFComponent(index=icomp, n_ops=2,
+                    n_bands=problem.nflavours // problem.nspins).bsbs()
+            qq[comp_ind] = res.other['qqiw-worm/{:05}'.format(icomp)]
+        return qq.transpose((4, 0, 1, 2, 3))
+
+    @classmethod
     def get_gsigmaiw(cls, config, problem, result):
         gsigmaiw = None
+        # re-enable this when/if Z-space GSigma measurement is fixed
         # if config["QMC"]["MeasGSigmaiw"] == 1:
         #     gsigmaiw = result["gsigmaiw"]
-        if config["QMC"]["WormMeasGSigmaiw"] == 1:
-            if gsigmaiw is not None:
-                warn("Worm GSigmaiw overwriting Z GSigmaiw", UserWarning, 2)
-
-            gsigmaiw = result["gsigmaiw-worm"]
-            gsigmaiw = orbspin.extract_diagonal(gsigmaiw.transpose(4,0,1,2,3)) \
-                                    .transpose(1,2,0)
-
+        #     del result["gsigmaiw"] # have to delete it here, since gsigmaiw is passed explicitly to StatisticalImpurityResult
         return gsigmaiw
 
     @classmethod
-    def estimate_taudiff_max(cls, config, mpi_comm, accept_pair, taudiffmax):
-        accept_pair = reduce_stderr(mpi_comm, accept_pair)[0]
+    def giw_from_gsigmaiw_worm(cls, config, problem, gsigma):
+        """
+        Calculate impurity Green's function by improved estimator formula,
+        Eq. (9) in PRB 100, 075119 (2019).
+        """
+        g0iw = orbspin.invert(problem.g0inviw)
+        giw = g0iw + orbspin.multiply(g0iw, gsigma)
+        return giw
+
+    @classmethod
+    def giw_from_qqiw_worm(cls, config, problem, qq, mom0):
+        """
+        Calculate impurity Green's function by symmetric improved estimator formula,
+        Eq. (13) in PRB 100, 075119 (2019).
+        """
+        g0iw = orbspin.invert(problem.g0inviw)
+        giw = g0iw + orbspin.multiply(g0iw, orbspin.multiply(qq + mom0, g0iw))
+        return giw
+
+    def calibrate_taudiff_max(self):
+        ctqmc.init_counters()
+        while ctqmc.apt_index <= 1000:
+            ctqmc.ctqmc_calibrate(10000, True)
+        acctaulist = ctqmc.accpairtau
+        acctaulist.sort()
+        taudiffmax = DistributedSample([np.array((acctaulist[995],))],
+                                       self.mpi_comm).mean()
+        ctqmc.set_taudiffmax(taudiffmax)
+        ctqmc.init_counters()
+        ctqmc.ctqmc_calibrate(100000, False)
+        return self.estimate_taudiff_max(self.config,
+                                         self.mpi_comm,
+                                         ctqmc.accpair,
+                                         taudiffmax)
+
+    @staticmethod
+    def estimate_taudiff_max(config, mpi_comm, accept_pair, taudiffmax):
+        accept_pair = DistributedSample([accept_pair],
+                                        mpi_comm).mean()
 
         def expdecay(p, taus, acc):
             return acc - p[0] * np.exp(p[1] * taus)
@@ -827,8 +1102,6 @@ class CtHybSolver(ImpuritySolver):
             "contrib-sst": ctqmc.tracecontribsuperstates,
             "contrib-state": ctqmc.tracecontribstates,
             "occ": ctqmc.occ,
-            "rho2": ctqmc.rho2.reshape((norbitals, 2)*4),
-            "rho1": ctqmc.rho1.reshape((norbitals, 2)*2),
             "gleg": ctqmc.gleg,
             "gleg-full": ctqmc.gleg_full,
             "accept-ins": ctqmc.accadd,
@@ -839,19 +1112,10 @@ class CtHybSolver(ImpuritySolver):
             "accept-glob": ctqmc.accglob,
             "accept-shift": ctqmc.accshift,
             "accept-flavourchange": ctqmc.accflavc,
-            "accept-worm-ins": ctqmc.accwormadd,
-            "accept-worm-rem": ctqmc.accwormrem,
-            "accept-worm-rep": ctqmc.accwormrep,
             "sign": ctqmc.mean_sign,
             "time-warmup": ctqmc.time_warmup,
             "time-simulation": ctqmc.time_sim,
             "time-sampling": ctqmc.time_sim_steps,
-
-            # The conversion to double for large integers is necessary because
-            # otherwise squaring it for the calculation of errors produces
-            # negative values and nan errorbars.
-            "steps-worm-partition": np.array(ctqmc.cntsampling, np.double),
-            "worm-eta": ctqmc.wormeta,
         }
         if qmc_config["Gtau_mean_step"] != 0:
             result["gtau-mean-step"] = ctqmc.gtau_mean_step
@@ -861,14 +1125,14 @@ class CtHybSolver(ImpuritySolver):
             result["sign-step"] = ctqmc.sign_step
         if qmc_config["MeasGiw"] != 0:
             result["giw-meas"] = ctqmc.giw
-        if qmc_config["WormMeasGiw"] != 0:
-            result["giw-worm"] = ctqmc.giw_worm
-        if qmc_config["WormMeasGtau"] != 0:
-            result["gtau-worm"] = ctqmc.gtau_worm
+        # if qmc_config["MeasGSigmaiw"] != 0:  # enable if GSigma Z-meas fixed
+        #     result["gsigmaiw"] = ctqmc.gsigmaiw
         if qmc_config["MeasG2iw"] != 0:
             result["g2iw"] = ctqmc.g2iw
-        if qmc_config["MeasDensityMatrix"] != 0 or qmc_config["Eigenbasis"] != 0:
+        if qmc_config["MeasDensityMatrix"] != 0 and qmc_config["segment"] == 0:
             result["densitymatrix"] = ctqmc.densitymatrix
+            result["rho2"] = ctqmc.rho2.reshape((norbitals, 2)*4)
+            result["rho1"] = ctqmc.rho1.reshape((norbitals, 2)*2)
         if qmc_config["MeasExpResDensityMatrix"] != 0:
             result["expresdensitymatrix"] = ctqmc.expresdensitymatrix
         if qmc_config["FourPnt"] & 1:
@@ -883,20 +1147,6 @@ class CtHybSolver(ImpuritySolver):
             result["time-giw"] = ctqmc.timings_giw
             result["time-g4iw-add"] = ctqmc.timings_g4iw_add
             result["time-g4iw-ft"] = ctqmc.timings_g4iw_ft
-        if qmc_config["WormMeasGSigmaiw"] != 0:
-            result["gsigmaiw-worm"] = ctqmc.gsigmaiw_worm
-        if qmc_config["WormMeasP2iwPH"] != 0:
-            result["p2iw-worm"] = ctqmc.p2iw_worm
-        if qmc_config["WormMeasP2iwPP"] != 0:
-            result["p2iwpp-worm"] = ctqmc.p2iwpp_worm
-        if qmc_config["WormMeasP2tauPH"] != 0:
-            result["p2tau-worm"] = ctqmc.p2tau_worm
-        if qmc_config["WormMeasP2tauPP"] != 0:
-            result["p2taupp-worm"] = ctqmc.p2taupp_worm
-        if qmc_config["WormMeasP3iwPH"] != 0:
-            result["p3iw-worm"] = ctqmc.p3iw_worm
-        if qmc_config["WormMeasP3iwPP"] != 0:
-            result["p3iwpp-worm"] = ctqmc.p3iwpp_worm
         if qmc_config["segment"] != 0:
             result["ntau-n0"] = ctqmc.ntau_n0
             result["hist-seg"]= ctqmc.histo_seg
@@ -905,15 +1155,19 @@ class CtHybSolver(ImpuritySolver):
                 result["ntau-n0"] = ctqmc.ntau_n0
             result["hist"]= ctqmc.histo
 
+        # Attempt to read blocks only if chosen accumulator provides blocks
+        if qmc_config["AccumGtau"] == 2:
+            result["gtau-blocks"] = ctqmc.gtau_blocks
+
         # Note that for safety, we need to copy the data since the ctqmc
         # cleanup routine makes those quantities invalid.
-        result = dict((k, v.copy()) for k,v in result.iteritems())
+        result = dict((k, result[k].copy()) for k in result)
 
         return result
 
 
     @classmethod
-    def get_resultset_worm(cls,grp_str):
+    def get_resultset_worm(cls, grp_str, qmc_config):
         # Build up result array from QMC data
         result = {
             "hist/"+grp_str: ctqmc.histo,
@@ -934,9 +1188,39 @@ class CtHybSolver(ImpuritySolver):
             "time-sampling/"+grp_str: ctqmc.time_sim_steps,
             "steps-worm-partition/"+grp_str: np.array(ctqmc.cntsampling, np.double),
             "worm-eta/"+grp_str: ctqmc.wormeta,
+            # The conversion to double for large integers is necessary because
+            # otherwise squaring it for the calculation of errors produces
+            # negative values and nan errorbars.
         }
+        if qmc_config["WormMeasGiw"] != 0:
+            result.update({"giw-worm" + '/' + grp_str: ctqmc.giw_worm})
+        if qmc_config["WormMeasGtau"] != 0:
+            result.update({"gtau-worm" + '/' + grp_str: ctqmc.gtau_worm})
+        if qmc_config["WormMeasGSigmaiw"] != 0:
+            result.update({"gsigmaiw-worm" + '/' + grp_str: ctqmc.gsigmaiw_worm})
+        if qmc_config["WormMeasQQ"] != 0:
+            result.update({"qqiw-worm" + '/' + grp_str: ctqmc.qq_worm})
+        # FIXME: all the following quantities are also extracted in
+        # solve_component directly, but with additional normalization!
+        # can we remove the following lines, and what about the
+        # preceding ones? why are components of these four quantities
+        # extracted here and not in solve_component, or vice versa?
+        if qmc_config["WormMeasQQQQ"] != 0:
+            result.update({"qqqq-worm" + '/' + grp_str: ctqmc.qqqq_worm})
+        if qmc_config["WormMeasP2iwPH"] != 0:
+            result.update({"p2iw-worm" + '/' + grp_str: ctqmc.p2iw_worm})
+        if qmc_config["WormMeasP2iwPP"] != 0:
+            result.update({"p2iwpp-worm" + '/' + grp_str: ctqmc.p2iwpp_worm})
+        if qmc_config["WormMeasP2tauPH"] != 0:
+            result.update({"p2tau-worm" + '/' + grp_str: ctqmc.p2tau_worm})
+        if qmc_config["WormMeasP2tauPP"] != 0:
+            result.update({"p2taupp-worm" + '/' + grp_str: ctqmc.p2taupp_worm})
+        if qmc_config["WormMeasP3iwPH"] != 0:
+            result.update({"p3iw-worm" + '/' + grp_str: ctqmc.p3iw_worm})
+        if qmc_config["WormMeasP3iwPP"] != 0:
+            result.update({"p3iwpp-worm" + '/' + grp_str: ctqmc.p3iwpp_worm})
         # Note that for safety, we need to copy the data since the ctqmc
         # cleanup routine makes those quantities invalid.
-        result = dict((k, v.copy()) for k,v in result.iteritems())
+        result = dict((k, result[k].copy()) for k in result)
 
         return result

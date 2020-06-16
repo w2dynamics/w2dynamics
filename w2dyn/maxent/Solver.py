@@ -1,6 +1,6 @@
+from __future__ import absolute_import, print_function, unicode_literals
 import numpy as np
-import scipy.integrate
-import MAXENT
+from . import MAXENT
 
 def kkt(aws, ws, integrator=np.trapz):
     """ Does a Kramers-Kronig transform for the spectral function:
@@ -168,16 +168,16 @@ class Green2Aw(MaxEntBase):
       self.gws.imag = -np.pi*self.spec
       
    def printSpec(self,fname):
-      aw = file(fname, "w")  
-      print >> aw,  "# w      A(w)      model(w)"
-      for i in xrange(self.NGrid):
-         print >> aw, self.grid[i], self.spec[i], self.model[i]
+      aw = open(fname, "w")  
+      print("# w      A(w)      model(w)", file=aw)
+      for i in range(self.NGrid):
+         print(self.grid[i], self.spec[i], self.model[i], file=aw)
          
    def printGws(self, fname):
-      gws = file(fname, "w")  
-      print >> gws,  "# w      Re[G(w)]      Im[G(w)]      model(w)"
-      for i in xrange(self.NGrid):
-         print >> gws, self.grid[i], self.gws[i].real, self.gws[i].imag, self.model[i]
+      gws = open(fname, "w")  
+      print("# w      Re[G(w)]      Im[G(w)]      model(w)", file=gws)
+      for i in range(self.NGrid):
+         print(self.grid[i], self.gws[i].real, self.gws[i].imag, self.model[i], file=gws)
          
        
 class Chi2Aw(MaxEntBase):
@@ -212,7 +212,7 @@ class Chi2Aw(MaxEntBase):
       #FIXME: at some point we replace this by a more physically motivated model
       sigmaModel=1.
       heightModel=0.4
-      for i in xrange(self.NGrid):
+      for i in range(self.NGrid):
          self.model[i]=np.exp(-self.grid[i]**2/(2./sigmaModel**2))
          #model[i]=1./(1.+np.exp((grid[i]-sigmaModel)*5))
 
@@ -224,7 +224,7 @@ class Chi2Aw(MaxEntBase):
       
       kernelModeFactor = np.ones(self.NGrid,dtype=float,order='F')
       
-      for i in xrange(self.NGrid):
+      for i in range(self.NGrid):
          if self.kernelMode == 10: 
              kernelModeFactor[i] = self.grid[i]*np.pi
 
@@ -236,13 +236,13 @@ class Chi2Aw(MaxEntBase):
       self.gws.imag = kernelModeFactor*self.spec
    
    def printSpec(self,fname):
-      aw = file(fname, "w")
+      aw = open(fname, "w")
       if self.kernelMode == 10:
-         print >> aw,  "# w   Chi(w)   Chi(w)/(w*pi)    model(w)"
+         print("# w   Chi(w)   Chi(w)/(w*pi)    model(w)", file=aw)
       elif self.kernelMode == 11:
-         print >> aw,  "# w   Chi(w)   Chi(w)/(exp(...)*pi)    model(w)"
+         print("# w   Chi(w)   Chi(w)/(exp(...)*pi)    model(w)", file=aw)
          
-      for i in xrange(self.NGrid):
+      for i in range(self.NGrid):
          kernelModeFactor = 1
          
          #bosonic kernel -> chi/w from max ent
@@ -257,11 +257,11 @@ class Chi2Aw(MaxEntBase):
             #    if (i .EQ. 1):
             #       kernelModeFactor = 1e-12
          
-         print >> aw, self.grid[i], self.spec[i]*kernelModeFactor, self.spec[i], self.model[i]
+         print(self.grid[i], self.spec[i]*kernelModeFactor, self.spec[i], self.model[i], file=aw)
 
    def printGws(self, fname):
-      gws = file(fname, "w")
-      print >> gws,  "# w      Re[Chi(w)]      Im[Chi(w)]      model(w)"
-      for i in xrange(self.NGrid):
-         print >> gws, self.grid[i], self.gws[i].real, self.gws[i].imag, self.model[i]
+      gws = open(fname, "w")
+      print("# w      Re[Chi(w)]      Im[Chi(w)]      model(w)", file=gws)
+      for i in range(self.NGrid):
+         print(self.grid[i], self.gws[i].real, self.gws[i].imag, self.model[i], file=gws)
 

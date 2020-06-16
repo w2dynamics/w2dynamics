@@ -1,12 +1,15 @@
 #!/usr/bin/env python
 """Program for the DMFT self-consistency loop"""
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
+import os
 import os.path
+import errno
 import glob
 import random
 from subprocess import Popen, PIPE
 import sys
-import time  # necessary for tokyo cluster
-import traceback
+import time
 import optparse
 import warnings
 
@@ -14,9 +17,9 @@ import numpy as np
 
 import w2dyn.auxiliaries as aux
 from w2dyn.auxiliaries import transform as tf
-from w2dyn.auxiliaries import wien2k as wien2k
 from w2dyn.auxiliaries import hdfout
 from w2dyn.auxiliaries import config
+from w2dyn.auxiliaries.utilities import diagonal_covariance
 
 from w2dyn.dmft import impurity
 from w2dyn.dmft import lattice
@@ -24,6 +27,8 @@ from w2dyn.dmft import atoms
 from w2dyn.dmft import interaction
 from w2dyn.dmft import selfcons
 from w2dyn.dmft import orbspin
+from w2dyn.dmft import worm
+from w2dyn.dmft import mixing
 
 def git_revision():
     try:
@@ -32,6 +37,7 @@ def git_revision():
         pass
     try:
         return Popen(["git", "rev-parse", "HEAD"], stdout=PIPE,
+                     stderr=open(os.path.devnull, 'w'),
                      cwd=os.path.dirname(os.path.realpath(__file__))
                      ).communicate()[0]
     except Exception:
@@ -50,7 +56,8 @@ if use_mpi:
         sys.stderr.write("Error: Exception at top-level on rank %s "
                          "(see previous output for error message)\n" %
                          mpi_rank)
-        mpi_comm.Abort()
+        sys.stderr.flush()
+        mpi_comm.Abort(1)
 
     sys.excepthook = mpi_abort
 
@@ -81,7 +88,7 @@ if mpi_iamroot:
     rerr = sys.stderr
 else:
     log = lambda s, *a: None
-    rerr = file(os.devnull, "w")
+    rerr = open(os.devnull, "w")
 
 # Print banners and general information
 log(aux.BANNER, aux.CODE_VERSION_STRING, aux.CODE_DATE)
@@ -106,15 +113,11 @@ cfg =  mpi_on_root(lambda: config.get_cfg(cfg_file_name, key_value_args,
                                           err=rerr))
 
 del cfg_file_name, key_value_args, argv, parser
+# Finished argument parsing, cfg now contains the configuration for the run
 
 total_time1=time.time()
 
-# Finished argument parsing, cfg now contains the configuration for the run
-
-# creating output file
-Output = hdfout.HdfOutput
-
-# write important stuff to output file
+# create output file and write metadata
 log("Writing basic data for the run ...")
 output = hdfout.HdfOutput(cfg, git_revision(), mpi_comm=mpi_comm)
 
@@ -128,8 +131,17 @@ natoms = cfg["General"]["NAt"]
 epsn = cfg["General"]["EPSN"]
 mu = cfg["General"]["mu"]
 niw = 2*cfg["QMC"]["Niw"]
-fix_mu = epsn > 0
+fix_mu = epsn > 0  # 'fix' like 'repair', not like 'frozen'
+mu_method = cfg["General"]["mu_search"]
 totdens = cfg["General"]["totdens"] * natoms
+if fix_mu and mu_method == "kappa":
+    last_mudiff = cfg["General"]["initial_last_mudiff"]
+    kappa_forced_sign = cfg["General"]["kappa_force_sign"]
+    kmuiter = selfcons.KappaMuExtrapolator(totdens,
+                                           (last_mudiff
+                                            if last_mudiff != 0.0
+                                            else None),
+                                           kappa_forced_sign)
 mylattice.compute_dos(fix_mu, mu, totdens)
 log("LDA chemical potential mu = %.6g, total electrons N = %.6g",
     mylattice.mu, mylattice.densities.sum().real)
@@ -192,7 +204,6 @@ if cfg["General"]["equiv"] is not None:
     equiv = equiv_new[:]
 
 
-
 log("Checking if d-d blocks are diagonal in spin and orbital ...")
 epsoffdiag = cfg["General"]["EPSOFFDIAG"]
 for iatom, atom in enumerate(atom_list):
@@ -225,7 +236,9 @@ if isinstance(mylattice, lattice.NanoLattice):
 
 # generate inter-atom U
 log("Constructing inter-atom U matrix ...")
-udd_full, udp_full, upp_full = atoms.construct_ufull(atom_list)
+udd_full, udp_full, upp_full = atoms.construct_ufull(atom_list,
+                                                     cfg["General"]["Uw"],
+                                                     cfg["General"]["Uw_Mat"])
 
 log("Constructing double-counting ...")
 dc = config.doublecounting_from_cfg(cfg, ineq_list, mylattice, atom_list,
@@ -235,7 +248,7 @@ dc = config.doublecounting_from_cfg(cfg, ineq_list, mylattice, atom_list,
 log("Initialising solver ...")
 if cfg["General"]["DMFTsteps"]==0:
     sr = random.SystemRandom()
-    cfg["QMC"]["NSeed"] = sr.randint(0, int(2e9))
+    cfg["QMC"]["NSeed"] = mpi_on_root(lambda: sr.randint(0, int(2e9)))
     log("Statistics gathering: setting seed to %d", cfg["QMC"]["NSeed"])
 
 Nseed = cfg["QMC"]["NSeed"] + mpi_rank
@@ -258,26 +271,150 @@ GW_KAverage = cfg["General"]["GW_KAverage"]
 dc_dp = cfg["General"]["dc_dp"]
 dc_dp_orbitals = cfg["General"]["dc_dp_orbitals"]
 
+restarted_run = cfg["General"]["readold"]
+
+siw_mixer = mixing.FlatMixingDecorator(
+    mixing.LinearMixer(cfg["General"]["mixing"]))
+mu_mixer = mixing.LinearMixer(cfg["General"]["mu_mixing"])
+if "diis" == cfg["General"]["mixing_strategy"]:
+    siw_mixer = mixing.FlatMixingDecorator(mixing.RealMixingDecorator(
+        mixing.DiisMixer(cfg["General"]["mixing"],
+                         cfg["General"]["mixing_diis_history"],
+                         cfg["General"]["mixing_diis_period"])))
+if not restarted_run:
+    siw_mixer = mixing.InitialMixingDecorator(1, mixing.NoMixingMixer(), siw_mixer)
 dmft_step = selfcons.DMFTStep(
-      beta, mylattice, ineq_list, niw, nftau, dc_dp, dc_dp_orbitals, GW, GW_KAverage, natoms, dc, udd_full, udp_full, upp_full,
-      paramag, selfcons.LinearMixingStrategy(cfg["General"]["mixing"]),
-      selfcons.LinearMixingStrategy(cfg["General"]["mu_mixing"]), mpi_comm
+      beta, mylattice, ineq_list, niw, nftau, dc_dp, dc_dp_orbitals,
+      GW, GW_KAverage, natoms, dc, udd_full, udp_full, upp_full,
+      paramag, siw_mixer, mu_mixer, mpi_comm
       )
 
-restarted_run = cfg["General"]["readold"]
 if restarted_run:
     fileold = cfg["General"]["fileold"]
     if not os.path.isfile(fileold):
-        fileold = filter(lambda x: x != output.filename,
-                         sorted(glob.iglob(fileold), reverse=True))[0]
+        try:
+            fileold = next(filter(lambda x: x != output.filename,
+                                  sorted(glob.iglob(fileold), reverse=True)))
+        except StopIteration:
+            raise OSError(errno.ENOENT, os.strerror(errno.ENOENT), fileold)
     iterold = restarted_run
     log("Reading old data from file %s, iteration %d ...", fileold, iterold)
-    old_mu, siw_dd, smom_dd, dc_value = output.load_old(fileold, iterold)
+    old_mu, siw_dd, smom_dd, dc_value, old_beta = output.load_old(fileold, iterold)
+
+    # ensure usable smom_dd for potential use in preprocessing
+    if smom_dd is None:
+        warnings.warn("Extracting old moments from old Sigma",
+                      UserWarning, 2)
+        smom_dd = [siw_block[:2].real for siw_block in siw_dd]
+
+    # self-energy preprocessing (cropping/extending if necessary and
+    # interpolating if desired)
+
+    # step 1: if asked for in config file, continue to matsubara
+    # frequencies not contained in the old grid by linear
+    # interpolation and, toward omega = 0, extrapolation for positive
+    # and negative half separately for at most as many frequencies as
+    # needed
+    if cfg["General"]["readold_mapsiw"] == 'iomega' and beta != old_beta:
+        from scipy.interpolate import interp1d
+        for isiw in range(len(siw_dd)):
+            siw = siw_dd[isiw]
+
+            niw_old = siw.shape[0]
+            assert(niw_old % 2 == 0)
+            if niw_old < 4:
+                warnings.warn("No self-energy interpolation attempted for less"
+                              " than two positive old Matsubara frequencies")
+                break
+            iwf_old = tf.matfreq(old_beta, 'fermi', niw_old)
+
+            iwf_new = tf.matfreq(beta, 'fermi', niw)
+            lastinc = np.searchsorted(iwf_new, iwf_old[0], side='left')
+            iwf_new = iwf_new[lastinc:niw - lastinc]
+            niw_new = len(iwf_new)
+
+            siw_new = np.zeros([niw_new] + list(siw.shape[1:]), dtype=siw.dtype)
+            for i in range(siw.shape[1]):
+                for j in range(siw.shape[2]):
+                    for k in range(siw.shape[3]):
+                        for l in range(siw.shape[4]):
+                            # Positive half (do halves separately to
+                            # not force intrapolation Sigma(0) = 0)
+                            siw_ipl = interp1d(iwf_old[niw_old//2:],
+                                               siw[niw_old//2:, i, j, k, l],
+                                               bounds_error=False,
+                                               fill_value='extrapolate',
+                                               assume_sorted=True)
+
+                            siw_new[niw_new//2:,
+                                    i, j, k, l] = siw_ipl(iwf_new[niw_new//2:])
+
+                            # Negative half
+                            siw_ipl = interp1d(iwf_old[:niw_old//2],
+                                               siw[:niw_old//2, i, j, k, l],
+                                               bounds_error=False,
+                                               fill_value='extrapolate',
+                                               assume_sorted=True)
+
+                            siw_new[:niw_new//2,
+                                    i, j, k, l] = siw_ipl(iwf_new[:niw_new//2])
+            siw_dd[isiw] = siw_new
+
+    # step 2: extension or cropping of old data to new frequency grid
+    for isiw in range(len(siw_dd)):
+        siw = siw_dd[isiw]
+        niw_old = siw.shape[0]
+        if niw_old != niw:
+            assert(niw_old % 2 == 0)
+            siw_new = np.empty([niw] + list(siw.shape[1:]), dtype=siw.dtype)
+            siw_new[:, :, :, :, :] = smom_dd[isiw][np.newaxis, 0, :, :, :, :]
+            if niw_old > niw:
+                siw_new[:, :, :, :, :] = siw[niw_old//2 - niw//2:
+                                             niw_old//2 + niw//2,
+                                             :, :, :, :]
+            else:
+                siw_new[niw//2 - niw_old//2:niw//2 + niw_old//2,
+                        :, :, :, :] = siw[:, :, :, :, :]
+            siw_dd[isiw] = siw_new
+
     if fix_mu:
+        if mu_method == "kappa":
+            last_mudiff = cfg["General"]["initial_last_mudiff"]
+            oldkappa_mu, oldkappa_n, oldkappa_kappa, oldkappa_mudiff = (
+                output.load_old_kappa(fileold,
+                                      iterold,
+                                      kappa_sign=kappa_forced_sign)
+            )
+            if last_mudiff is not None:
+                oldkappa_mudiff = (last_mudiff
+                                   if last_mudiff != 0.0
+                                   else None)
+            kmuiter.initialize(oldkappa_mu, oldkappa_n,
+                               oldkappa_kappa, oldkappa_mudiff)
+            if kmuiter.has_mu():
+                mu = kmuiter.next_mu()
+            else:
+                mu = old_mu
+        else:
+            mu = old_mu
+    elif cfg["General"]["readold_mu"] == "always":
         mu = old_mu
 
+    # Tell the user where the mu used for (at least) the first
+    # iteration came from
+    if fix_mu:
+        if mu_method == "kappa" and kmuiter.has_mu():
+            mu_source_string = "extrapolated"
+        else:
+            mu_source_string = "old"
+    else:
+        if cfg["General"]["readold_mu"] == "always":
+            mu_source_string = "old"
+        else:
+            mu_source_string = "parameter-specified"
+
     log("Continuing old run at old self-energy for %s mu = %.6g ...",
-        ("parameter-specified", "old")[fix_mu], mu)
+        mu_source_string, mu)
     dmft_step.set_siws(siw_dd, smom_dd, dc_value, init=True)
     dmft_step.set_mu(mu)
 else:
@@ -310,17 +447,11 @@ for iter_no in range(total_iterations + 1):
         iter_type = "dmft"
         cfg["QMC"]["FourPnt"] = 0
         log("Starting DMFT iteration no. %d ...", iter_no+1)
-        if cfg["QMC"]["PercentageWormInsert"] != 0:
-           log("Use WormSteps instead of DMFTsteps for worm sampling.")
-           sys.exit()   
     elif iter_no < dmft_iterations + stat_iterations:
         iter_type = "stat"
-        iter_no -= dmft_iterations + worm_iterations
+        iter_no -= dmft_iterations
         cfg["QMC"]["FourPnt"] = compute_fourpnt
         log("Starting statistics iteration no. %d ...", iter_no+1)
-        if cfg["QMC"]["PercentageWormInsert"] != 0:
-           log("Use WormSteps instead of StatisticSteps for worm sampling.")
-           sys.exit()   
     elif iter_no < total_iterations:
         iter_type = "worm"
         iter_no -= dmft_iterations + stat_iterations
@@ -334,10 +465,11 @@ for iter_no in range(total_iterations + 1):
     iter_start = time.time()
 
     if mpi_iamroot:
-        output.next_iteration(iter_type, iter_no)
+        output.open_iteration(iter_type, iter_no)
 
     if iter_type == "dmft" or ((iter_type == "stat" or iter_type == "worm") and iter_no == 0):
-        if epsn > 0:
+        if fix_mu and (mu_method == 'nloc'
+                       or (mu_method == 'kappa' and not kmuiter.has_mu())):
             log("Computing lattice problem for old mu = %g ...", dmft_step.mu)
             dmft_step.siw2gloc()
             log("Total density = %g", dmft_step.densities.sum())
@@ -347,6 +479,8 @@ for iter_no in range(total_iterations + 1):
 
             log("Updating chemical potential ...")
             dmft_step.update_mu(totdens, epsn, 100.)
+        elif fix_mu and mu_method == 'kappa':
+            dmft_step.set_mu(kmuiter.next_mu())
 
     log("Computing lattice problem for mu = %g ...", dmft_step.mu)
     dmft_step.siw2gloc()
@@ -368,6 +502,9 @@ for iter_no in range(total_iterations + 1):
     siws = []
     smoms = []
     occs = []
+    imp_electrons = 0.0
+    imp_electrons_err = 0.0
+
 
     if iter_type == "dmft" or iter_type == "stat":
         if cfg["QMC"]["ReuseMCConfig"] != 0:
@@ -383,103 +520,100 @@ for iter_no in range(total_iterations + 1):
                 else:
                     mccfgcontainer = []
                 result = solver.solve(iter_no, mccfgcontainer)
+                result_worm = None
                 mccfgs.append(mccfgcontainer[0])
+            elif cfg['QMC']['WormMeasGiw'] != 0 or cfg['QMC']['WormMeasGSigmaiw'] != 0 or cfg['QMC']['WormMeasQQ'] != 0:
+                result, result_worm = solver.solve_worm(iter_no, log_function=log)
             else:
                 result = solver.solve(iter_no)
+                result_worm = None
             result.postprocessing(siw_method, smom_method)
-            giws.append(result.giw)
-            siws.append(result.siw)
-            smoms.append(result.smom)
-            occs.append(result.other["occ"])
+            giws.append(result.giw.mean())
+            siws.append(result.siw.mean())
+            smoms.append(result.smom.mean())
+            occs.append(result.other["occ"].mean())
+
+            imp_electrons += (orbspin.trace(result.other["occ"].mean())
+                              * len(ineq_list[iimp]))
+            imp_electrons_err += (orbspin.trace(result.other["occ"].var())
+                                  * len(ineq_list[iimp]))
+
+            if cfg["QMC"]["WriteCovMeanGiw"]:
+                output.write_impurity_result(iimp,
+                                             {'giw-cov':
+                                              diagonal_covariance(result.giw)})
+            if cfg["QMC"]["WriteCovMeanSigmaiw"]:
+                output.write_impurity_result(iimp,
+                                             {'siw-cov':
+                                              diagonal_covariance(result.siw)})
+
             output.write_impurity_result(iimp, result.other)
-       
+            # write quantities not contained in result.other after
+            # pulling band and spin dimensions to the front
+            output.write_impurity_result(
+                iimp,
+                {'siw-full': result.siw
+                 .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
+                 'giw-full': result.giw
+                 .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
+                 'smom-full': result.smom
+                 .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
+                 })
+            if result_worm is not None:
+                output.write_impurity_result(iimp, result_worm.other)
+
         output.write_quantity("giw", giws)
-        output.write_quantity("giw-full", giws)
         output.write_quantity("siw", siws)
         output.write_quantity("smom", smoms)
-        output.write_quantity("siw-full", siws)
-        output.write_quantity("smom-full", smoms)
+        output.write_quantity("siw-trial", dmft_step.siw_dd)
 
         if iter_type == "dmft": 
             log("Feeding back self-energies ...")
             dmft_step.set_siws(siws, smoms, giws=giws, occs=occs)
 
+        if fix_mu and mu_method == "kappa":
+            imp_electrons_err = np.sqrt(imp_electrons_err)
+            kmuiter.step(dmft_step.mu, imp_electrons, imp_electrons_err)
+
     elif iter_type == "worm":
-      for iimp, imp_problem in enumerate(dmft_step.imp_problems):
-         log("Solving impurity problem no. %d ...", iimp+1)
+        for iimp, imp_problem in enumerate(dmft_step.imp_problems):
+            log("Solving impurity problem no. %d ...", iimp+1)
 
-         #empty mc configuration for first run
-         mccfgcontainer = []
-
-         #looping over all worm spaces
-         maxsector = 9
-         for isector in xrange(2, maxsector + 1):
-            
-            #skipping sectors if measurement is not enabled
-            if isector == 2 and not (cfg["QMC"]["WormMeasGiw"] == 1 or cfg["QMC"]["WormMeasGtau"] == 1):
-               log("Skipping worm sector %d ...", isector)
-               continue
-            if isector == 3 and not cfg["QMC"]["WormMeasGSigmaiw"] == 1:
-               log("Skipping worm sector %d ...", isector)
-               continue
-            if isector == 4: 
-               if not cfg["QMC"]["WormMeasG4iw"] == 1:
-                  log("Skipping worm sector %d ...", isector)
-                  continue
-               if cfg["QMC"]["FourPnt"] != 8:
-                  log("Set FourPnt to '8' to measure worm")
-                  sys.exit()
-            if isector == 5: 
-               if not cfg["QMC"]["WormMeasH4iw"] == 1:
-                  log("Skipping worm sector %d ...", isector)
-                  continue
-               if cfg["QMC"]["FourPnt"] != 8:
-                  log("Set FourPnt to '8' to measure worm")
-                  sys.exit()
-            if isector == 6 and not (cfg["QMC"]["WormMeasP2iwPH"] == 1 or cfg["QMC"]["WormMeasP2tauPH"] == 1):
-               log("Skipping worm sector %d ...", isector)
-               continue
-            if isector == 7 and not (cfg["QMC"]["WormMeasP2iwPP"] == 1 or cfg["QMC"]["WormMeasP2tauPP"] == 1): 
-               log("Skipping worm sector %d ...", isector)
-               continue
-            if isector == 8 and not cfg["QMC"]["WormMeasP3iwPH"]:
-               log("Skipping worm sector %d ...", isector)
-               continue
-            if isector == 9 and not cfg["QMC"]["WormMeasP3iwPP"]:
-               log("Skipping worm sector %d ...", isector)
-               continue
-
-            log("Sampling components of worm sector %d ...", isector)
+            #empty mc configuration for first run
+            mc_cfg_container = []
+            worm_sector = worm.get_sector_index(cfg['QMC'])
+            log("Sampling components of worm sector %d ...", worm_sector)
 
             #if WormComponents not specified -> sample all
             if not cfg["QMC"]["WormComponents"]:
-               log("Sampling all components")
-               if isector < 4:
-                  component_list = xrange(1,imp_problem.nflavours**2+1)
-               else:
-                  component_list = xrange(1,imp_problem.nflavours**4+1)
+                log("Sampling all components")
+                if worm_sector in [2, 3, 10]:
+                   component_list = range(1, imp_problem.nflavours**2 + 1)
+                else:
+                   component_list = range(1, imp_problem.nflavours**4 + 1)
             else:
-               log("Sampling components from configuration file")
-               #only integer components 1,... are considered
-               component_list = [int(s) for s in cfg["QMC"]["WormComponents"] if int(s)>0]
-
+                log("Sampling components from configuration file")
+                #only integer components 1,... are considered
+                component_list = [int(s) for s in cfg["QMC"]["WormComponents"] if int(s)>0]
 
             for icomponent in component_list:
-               log("Sampling component %d", icomponent)
-               solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
-               result, result_aux = solver.solve_component(iter_no,isector,icomponent,mccfgcontainer)
+                log("Sampling component %d", icomponent)
+                solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
+                result_gen, result_comp = solver.solve_comp_stats(iter_no, worm_sector, icomponent, mc_cfg_container)
 
-               #only write result if component returns ne 0
-               if np.any([np.any(result.other[ky]["value"])  for ky in result.other.keys()]):
-                  output.write_impurity_component(iimp, result.other)
-                  try:
-                     output.write_impurity_component(iimp, result_aux.other)
-                  except ValueError:
-                     sys.stderr.write(
-                      "\nWARNING: Ignoring auxiliary entries for multiple worm estimators.\n\n")
+                #only write result if component returns ne 0
+                if (cfg["QMC"]["WormComponents"] or
+                        any(np.any(entry["value"])
+                            for key, entry in result_comp.other.items())):
+                    output.write_impurity_result(iimp, result_comp.other)
+                    output.write_impurity_result(iimp, result_gen.other)
 
-            log("Done with component")
-    
+                log("Done with component {}".format(icomponent))
+
+
+    if mpi_iamroot:
+        output.close_iteration(iter_type, iter_no)
+
     iter_time2=time.time()
     log("Time of iteration no. %d: %g sec",iter_no+1,iter_time2-iter_time1)
 

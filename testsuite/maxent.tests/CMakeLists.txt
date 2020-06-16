@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.9)
-Project(maxent.tests CXX Fortran)
+Project(maxent.tests Fortran)
 find_package(PythonLibs REQUIRED)
 
 add_executable(1-getgridunit 1-getgridunit.F90)

@@ -3,13 +3,19 @@
 
 Adds gloctau: Fourier transform of gloc with p-band error estimate added
 """
+from __future__ import print_function
+import sys
 from sys import exit, stderr as err
 import optparse, re
 try:
     import numpy as np
     import h5py as hdf5
+    h5ustrs = hdf5.special_dtype(vlen=(str
+                                       if sys.version_info >= (3, )
+                                       else unicode))
 except ImportError:
-    print >> err, "error: script requires the h5py package to run"; exit(3)
+    print("error: script requires the h5py package to run", file=err)
+    exit(3)
 
 import w2dyn.auxiliaries.transform as tf
 
@@ -28,7 +34,7 @@ try:
     hf = hdf5.File(filename, "r+")
 except IndexError:
     parser.error("no file specified")
-except IOError, e:
+except IOError:
     parser.error("unable to open HDF5 output file `%s'." % filename)
 
 try:
@@ -38,7 +44,7 @@ try:
 
     # Get desired iteration
     iterpat = re.compile(r"^(?:dmft|stat)-\d+$")
-    iterations = sorted([k for k in hf.iterkeys() if iterpat.match(k)])
+    iterations = sorted([k for k in hf.keys() if iterpat.match(k)])
 
     try:
         iter_node = hf[iterations[options.iter]]
@@ -47,18 +53,21 @@ try:
 
     metainfo = hf[".quantities"].require_group("gloctau")
     metainfo.attrs["desc"] = "G_loc(tau) with p-band error estimate"
-    metainfo.attrs["axes"] = ["ineq", "band", "spin", "tau"]
+    metainfo.attrs.create("axes", ["ineq", "band", "spin", "tau"],
+                          dtype=h5ustrs)
 
     taus = hf[".axes/tau"].value
     iw = 1j * hf[".axes/iw"].value
 
-    for ineq_name, ineq_node in iter_node.iteritems():
+    for ineq_name in iter_node:
         # Checks for old run
         if not ineq_name.startswith("ineq-"):
             continue
 
+        ineq_node = iter_node[ineq_name]
+
         if "gloctau" in ineq_node:   # replace with your quantity name
-            print "WARNING: overriding"
+            print("WARNING: overriding")
             del ineq_node["gloctau"]
 
         gtau_mean = ineq_node["gtau/value"].value
@@ -74,7 +83,7 @@ try:
         if not np.allclose(gloctau.imag, 0):
             raise RuntimeError("Gloctau is not real????")
         if not np.allclose(gloctau[d_part], gtau_mean):
-            print "WARNING: d-part of G(tau) does not match with impurity"
+            print("WARNING: d-part of G(tau) does not match with impurity")
 
         gloctau = gloctau.real
         gloctau_err = np.empty_like(gloctau)
@@ -85,6 +94,6 @@ try:
         gloctau_group.create_dataset("value", data=gloctau)
         gloctau_group.create_dataset("error", data=gloctau_err)
 
-    print >> err, "success."
+    print("success.", file=err)
 finally:
     hf.close()  # cleanup

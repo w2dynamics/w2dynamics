@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 """Allows for manipulation of the Green's function in real frequency space"""
+from __future__ import print_function
 import numpy as np
 import scipy.integrate
 import scipy.optimize
@@ -67,10 +68,10 @@ def spopt_complex(func):
     """ Decorator that makes a complex function accessible to scipy.optimize """
     def wrapper(*args, **kwargs):
         x = np.asarray(args[0])
-        x = x[:x.size/2] + 1j*x[x.size/2:]
+        x = x[:x.size//2] + 1j*x[x.size//2:]
         res = func(x, *args[1:], **kwargs)
         if isinstance(res,tuple):
-            print "   diff = %8.2e" % np.linalg.norm(res[0])
+            print("   diff = %8.2e" % np.linalg.norm(res[0]))
             return (np.concatenate((res[0].real, res[0].imag)),
                     np.vstack((np.hstack((res[1].real, -res[1].imag)),
                                np.hstack((res[1].imag,  res[1].real)))))
@@ -81,7 +82,7 @@ def spopt_complex(func):
 
 def get_gw_jac(sigma, wplusmu, hk, gtarget=None, jac=False):
     """ Returns G for a diagonal Sigma plus the Jacobian dG/dSigma for one w """
-    print " sigma(w) =", cformat("%10g%+10gj ", sigma),
+    print(" sigma(w) =", cformat("%10g%+10gj ", sigma), end=' ')
     denom = np.diag(wplusmu - sigma)
     gw = np.zeros(shape=(sigma.size,sigma.size), dtype=np.complex)
     
@@ -267,17 +268,17 @@ if __name__ == "__main__":
                 raise ValueError("invalid prefix")
             folding += [ref] * repeats
             sigmas += [sigma - 1j*options.deltino] * repeats
-    except Exception, e:
+    except Exception as e:
         parser.error("error parsing argument %s: %s" % (arg, e))
 
-    print "Reading spectral functions A(w) ..."
+    print("Reading spectral functions A(w) ...")
     aws, ws = read_aw_files(*aw_files)
 
     if options.hk_file is not None:
-        print "Reading Hamiltonian H(k) ..."
+        print("Reading Hamiltonian H(k) ...")
         hk = read_hamiltonian(file(options.hk_file,"r"))[0]
     else:
-        print "Warning: setting Hamiltonian H(k) to zero (use -H)"
+        print("Warning: setting Hamiltonian H(k) to zero (use -H)")
         if len(args) < 1: parser.error("expecting A(w) file as argument")
         hk = np.zeros((1,len(args),len(args)))
 
@@ -294,15 +295,15 @@ if __name__ == "__main__":
     get_gw = get_gw_jac
     if len(aw_files) != len(folding):
         get_gw = wrapper_folding(get_gw, folding, sigmas)
-        print "Default values: %s" % (sigmas)
-        print "Folding map %s (inverse %s)" % (get_gw.mapping, get_gw.inv_mapping)
+        print("Default values: %s" % (sigmas))
+        print("Folding map %s (inverse %s)" % (get_gw.mapping, get_gw.inv_mapping))
     get_gw = spopt_complex(get_gw)
 
-    print "Using Kramers-Kronig to get real part of Green's function..."
+    print("Using Kramers-Kronig to get real part of Green's function...")
     gws = aws_to_gws(aws, ws)
 
     if options.deltino:
-        print "Adding deltino=-%gj to Green's function ..." % options.deltino
+        print("Adding deltino=-%gj to Green's function ..." % options.deltino)
         gws = 1/(1/gws + 1j*options.deltino)
 
     # selecting only parts 
@@ -323,7 +324,7 @@ if __name__ == "__main__":
         options.sigmaw_file += ".rev"
 
     nw = ws.size
-    print "Chosen %d out of %d frequencies ..." % (ws.size, nw)
+    print("Chosen %d out of %d frequencies ..." % (ws.size, nw))
 
     # write to file
     f = open(options.gw_file,"w")
@@ -331,7 +332,7 @@ if __name__ == "__main__":
         f.write("%12.6f" % w + cformat("%12.6f %12.6f   ", gws[:,iw]) + "\n")
     f.close()
                                              
-    print "Finding Sigma(w) (this will take some time)..."
+    print("Finding Sigma(w) (this will take some time)...")
     f = open(options.sigmaw_file,"w")
     f.write("# w, Re Sigma(w), Im Sigma(w) (for each band)\n")
     sigma = np.zeros_like(gws[:,0])
@@ -339,10 +340,10 @@ if __name__ == "__main__":
     try:
         for iw, w in enumerate(ws):
             sys.stdout.flush()
-            print "w = %9g (frequency %d of %d)" % (w, iw+1, nw)
+            print("w = %9g (frequency %d of %d)" % (w, iw+1, nw))
             sigma = find_sigma(gws[:,iw], w, hk, options.mu, get_gw, sigma)
             if (sigma.imag > 0).any():
-                print "WARNING: positive imaginary part of Sigma(w)!"
+                print("WARNING: positive imaginary part of Sigma(w)!")
             f.write("%12.6f" % w + cformat("%12.6f %12.6f   ", sigma) + "\n")
             f.flush()
     except ConvergenceError:

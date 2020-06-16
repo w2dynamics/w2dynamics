@@ -1,9 +1,12 @@
 #!/usr/bin/env python
 """Tool for extracting information from HDF5 output files"""
+from __future__ import (absolute_import, division,
+                        print_function, unicode_literals)
 import sys
 import re
 import os
 import itertools
+import textwrap
 import numpy as np
 import h5py as hdf5
 
@@ -56,12 +59,12 @@ class SequentialOutput(Output):
         if debug: debug("format: %s", form)
         if self.count == 1: 
             if not sys.stdout.isatty():
-                print >> sys.stderr, header
-            print "#" + " ".join(path_values[:2])
-            print "#" + header[1:]
-        for tup in itertools.izip(datasets[0].keys(),
-                                  *[dset.values().flat for dset in datasets]):
-            print form % (path_values[2:] + tup[0] + tup[1:])
+                print(header, file=sys.stderr)
+            print("#" + " ".join(path_values[:2]))
+            print("#" + header[1:])
+        for tup in zip(datasets[0].keys(),
+                       *[dset.values().flat for dset in datasets]):
+            print(form % (path_values[2:] + tup[0] + tup[1:]))
             
 class MatplotOutput(Output):
     def __init__(self, options=None):
@@ -153,8 +156,8 @@ def parse_args(args=None):
     for arg in args:
         try:
             selectors.append_from_string(arg)
-        except Exception,e:
-            error("invalid selector `%s':\n%s" % (arg, e.message))
+        except Exception as e:
+            error("invalid selector `%s':\n%s" % (arg, str(e)))
     return output, selectors
 
 if __name__ == "__main__":
@@ -189,33 +192,47 @@ if __name__ == "__main__":
                         if debug: debug("get old quantity list")
                         normal_qttys = dict(pair
                                             for n, it in IterationSelection.get_set(f)
-                                            for pair in it.iteritems())
+                                            for pair in it.items())
                     normal_keyset = set(normal_qttys.keys())
                     qtty_list = []
-                    qtty_list.extend((k, v[2]) for k, v in MetaQttyContainer.DESC.iteritems()
+                    qtty_list.extend((k, MetaQttyContainer.DESC[k][2])
+                                     for k in MetaQttyContainer.DESC
                                      if MetaQttyContainer.DESC[k][fileversion[0]-1] in f)
-                    qtty_list.extend((k, v[1]) for k,v in ATTRSET.iteritems()
+                    qtty_list.extend((k, ATTRSET[k][1]) for k in ATTRSET
                                      if ATTRSET[k][0] in f.attrs)
-                    qtty_list.extend((k, v.attrs["desc"]) 
-                                     for k,v in normal_qttys.iteritems())
-                    qtty_list.extend((k+"*", v["desc"])
-                                     for k,v in derived_quantities.iteritems()
-                                     if set(v["base"]).issubset(normal_keyset))
+                    qtty_list.extend((k, normal_qttys[k].attrs["desc"]) 
+                                     for k in normal_qttys)
+                    qtty_list.extend((k+"*", derived_quantities[k]["desc"])
+                                     for k in derived_quantities
+                                     if set(derived_quantities[k]["base"]).issubset(normal_keyset))
                     qtty_list.extend((
                             ("list", "list of all quantities in the file"),
                             ("iter", "list of all iterations in the file"),
                             ))                                        
                     qtty_list = sorted(qtty_list)
                     length = max(len(k) for k,v in qtty_list)
-                    print "#", "name".ljust(length-2), "description (* marks derived quantities)"
+                    print("#", "name".ljust(length-2), "description (* marks derived quantities)")
                     for k,v in qtty_list:
-                        print k.ljust(length), v
+                        is_subsequent_desc_line = False
+
+                        def get_subsequent_desc_line(_):
+                            # note: there is actually no outer
+                            # function scope around this, so global
+                            # and not nonlocal...
+                            global is_subsequent_desc_line
+                            retval = is_subsequent_desc_line
+                            is_subsequent_desc_line = True
+                            return retval
+
+                        print(k.ljust(length), textwrap.indent(v,
+                                                               " " * (length + 1),
+                                                               get_subsequent_desc_line))
                 elif qtty == 'iter':
                     iter_sel = IterationSelection(Selector(), f)
                     for k,v in iter_sel.items():
                         try: desc = v.attrs["desc"]
                         except KeyError: desc = "<>"
-                        print k.ljust(10), desc
+                        print(k.ljust(10), desc)
                 elif qtty in MetaQttyContainer.DESC:
                     # meta quantities
                     if debug: debug("meta quantity: %s", qtty)
@@ -225,14 +242,14 @@ if __name__ == "__main__":
                         cols = max(len(k) for k, v in items_sel.items())
                         format = "%%-%ds = %%s" % cols
                         for pair in items_sel.items():
-                            print format % pair
+                            print(format % pair)
                     except ValueError:
                         warn("empty selection")
                 elif qtty in ATTRSET:
                     # attribute quantitites
                     if debug: debug("attribute quantity: %s", ATTRSET[qtty])
                     attrname = ATTRSET[qtty][0]
-                    print str(f.attrs[attrname])
+                    print(str(f.attrs[attrname]))
                 else:
                     if qtty in derived_quantities:
                         if debug: debug("derived quantity: %s", qtty)
@@ -249,7 +266,7 @@ if __name__ == "__main__":
                             continue
                         dset_selectors = [selectors.expect(name) 
                                           for name in qtty_container.axes_names]
-                        if debug: debug("dataset sel: %s", map(str, dset_selectors))
+                        if debug: debug("dataset sel: %s", list(map(str, dset_selectors)))
                         factory = DatasetSelectionFactory(field_sel.shape, 
                                           qtty_container.axes_values, *dset_selectors)
                         dsets = [factory.select(node) for node in field_sel.values()]
@@ -262,18 +279,18 @@ if __name__ == "__main__":
         if selectors.positional:
             warn("additional (superfluous) selectors")
     
-    except IOError,e:
+    except IOError as e:
         import errno
         if e.errno == errno.EPIPE:
             if debug: debug("broken pipe, exitting successfully anyway")
             sys.exit(0)
         if debug: raise
-        error(e.message)
+        error(str(e))
     except KeyboardInterrupt:
         if debug: debug("keyboard interrupt")
-    except Exception,e:
+    except Exception as e:
         if debug: raise
-        error(e.message)
+        error(str(e))
     finally:
         try: # needed for the broken pipe problem
             sys.stdout.close()

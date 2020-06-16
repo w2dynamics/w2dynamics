@@ -16,6 +16,7 @@ Secondly, provides methods working with the actual physical quantities as
 retrieved by the CT-QMC algorithm.
 @see matfreq(), transform(), g4leg2tau(), g4leg2mat(), ggleg()
 """
+from __future__ import absolute_import, print_function, unicode_literals
 import warnings
 import numpy as np
 import scipy.special as sps
@@ -353,10 +354,10 @@ def wre2mat_quad(beta, wre, leadsw, mattype, matorder):
     @param matorder  Even number of fermionic Matsubara frequencies (symm around 0)
     """
 
-    print "leadsw.shape", leadsw.shape
+    print("leadsw.shape", leadsw.shape)
     leadsiw=np.zeros(leadsw.shape[:-1]+(matorder,), dtype=complex)
-    print "leadsiw.shape", leadsiw.shape
-    print "leadsiw.dtype", leadsiw.dtype
+    print("leadsiw.shape", leadsiw.shape)
+    print("leadsiw.dtype", leadsiw.dtype)
 
     beta = _ensurebeta(beta)
 #GS: create wre
@@ -652,7 +653,7 @@ def g4leg2mat(g, legorder, matorder):
     res = g[..., 0:legorder, 0:legorder, :]
     res = np.tensordot(res, tnl, axes=([actdim],[1]))
     res = np.tensordot(res, tnlp, axes=([actdim],[1]))
-    res = np.transpose(res, range(actdim) + [actdim+1, actdim+2, actdim])
+    res = np.transpose(res, list(range(actdim)) + [actdim+1, actdim+2, actdim])
     assert res.shape == g.shape[0:actdim] + 2*(matorder,) + (g.shape[-1],), "Shape error"
     return res
 
