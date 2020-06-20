@@ -10,6 +10,7 @@ add_executable(3-operator-list-stress-test 3-operator-list-stress-test.F90)
 set (ctqmctests 1-get-MatFull 2-time-evolve-in-eigenbasis 3-operator-list-stress-test)
 
 foreach(iter ${ctqmctests})
+set_target_properties(${iter} PROPERTIES LINKER_LANGUAGE Fortran)
 target_link_libraries(${iter} CTQMCMAIN)
 target_link_libraries(${iter} CTQMCLIB)
 target_link_libraries(${iter} mtrng)
