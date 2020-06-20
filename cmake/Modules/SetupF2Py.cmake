@@ -17,14 +17,6 @@ endif (NOT F2PY_SUFFIX)
 #strip trailing newlines
 string(REGEX REPLACE "\n$" "" F2PY_SUFFIX "${F2PY_SUFFIX}")
 
-## Path to the f2py executable
-find_program(F2PY_EXECUTABLE NAMES "f2py${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}"
-                                   "f2py-${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}"
-                                   "f2py"  # if a user-installed distribution comes with 'f2py' only, prefer it to potentially incompatible system-wide 'f2pyx'
-                                   "f2py${PYTHON_VERSION_MAJOR}"
-                             PATHS ~/.local/bin
-                             REQUIRED)
-
 # Get the compiler-id and map it to compiler vendor as used by f2py.
   # Currently, we only check for GNU, but this can easily be extended. 
   # Cache the result, so that we only need to check once.
