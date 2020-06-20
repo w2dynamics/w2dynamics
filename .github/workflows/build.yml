@@ -1,0 +1,51 @@
+name: Build
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: [2.x, 3.x]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Install required dependencies using apt-get
+      if: matrix.os == 'ubuntu-latest'
+      run: sudo apt-get install gfortran libopenblas-dev libfftw3-dev libhdf5-dev libnfft3-dev
+
+    - name: Install required dependencies using brew
+      if: matrix.os == 'macos-latest'
+      run: brew install openblas fftw hdf5
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Configure
+      run: cmake -B build
+
+    - name: Cache NFFT
+      uses: actions/cache@v2
+      if: matrix.os != 'ubuntu-latest'
+      with:
+        path: build/nfft_local
+        key: ${{ runner.os }}-nfft
+
+    - name: Build
+      run: cmake --build build
+
+    - name: Test
+      run: |
+        cd build
+        ctest --output-on-failure
