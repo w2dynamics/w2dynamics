@@ -33,7 +33,12 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - name: Configure
+      if: matrix.python-version != '2.x'
       run: cmake -B build
+
+    - name: Configure (use python2)
+      if: matrix.python-version == '2.x'
+      run: cmake -B build -DPYTHON_EXECUTABLE=`which python2`
 
     - name: Cache NFFT
       uses: actions/cache@v2
