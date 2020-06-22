@@ -191,3 +191,24 @@ ADD_SUBDIRECTORY(testsuite/maxent.tests)
 ADD_SUBDIRECTORY(testsuite/ctqmc.tests)
 ADD_SUBDIRECTORY(testsuite/w2dyn.tests)
 enable_testing()
+
+# Compile all Python files to bytecode, then install the package
+# including bytecode files to the Python site-package path and
+# executables to program path
+option(INSTALL_EXECUTABLES "Install executable scripts DMFT.py, cthyb, Maxent.py and hgrep to the executable directory (depends on prefix, e.g. /usr/bin)" ON)
+
+message(STATUS "Configuration for installation (optional):")
+list(APPEND CMAKE_MESSAGE_INDENT "  ")
+message(STATUS "Installation prefix directory (variable CMAKE_INSTALL_PREFIX): ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "Installing executables DMFT.py, cthyb, Maxent.py, hgrep (option INSTALL_EXECUTABLES): ${INSTALL_EXECUTABLES}")
+list(POP_BACK CMAKE_MESSAGE_INDENT)
+
+install(SCRIPT PyCompileall.txt)
+install(DIRECTORY w2dyn
+  DESTINATION lib/python${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}/site-packages
+  COMPONENT Python_Package)
+if(INSTALL_EXECUTABLES)
+  install(PROGRAMS DMFT.py cthyb hgrep Maxent.py
+    TYPE BIN
+    COMPONENT Executable_Scripts)
+endif()
