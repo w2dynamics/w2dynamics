@@ -103,15 +103,13 @@ Files and directories
   - `w2dyn/maxent/`: Python wrapper for maximum entropy analytic continuation
   - `clusters/`: template submission scripts for different clusters
   - `cmake/`: cmake custom modules
-  - `doc/`: documentation files
-  - `documentation`: doxygen configuration
+  - `docs/`: documentation (github wiki)
   - `Postproc/`: postprocessing scripts
   - `preproc/`: preprocessing scripts
   - `src/`: compiled modules loaded from python
     - `ctqmc_fortran`: Fortran 90 continuous-time quantum Monte Carlo solver
     - `maxent`: maximum entropy analytic continuation solver
     - `mtrng`: Mersenne twister pseudorandom number generator
-  - `tests/`: minimal run-through tests
   - `testsuite/`: unit tests for the code
 
   - `cfg_converter.py`: small script converting old-style config files
@@ -120,7 +118,6 @@ Files and directories
   - `DMFT.py`: main entry point for DMFT self-consistency loop
   - `hgrep`: utility for extracting data from HDF5 file
   - `Maxent.py`: main entry point for maximum entropy code
-  - `run_tests.sh`: run the run-through tests
   - `setup.py`: Python installation script
 
 Citation
