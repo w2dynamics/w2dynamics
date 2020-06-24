@@ -198,10 +198,8 @@ enable_testing()
 option(INSTALL_EXECUTABLES "Install executable scripts DMFT.py, cthyb, Maxent.py and hgrep to the executable directory (depends on prefix, e.g. /usr/bin)" ON)
 
 message(STATUS "Configuration for installation (optional):")
-list(APPEND CMAKE_MESSAGE_INDENT "  ")
 message(STATUS "Installation prefix directory (variable CMAKE_INSTALL_PREFIX): ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "Installing executables DMFT.py, cthyb, Maxent.py, hgrep (option INSTALL_EXECUTABLES): ${INSTALL_EXECUTABLES}")
-list(POP_BACK CMAKE_MESSAGE_INDENT)
 
 install(SCRIPT PyCompileall.txt)
 install(DIRECTORY w2dyn
@@ -209,6 +207,6 @@ install(DIRECTORY w2dyn
   COMPONENT Python_Package)
 if(INSTALL_EXECUTABLES)
   install(PROGRAMS DMFT.py cthyb hgrep Maxent.py
-    TYPE BIN
+    DESTINATION bin
     COMPONENT Executable_Scripts)
 endif()
