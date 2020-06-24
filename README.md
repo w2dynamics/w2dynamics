@@ -46,13 +46,13 @@ Requirements:
 
 Further dependencies (automatically installed if not found):
 
-  - Python packages: numpy >= 1.4, scipy >= 0.10, h5py, mpi4py, configobj
+  - Python packages: numpy >= 1.10, scipy >= 0.10, h5py, mpi4py, configobj
   - NFFT3
   - HDF5
 
 To get the code use `git`:
 
-    $ git clone git@github.com:w2dynamics/w2dynamics
+    $ git clone https://github.com/w2dynamics/w2dynamics.git
 
 To build the code follow the `cmake` build model:
 
