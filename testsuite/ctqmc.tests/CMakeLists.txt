@@ -17,7 +17,6 @@ target_link_libraries(${iter} mtrng)
 target_link_libraries(${iter} ${PYTHON_LIBRARIES})
 target_link_libraries(${iter} ${LAPACK_LIBRARIES})
 target_link_libraries(${iter} ${NFFT_LIBRARIES})
-target_link_libraries(${iter} -lstdc++)
 endforeach(iter)
 
 enable_testing()

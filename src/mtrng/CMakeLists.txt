@@ -21,3 +21,4 @@ ENDIF()
 
 add_library(mtrng random.cc Random.F90)
 set_property(TARGET mtrng PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET mtrng PROPERTY LINKER_LANGUAGE CXX)
