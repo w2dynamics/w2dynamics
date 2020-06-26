@@ -95,9 +95,12 @@ IF(NOT NUMPY_FOUND)
     MESSAGE(FATAL_ERROR "Couldn't install numpy -> ABORTING!!!")
     endif()
 ENDIF()
+
+
+find_package(H5PY)
 find_package(HDF5 1.6 COMPONENTS Fortran)# enforce the availability of the Fortran bindings. FIXME: Test on a suitable computer
 
-if(NOT HDF5_FOUND)
+if((NOT H5PY_FOUND) AND (NOT HDF5_FOUND))
 include(ExternalProject)
     set(hdf5_local_major_version "1.10")
     set(hdf5_local_minor_version "6")
@@ -121,7 +124,6 @@ include(ExternalProject)
 endif()
 
 find_package(MPI4PY)
-find_package(H5PY)
 find_package(SCIPY 0.10)
 IF(NOT SCIPY_FOUND)
     install_via_pip("scipy" ERRORCODE)
