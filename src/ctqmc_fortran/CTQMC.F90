@@ -546,8 +546,12 @@ subroutine init_CTQMC()
    endif
 
    if( get_integer_parameter("MeasGiw") /= 0) then
-      allocate(Giw(NBands,2,-NGiw:NGiw-1))
-      Giw = cmplx(0, kind=KINDC)
+      if (b_offdiag) then
+         write (*, *) "WARNING: cannot measure G on iw when hybridization not diagonal"
+      else
+         allocate(Giw(NBands, 2, -NGiw:NGiw-1))
+         Giw = cmplx(0, kind=KINDC)
+      end if
    endif
 
    if (allocated(Giw) .and. NLookup_nfft > 0) then
@@ -8399,12 +8403,12 @@ subroutine ctqmc_measure(iSector,iComponent)
                call MeasGtauRem(GtauDetRat)
             endif
 
-            if(allocated(giw)&  ! .or. allocated(gsigmaiw)&
-               .or. allocated(g4iw) .or. allocated(g4iw_pp)) then
+            if(.not. b_offdiag .and. ((allocated(giw) .and. .not. b_Giw_lookup)&  ! .or. allocated(gsigmaiw)&
+               .or. allocated(g4iw) .or. allocated(g4iw_pp))) then
                call minv_matching_taus(DTrace,DTrace%MInv)
             endif
 !           if(allocated(gsigmaiw)) call urho_contracted(u_matrix, dtrace, dstates)
-            if(.not. b_Giw_lookup .and. allocated(giw)) then  ! .or. allocated(gsigmaiw))) then
+            if(.not. b_offdiag .and. .not. b_Giw_lookup .and. allocated(giw)) then  ! .or. allocated(gsigmaiw))) then
                call measure_giw_nfft()
             endif
             if(allocated(expresdensitymatrix)) call MeasExpResDensityMatrix()
