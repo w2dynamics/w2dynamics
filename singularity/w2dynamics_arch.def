@@ -1,0 +1,73 @@
+Bootstrap: arch
+
+%setup
+#   A PACMAN INSTALLATION ON THE HOST IS REQUIRED FOR BUILDING ANYWAY
+#   COPY THE MIRRORLIST FROM THE DEFAULT LOCATION INTO THE CONTAINER
+    cp /etc/pacman.d/mirrorlist ${SINGULARITY_ROOTFS}/etc/pacman.d/mirrorlist
+
+%environment
+    export LC_ALL=C
+    export PYTHONPATH="/w2dynamics:${PYTHONPATH}"
+
+%post
+#   ARCH LOCALE SETUP
+    ln -s /usr/share/zoneinfo/UTC /etc/localtime
+    echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen
+    locale-gen
+
+#   INSTALL OPENBLAS PREREQUISITE PACKAGES
+    pacman -Sy --noconfirm base-devel git cmake gcc-fortran
+
+#   BUILD AND INSTALL OPENBLAS (USING AUR PKGBUILD)
+    curl --output openblas-lapack.tar.gz https://aur.archlinux.org/cgit/aur.git/snapshot/openblas-lapack.tar.gz
+    tar --gz -xvf openblas-lapack.tar.gz
+    cd openblas-lapack
+    sed -e 's/USE_OPENMP=1/USE_OPENMP=0/' -i PKGBUILD
+    sed -e 's/USE_THREAD=1/USE_THREAD=0 DYNAMIC_ARCH=1/' -i PKGBUILD
+    chmod -R a+rwX .
+    sudo -u nobody makepkg --check
+    pacman -U --noconfirm $(ls openblas-lapack*.pkg.*)
+    cd ..
+    rm -rf openblas-lapack/ openblas-lapack.tar.gz
+
+#   INSTALL NFFT AND W2DYNAMICS PREREQUISITE PACKAGES
+    pacman -Sy --noconfirm openmpi python-mpi4py python-h5py python-scipy python-configobj fftw
+    rm -rf /var/cache/pacman
+
+#   BUILD AND INSTALL NFFT (USING AUR PKGBUILD)
+    curl --output nfft.tar.gz https://aur.archlinux.org/cgit/aur.git/snapshot/nfft.tar.gz
+    tar --gz -xvf nfft.tar.gz
+    cd nfft
+    chmod -R a+rwX .
+    sudo -u nobody makepkg --check
+    pacman -U --noconfirm $(ls nfft*.pkg.*)
+    cd ..
+    rm -rf nfft/ nfft.tar.gz
+
+#   FETCH AND BUILD W2DYNAMICS
+    git clone https://github.com/w2dynamics/w2dynamics.git
+    cd w2dynamics
+    mkdir build
+    cd build
+    cmake ..
+    cmake -DCMAKE_Fortran_FLAGS="-O3 -flto -mtune=generic -fstack-arrays -ffree-form -ffree-line-length-none -fimplicit-none -DUSE_NFFT=1" ..
+    make VERBOSE=1
+    ctest --output-on-failure
+    cd ../..
+    rm -rf w2dynamics/build
+
+#   CLEAN UP UNNEEDED BUILD DEPENDENCIES
+    pacman -Rcsu --noconfirm binutils gcc git cmake gcc-fortran
+    rm -rf /usr/lib/libg{o,phobos}.so*  # GCC go and D runtime libraries are part of gcc-libs package but huge and not needed
+
+%apprun DMFT
+    exec python /w2dynamics/DMFT.py "$@"
+
+%apprun cthyb
+    exec python /w2dynamics/cthyb "$@"
+
+%apprun hgrep
+    exec python /w2dynamics/hgrep "$@"
+
+%apprun Maxent
+    exec python /w2dynamics/Maxent.py "$@"
