@@ -88,16 +88,19 @@ else ()
   set(NFFT_LIBRARIES "")
 endif ()
 
-find_package(NUMPY 1.4)
+find_package(NUMPY 1.10)
 IF(NOT NUMPY_FOUND)
-    install_via_pip("numpy" ERRORCODE)
+    install_via_pip("numpy>=1.10.0" ERRORCODE)
     if (${ERRORCODE})
     MESSAGE(FATAL_ERROR "Couldn't install numpy -> ABORTING!!!")
     endif()
 ENDIF()
+
+
+find_package(H5PY)
 find_package(HDF5 1.6 COMPONENTS Fortran)# enforce the availability of the Fortran bindings. FIXME: Test on a suitable computer
 
-if(NOT HDF5_FOUND)
+if((NOT H5PY_FOUND) AND (NOT HDF5_FOUND))
 include(ExternalProject)
     set(hdf5_local_major_version "1.10")
     set(hdf5_local_minor_version "6")
@@ -121,7 +124,6 @@ include(ExternalProject)
 endif()
 
 find_package(MPI4PY)
-find_package(H5PY)
 find_package(SCIPY 0.10)
 IF(NOT SCIPY_FOUND)
     install_via_pip("scipy" ERRORCODE)
@@ -134,6 +136,14 @@ if(NOT H5PY_FOUND)
     install_via_pip("h5py" ERRORCODE)
     if (${ERRORCODE})
     MESSAGE(FATAL_ERROR "Couldn't install H5PY -> ABORTING!!!")
+    endif()
+endif()
+if(NUMPY_VERSION VERSION_GREATER "1.17.99" AND SCIPY_VERSION VERSION_LESS "1.0.0")
+    # automatic installation of h5py via pip can also pull in quite
+    # new versions of numpy as dependencies...
+    install_via_pip("scipy>=1.0.0" ERRORCODE)
+    if (${ERRORCODE})
+      message(WARNING "Your versions of numpy and scipy are incompatible and updating scipy automatically failed. You will not be able to run w2dynamics before updating scipy.")
     endif()
 endif()
 if(NOT MPI4PY_FOUND AND MPI_Fortran_FOUND)
@@ -183,3 +193,22 @@ ADD_SUBDIRECTORY(testsuite/maxent.tests)
 ADD_SUBDIRECTORY(testsuite/ctqmc.tests)
 ADD_SUBDIRECTORY(testsuite/w2dyn.tests)
 enable_testing()
+
+# Compile all Python files to bytecode, then install the package
+# including bytecode files to the Python site-package path and
+# executables to program path
+option(INSTALL_EXECUTABLES "Install executable scripts DMFT.py, cthyb, Maxent.py and hgrep to the executable directory (depends on prefix, e.g. /usr/bin)" ON)
+
+message(STATUS "Configuration for installation (optional):")
+message(STATUS "Installation prefix directory (variable CMAKE_INSTALL_PREFIX): ${CMAKE_INSTALL_PREFIX}")
+message(STATUS "Installing executables DMFT.py, cthyb, Maxent.py, hgrep (option INSTALL_EXECUTABLES): ${INSTALL_EXECUTABLES}")
+
+install(SCRIPT PyCompileall.txt)
+install(DIRECTORY w2dyn
+  DESTINATION lib/python${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}/site-packages
+  COMPONENT Python_Package)
+if(INSTALL_EXECUTABLES)
+  install(PROGRAMS DMFT.py cthyb hgrep Maxent.py
+    DESTINATION bin
+    COMPONENT Executable_Scripts)
+endif()

@@ -1,13 +1,18 @@
 cmake_minimum_required(VERSION 2.8.9)
 Project(maxent.tests Fortran)
 find_package(PythonLibs REQUIRED)
+add_library(MAXENTMAIN STATIC ${SRCMAXENT}/MaximumEntropy.F90)
+set_property(TARGET MAXENTMAIN PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 add_executable(1-getgridunit 1-getgridunit.F90)
 set (maxenttests 1-getgridunit)
 
 foreach(iter ${maxenttests})
-target_link_libraries(${iter} -Wl,${CMAKE_SOURCE_DIR}/w2dyn/maxent/MAXENT${F2PY_SUFFIX})
+set_target_properties(${iter} PROPERTIES LINKER_LANGUAGE Fortran)
+target_link_libraries(${iter} MAXENTMAIN)
+target_link_libraries(${iter} MAXENTLIB)
 target_link_libraries(${iter} ${PYTHON_LIBRARIES})
+target_link_libraries(${iter} ${LAPACK_LIBRARIES})
 endforeach(iter)
 
 enable_testing()

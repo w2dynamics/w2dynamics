@@ -1,0 +1,43 @@
+Bootstrap: library
+From: ubuntu:20.04
+
+%environment
+    export LC_ALL=C
+    export PYTHONPATH="/w2dynamics:${PYTHONPATH}"
+
+%post
+#   INSTALL PREREQUISITE PACKAGES
+    cat /etc/apt/sources.list | sed -e 's/main/universe/' >> /etc/apt/sources.list
+    apt-get update
+    apt-get upgrade -y
+    apt-get install -y cmake git gfortran g++ libhdf5-103 libopenblas0-serial libopenblas-serial-dev libnfft3-double2 libnfft3-dev openmpi-bin python3 libpython3-dev python3-distutils python3-h5py python3-mpi4py python3-scipy python3-configobj
+
+#   FETCH AND BUILD W2DYNAMICS
+    git clone https://github.com/w2dynamics/w2dynamics.git
+    cd w2dynamics
+    mkdir build
+    cd build
+    cmake ..
+    cmake -DCMAKE_Fortran_FLAGS="-O3 -flto -mtune=generic -fstack-arrays -ffree-form -ffree-line-length-none -fimplicit-none -DUSE_NFFT=1" ..
+    make VERBOSE=1
+    ctest --output-on-failure
+    cd ../..
+    rm -rf w2dynamics/build
+
+#   CLEAN UP UNNEEDED BUILD DEPENDENCIES
+    apt-get purge -y cmake git gfortran g++ gcc gfortran-9 g++-9 gcc-9 cpp-9 libopenblas-serial-dev libnfft3-dev libpython3-dev
+    apt-get autoremove -y
+    apt-get clean -y
+    rm -rf /var/lib/apt/lists
+
+%apprun DMFT
+    exec python3 /w2dynamics/DMFT.py "$@"
+
+%apprun cthyb
+    exec python3 /w2dynamics/cthyb "$@"
+
+%apprun hgrep
+    exec python3 /w2dynamics/hgrep "$@"
+
+%apprun Maxent
+    exec python3 /w2dynamics/Maxent.py "$@"

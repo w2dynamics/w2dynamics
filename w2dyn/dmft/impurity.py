@@ -955,8 +955,15 @@ class CtHybSolver(ImpuritySolver):
     def get_giw(cls, config, problem, result):
         #typ = "legendre"  # FIXME: QMC config does not contain FTtype
         typ = config["General"]["FTType"]
-        if config["QMC"]["offdiag"]==1 and typ=="legendre":
-            typ = "legendre_full"
+        if config["QMC"]["offdiag"] != 0:
+            if typ == "legendre" or typ == "legendre_full":
+                typ = "legendre_full"
+            elif typ == "none_worm":
+                pass
+            else:
+                warn("Chosen FTType unsupported for non-diagonal hybridization, "
+                     "using legendre_full instead")
+                typ = "legendre_full"
         if typ == "none":
             giw = -result["giw-meas"]
         elif typ == "none_worm":
@@ -1123,7 +1130,7 @@ class CtHybSolver(ImpuritySolver):
             result["gtau-mid-step"] = ctqmc.gtau_mid_step
         if qmc_config["sign_step"] != 0:
             result["sign-step"] = ctqmc.sign_step
-        if qmc_config["MeasGiw"] != 0:
+        if qmc_config["MeasGiw"] != 0 and qmc_config["offdiag"] == 0:
             result["giw-meas"] = ctqmc.giw
         # if qmc_config["MeasGSigmaiw"] != 0:  # enable if GSigma Z-meas fixed
         #     result["gsigmaiw"] = ctqmc.gsigmaiw

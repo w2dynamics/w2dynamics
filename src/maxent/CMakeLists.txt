@@ -42,7 +42,7 @@ endif()
   set(ADDITIONAL_OPTS -fPIC -DLAPACK77_Interface)
     add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}"
       COMMAND ${CMAKE_COMMAND} -E copy "${SRCMAXENT}/.f2py_f2cmap" "${CMAKE_CURRENT_BINARY_DIR}/.f2py_f2cmap"
-      COMMAND ${F2PY_EXECUTABLE} -c $<$<CONFIG:RELEASE>:--quiet> -m ${_name}
+      COMMAND ${PYTHON_EXECUTABLE} -m numpy.f2py -c $<$<CONFIG:RELEASE>:--quiet> -m ${_name}
         --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
         ${_fcompiler_opts} --opt="${ADDITIONAL_OPTS}" ${_inc_opts}
         ${EXTERNAL_LIBRARIES}

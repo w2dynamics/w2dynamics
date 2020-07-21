@@ -32,15 +32,6 @@ if (NOT F2PY_SUFFIX)
   set (F2PY_SUFFIX ${PYTHON_EXT_SUFFIX} CACHE INTERNAL "the F2PY extension")
 endif (NOT F2PY_SUFFIX)
 
-## Path to the f2py executable
-find_program(F2PY_EXECUTABLE NAMES "f2py${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}"
-                                   "f2py-${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}"
-                                   "f2py"  # if a user-installed distribution comes with 'f2py' only, prefer it to potentially incompatible system-wide 'f2pyx'
-                                   "f2py${PYTHON_VERSION_MAJOR}"
-                             PATHS ~/.local/bin
-                             REQUIRED)
-
-
 ## -----------------------------------------------------------------------------
 ## Macro to generate a Python interface module from one or more Fortran sources
 ##
@@ -107,7 +98,7 @@ macro (add_f2py_module _name)
   # output will be a shared library that can be imported by python.
   if ( "${_srcs}" MATCHES "^[^;]*\\.pyf;" )
     add_custom_command(OUTPUT "${_name}${F2PY_SUFFIX}"
-      COMMAND ${F2PY_EXECUTABLE} --quiet -m ${_name}
+      COMMAND ${PYTHON_EXECUTABLE} -m numpy.f2py --quiet -m ${_name}
               --build-dir "${CMAKE_CURRENT_BINARY_DIR}/f2py-${_name}"
               ${_fcompiler_opts} ${_inc_opts} -c ${_abs_srcs}
       DEPENDS ${_srcs}
@@ -115,10 +106,10 @@ macro (add_f2py_module _name)
 
   else ( "${_srcs}" MATCHES "^[^;]*\\.pyf;" )
     add_custom_command(OUTPUT "${_name}${F2PY_SUFFIX}"
-      COMMAND ${F2PY_EXECUTABLE} --quiet -m ${_name} -h ${_name}.pyf
+      COMMAND ${PYTHON_EXECUTABLE} -m numpy.f2py --quiet -m ${_name} -h ${_name}.pyf
               --build-dir "${CMAKE_CURRENT_BINARY_DIR}/f2py-${_name}"
               --include-paths ${_inc_paths} --overwrite-signature ${_abs_srcs}
-      COMMAND ${F2PY_EXECUTABLE} --quiet -m ${_name} -c "${CMAKE_CURRENT_BINARY_DIR}/f2py-${_name}/${_name}.pyf"
+      COMMAND ${PYTHON_EXECUTABLE} -m numpy.f2py --quiet -m ${_name} -c "${CMAKE_CURRENT_BINARY_DIR}/f2py-${_name}/${_name}.pyf"
               --build-dir "${CMAKE_CURRENT_BINARY_DIR}/f2py-${_name}"
               ${_fcompiler_opts} ${_inc_opts} ${_abs_srcs}
       DEPENDS ${_srcs}
