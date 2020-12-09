@@ -3732,8 +3732,13 @@ subroutine StepAdd4(Sector)
    BosTraceNew = get_BosonicTrace(DTrace,DStates)
    rand=grnd()
 
-   prob = abs(taudiff_factor * (2 * NBands)**4 * rempair_factor&
-              *wrat(TraceNew/DTrace%Trace, DetRat)*BosTraceNew/DTrace%BosonicTrace)
+   if (b_offdiag) then
+      prob = abs(taudiff_factor * (2 * NBands)**4 * rempair_factor&
+           *wrat(TraceNew/DTrace%Trace, DetRat)*BosTraceNew/DTrace%BosonicTrace)
+   else
+      prob = abs(taudiff_factor * (2 * NBands)**2 * rempair_factor&
+           *wrat(TraceNew/DTrace%Trace, DetRat)*BosTraceNew/DTrace%BosonicTrace)
+   end if
 
    if(rand.lt.prob)then
 
@@ -4230,8 +4235,13 @@ subroutine StepRem4()
    TraceNew = get_trace_EB(DTrace,DStates)
    BosTraceNew = get_BosonicTrace(DTrace,DStates)
 
-   prob = abs(1_KINDR / real((2 * NBands)**4, KINDR) / taudiff_factor / rempair_factor&
-              *wrat(TraceNew/DTrace%Trace, DetRat)*BosTraceNew/DTrace%BosonicTrace)
+   if (b_offdiag) then
+      prob = abs(1_KINDR / real((2 * NBands)**4, KINDR) / taudiff_factor / rempair_factor&
+           *wrat(TraceNew/DTrace%Trace, DetRat)*BosTraceNew/DTrace%BosonicTrace)
+   else
+      prob = abs(1_KINDR / real((2 * NBands)**2, KINDR) / taudiff_factor / rempair_factor&
+           *wrat(TraceNew/DTrace%Trace, DetRat)*BosTraceNew/DTrace%BosonicTrace)
+   end if
 
    rand=grnd()
    if(rand.lt.prob)then
