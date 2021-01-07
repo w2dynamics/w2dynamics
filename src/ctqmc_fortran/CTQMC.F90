@@ -4128,6 +4128,10 @@ subroutine StepRem4()
    call update_NPairs(DTrace, Oper(3:4), -1)
    NPairs_only12 = DTrace%NPairs
 
+   ! pairs for removal returned by gen_OperRemove are not individually
+   ! (i.e. 12 and 34) ca-ordered, but time-ordered, so not only 14 and
+   ! 23 but also 13 and 24 need to be checked (obviously only one of
+   ! the two can work)
    if (is_rempair(DTrace, Oper(1)%p, Oper(4)%p)&
        .and. is_rempair(DTrace, Oper(2)%p, Oper(3)%p)) then
 
@@ -4154,6 +4158,44 @@ subroutine StepRem4()
       call remove_Oper(DTrace, oplist)
       call update_NPairs(DTrace, oplist, -1)
       NPairs_only14 = DTrace%NPairs
+      call insert_Oper(DTrace, oplist)
+
+      call remove_Oper(DTrace, Oper(3:4))
+      DTrace%NPairs = NPairs_only12
+
+      rempair_factor = (1_KINDR/real(old_NPairs, KINDR))&
+         * (1_KINDR/real(NPairs_only12, KINDR)&
+            + 1_KINDR/real(NPairs_only34, KINDR)&
+            + 1_KINDR/real(NPairs_only14, KINDR)&
+            + 1_KINDR/real(NPairs_only23, KINDR))
+
+      taudiff_factor = taudiff_factor / 4_KINDR
+   else if (is_rempair(DTrace, Oper(1)%p, Oper(3)%p)&
+        .and. is_rempair(DTrace, Oper(2)%p, Oper(4)%p)) then
+
+      ! see StepAdd4 for comments
+      call insert_Oper(DTrace, Oper(3:4))
+      DTrace%NPairs = old_NPairs
+
+      if (Oper(1)%p%tau < Oper(3)%p%tau) then
+         oplist = (/Oper(1), Oper(3)/)
+      else
+         oplist = (/Oper(3), Oper(1)/)
+      end if
+      call remove_Oper(DTrace, oplist)
+      call update_NPairs(DTrace, oplist, -1)
+      NPairs_only23 = DTrace%NPairs  ! here actually "NPairs_only24", but whatever
+      call insert_Oper(DTrace, oplist)
+      DTrace%NPairs = old_NPairs
+
+      if (Oper(2)%p%tau < Oper(4)%p%tau) then
+         oplist = (/Oper(2), Oper(4)/)
+      else
+         oplist = (/Oper(4), Oper(2)/)
+      end if
+      call remove_Oper(DTrace, oplist)
+      call update_NPairs(DTrace, oplist, -1)
+      NPairs_only14 = DTrace%NPairs  ! actually "NPairs_only13"
       call insert_Oper(DTrace, oplist)
 
       call remove_Oper(DTrace, Oper(3:4))
