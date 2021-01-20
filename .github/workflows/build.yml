@@ -1,10 +1,6 @@
 name: Build
 
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+on: [push, pull_request]
 
 jobs:
   build:
@@ -34,11 +30,20 @@ jobs:
 
     - name: Configure
       if: matrix.python-version != '2.x'
-      run: cmake -B build
+      run: |
+        cmake -B build \
+              -DCMAKE_Fortran_COMPILER=gfortran-10 \
+              -DCMAKE_C_COMPILER=gcc-10 \
+              -DCMAKE_CXX_COMPILER=g++-10
 
     - name: Configure (use python2)
       if: matrix.python-version == '2.x'
-      run: cmake -B build -DPYTHON_EXECUTABLE=`which python2`
+      run: |
+        cmake -B build \
+              -DPYTHON_EXECUTABLE=`which python2` \
+              -DCMAKE_Fortran_COMPILER=gfortran-10 \
+              -DCMAKE_C_COMPILER=gcc-10 \
+              -DCMAKE_CXX_COMPILER=g++-10
 
     - name: Cache NFFT
       uses: actions/cache@v2
