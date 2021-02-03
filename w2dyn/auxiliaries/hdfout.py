@@ -155,6 +155,7 @@ class HdfOutput:
 
     def __init__(self, config, git_revision=None, start_time=None, 
                  ineq_list=None, mpi_comm=None):
+        self.quantities_to_write = config["General"]["WriteOnlyQuant"]
         if mpi_comm is not None:
             self.is_writer = mpi_comm.Get_rank() == 0
         else:
@@ -290,6 +291,8 @@ class HdfOutput:
 
     def write_quantity(self, qtty_name, qtty_data, qtty_shape=None, qtty_slice=None,
                        ineq_force_list=False):
+        if self.quantities_to_write is not None and qtty_name not in self.quantities_to_write:
+            return
         def write_to_node(node, part, pshape=None):
             if pshape is None:
                 try:
@@ -367,6 +370,8 @@ class HdfOutput:
         if self.is_writer:
             ineq_node = self.iter.require_group("ineq-%03d" % (iineq+1))
         for qtty_name in result:
+            if self.quantities_to_write is not None and qtty_name not in self.quantities_to_write:
+                continue
             qtty_value = result[qtty_name]
             if self.is_writer:
                 self._write_meta_return_axes(qtty_name.split('/')[0])
@@ -385,7 +390,7 @@ class HdfOutput:
                 else:
                     if self.is_writer:
                         qtty_node.create_dataset("value", data=qtty_value)
-            except (OSError, RuntimeError):
+            except (OSError, RuntimeError, ValueError):
                 sys.stderr.write(
                     "\nWARNING: Ignoring field {} for multiple worm components.\n\n".format(qtty_name))
         if self.is_writer:

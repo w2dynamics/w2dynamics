@@ -25,8 +25,14 @@ def iw_to_tau_fast(aiw, ntau, beta, axis=-1):
     if axis != -1:
         aiw = np.rollaxis(aiw, axis, aiw.ndim)
     niw = aiw.shape[-1]
-    if ntau < niw:
-        raise ValueError("tau axis must be greater than frequency axis")
+
+    if ntau >= niw:
+        fft_ntau = ntau
+    elif ntau > 1:
+        overprod_factor = int(np.ceil((niw - 1)/(ntau - 1)))
+        fft_ntau = overprod_factor * (ntau - 1) + 1
+    else:
+        raise ValueError("tau axis must have more than 1 point")
 
     # We work over the doubled array. This corresponds to both fermionic
     # and bosonic frequencies in Fourier space and to periodic functions
@@ -34,11 +40,13 @@ def iw_to_tau_fast(aiw, ntau, beta, axis=-1):
     # FFT algorithms, but we can then only use (1) half the result interval,
     # (2) every other result point, since we get the signal and its
     # mirror image.
-    n = 2 * (ntau - 1)
+    n = 2 * (fft_ntau - 1)
     a = np.zeros(aiw.shape[:-1] + (2*n,), aiw.dtype)
     a[..., n-niw+1:-n+niw:2] = aiw
     atau = np.fft.fft(a)
-    atau = 1./beta * atau[...,:2*ntau:2]
+    atau = 1./beta * atau[...,:2*fft_ntau:2]
+    if ntau < fft_ntau:
+        atau = atau[..., 0::overprod_factor]
 
     assert atau.shape == aiw.shape[:-1] + (ntau,)
     if axis != -1:

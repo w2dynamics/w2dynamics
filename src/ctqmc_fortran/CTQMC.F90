@@ -222,7 +222,8 @@ implicit none
    class(TTrace), allocatable  :: DTrace
 
    integer, parameter :: GF4_IMAGTIME = 1, GF4_LEGENDRE = 2, GF4_MATSUBARA = 4, GF4_WORM = 8
-   integer            :: WormphConv,ZphConv,g4ph,g4pp,nfft_mode_g4iw
+   integer            :: WormphConv, ZphConv, g4ph, g4pp, nfft_mode_g4iw
+   integer            :: Nbatchsize_nfft_worm
    
    logical :: b_Eigenbasis, b_Densitymatrix,b_meas_susz,b_segment
    logical :: b_meas_susz_mat
@@ -355,7 +356,13 @@ subroutine init_CTQMC()
       else
          nfft_mode_g4iw = 0 ! 3D NFFT
       endif
-   endif
+
+  endif
+
+  if(PercentageWormInsert.gt.0) then
+      ! buffer size for the NFFT (for nfft g4iw)
+      Nbatchsize_nfft_worm = get_Integer_Parameter("Nbatchsize_nfft_worm")
+  endif
 
    if( IAND(FourPnt,GF4_WORM) /= 0 .and. get_integer_parameter("WormMeasH4iw") /= 0) then
       if(get_Integer_Parameter("WormPHConvention") /= 0) then
@@ -3625,6 +3632,9 @@ subroutine StepAdd4(Sector)
 
    NPairs_all = DTrace%NPairs
 
+   ! pairs for insertion were generated in ca order by pair_OperAdd,
+   ! but sorted in time-order by process_OperAdd, so it is not
+   ! sufficient to check 14 and 23
    if (is_rempair(DTrace, Oper(1)%p, Oper(4)%p)&
        .and. is_rempair(DTrace, Oper(2)%p, Oper(3)%p)) then
 
@@ -3654,6 +3664,44 @@ subroutine StepAdd4(Sector)
       call remove_Oper(DTrace, oplist)
       call update_NPairs(DTrace, oplist, -1)
       NPairs_only14 = DTrace%NPairs
+      call insert_Oper(DTrace, oplist)
+      DTrace%NPairs = NPairs_all
+
+      rempair_factor = (1_KINDR/real(NPairs_all, KINDR))&
+         * (1_KINDR/real(NPairs_only12, KINDR)&
+            + 1_KINDR/real(NPairs_only34, KINDR)&
+            + 1_KINDR/real(NPairs_only14, KINDR)&
+            + 1_KINDR/real(NPairs_only23, KINDR))
+
+      ! the insertion tau-choice factor depends on the position of the
+      ! annihilator of each pair relative to the window and especially
+      ! not on the order of the pairs, so it is the same for all four
+      ! possibilities; taudiff_factor is the inverse proposal
+      ! probability
+      taudiff_factor = taudiff_factor / 4_KINDR
+   else if (is_rempair(DTrace, Oper(1)%p, Oper(3)%p)&
+       .and. is_rempair(DTrace, Oper(2)%p, Oper(4)%p)) then
+
+      ! see above, but with diff. combination
+      if (Oper(1)%p%tau < Oper(3)%p%tau) then
+         oplist = (/Oper(1), Oper(3)/)
+      else
+         oplist = (/Oper(3), Oper(1)/)
+      end if
+      call remove_Oper(DTrace, oplist)
+      call update_NPairs(DTrace, oplist, -1)
+      NPairs_only23 = DTrace%NPairs  ! here actually only 24
+      call insert_Oper(DTrace, oplist)
+      DTrace%NPairs = NPairs_all
+
+      if (Oper(2)%p%tau < Oper(4)%p%tau) then
+         oplist = (/Oper(2), Oper(4)/)
+      else
+         oplist = (/Oper(4), Oper(2)/)
+      end if
+      call remove_Oper(DTrace, oplist)
+      call update_NPairs(DTrace, oplist, -1)
+      NPairs_only14 = DTrace%NPairs  ! here actually only 13
       call insert_Oper(DTrace, oplist)
       DTrace%NPairs = NPairs_all
 
@@ -8008,36 +8056,41 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
 end subroutine init_solver
 
 !===============================================================================
-subroutine ctqmc_calibrate(Ncalibrate, list)
+subroutine ctqmc_calibrate(list, phase1pairnum, phase2taugrid, phase2pairnum, nprogress)
 !===============================================================================
-   use type_progress
+   logical, intent(in)        :: list
+   integer, intent(in)        :: phase1pairnum, phase2taugrid, phase2pairnum, nprogress
 
-!local
-   type(progress)             :: p
-   integer(c_int64_t)         :: i, Ncalibrate
-   logical                    :: list
+   integer(c_int64_t)         :: i
+   integer                    :: j, k, last_progress
    real(KINDR)                :: rand_num
    real(KINDR)                :: time_start, time_end
 
 
+
    if (list) then
-      if (.not. allocated(AccPairTau)) allocate(AccPairTau(1000))
+      if (.not. allocated(AccPairTau)) allocate(AccPairTau(phase1pairnum))
    else
       if (allocated(AccPairTau)) deallocate(AccPairTau)
       if (allocated(AccPair)) deallocate(AccPair)
-      allocate(AccPair(NBands, 2, 1000))
+      allocate(AccPair(NBands, 2, phase2taugrid))
       AccPair = 0
-      NAccPair = 1000
+      NAccPair = phase2taugrid
       AccPairMax = DTrace%taudiff_max
    end if
 
    call cpu_time(time_start)
 
-   p%adaptrate = 0.1
-   call pstart(p, int(Ncalibrate,PINT), &
-               title='WinCbr.' // simstr // ':', fancy=fancy_prog)
+   if (list) then
+      write (*, *) "Rank " // simstr // " starting window calibration phase 1"
+   else
+      write (*, *) "Rank " // simstr // " starting window calibration phase 2"
+   end if
 
-   do i = 1, Ncalibrate
+   i = 0
+   last_progress = 0
+   calibration_loop: do
+      i = i + 1
       if (any_signal_fired) exit
       rand_num = grnd()
       if (rand_num < (1.0_KINDR - PercentageTauShiftMove-PercentageGlobalMove)/2.0_KINDR) then
@@ -8067,8 +8120,29 @@ subroutine ctqmc_calibrate(Ncalibrate, list)
       else
          call StepShiftTau()
       end if
-      call ptick(p)
-   end do
+
+      if (modulo(i, min(1000, nprogress)) == 0) then
+         if (modulo(i, nprogress) <= last_progress) then
+            write (*, *) "Rank " // simstr // ": ", i, "steps"
+         end if
+         last_progress = modulo(i, nprogress)
+
+         if (list) then
+            if (apt_index > size(AccPairTau)) then
+               write (*, *) "Rank " // simstr // " window calibration phase 1 complete"
+               exit calibration_loop
+            end if
+         else
+            do j = 1, size(AccPair, dim=1)
+               do k = 1, size(AccPair, dim=2)
+                  if (sum(AccPair(j, k, :)) < phase2pairnum) cycle calibration_loop
+               end do
+            end do
+            write (*, *) "Rank " // simstr // " window calibration phase 2 complete"
+            exit calibration_loop
+         end if
+      end if
+   end do calibration_loop
 
    call cpu_time(time_end)
    time_calibration = time_calibration + (time_end - time_start)
@@ -8188,7 +8262,7 @@ subroutine ctqmc_worm_warmup(Nwarmups2,iSector,iComponent)
    !for component sampling, just add one additional sector
    if(iComponent.ne.0) then
       !bufferd transform for g4iw and h4iw
-      allocate(val_worm(5000000))
+      allocate(val_worm(Nbatchsize_nfft_worm))
       if(nfft_mode_g4iw .eq. 1) then
         allocate(val_worm_w(size(val_worm)))
       endif

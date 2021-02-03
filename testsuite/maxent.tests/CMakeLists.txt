@@ -3,6 +3,7 @@ Project(maxent.tests Fortran)
 find_package(PythonLibs REQUIRED)
 add_library(MAXENTMAIN STATIC ${SRCMAXENT}/MaximumEntropy.F90)
 set_property(TARGET MAXENTMAIN PROPERTY POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(MAXENTMAIN MAXENTLIB)
 
 add_executable(1-getgridunit 1-getgridunit.F90)
 set (maxenttests 1-getgridunit)

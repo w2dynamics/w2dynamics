@@ -42,7 +42,7 @@ Trace.F90
 ADD_LIBRARY(CTQMCLIB STATIC ${CTQMC_src})
 SET_PROPERTY(TARGET CTQMCLIB PROPERTY POSITION_INDEPENDENT_CODE ON)
 set_target_properties(CTQMCLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
-add_dependencies(CTQMCLIB mtrng)
+target_link_libraries(CTQMCLIB mtrng)
 
   set(_name CTQMC)
   set (CPPSTDLIBRARY "-lstdc++")#placeholder if we decide to better parse platforms in the future...
@@ -103,7 +103,9 @@ ENDIF(USE_NFFT AND NOT NFFT_FOUND)
   # Therefore we have to move it
   add_custom_command(TARGET ${_name} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy
-                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/auxiliaries/${_name}${F2PY_SUFFIX}")
+                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/auxiliaries/${_name}${F2PY_SUFFIX}"
+		    COMMAND ${CMAKE_COMMAND} -E remove
+                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
 
 
 IF(WIN32)

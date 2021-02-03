@@ -166,6 +166,7 @@ ZPHConvention         = integer(default=0)                  # flag to select bos
 G4ph                  = integer(default=1)                  # 1 -> do Fourier transform of g4iw-worm in ph channel
 G4pp                  = integer(default=0)                  # 1 -> do Fourier transform of g4iw-worm in pp channel
 nfft_mode_g4iw        = integer(default=0)  # 0: 3D NFFT.  1: 2D NFFT for each bosonic frequency
+Nbatchsize_nfft_worm  = integer(default=5000000)  # buffer size for NFFT
 
 # segment parameters
 segment=integer(default=0)
@@ -253,3 +254,4 @@ KListFile       = string (default=None)		# alternative filename for case.klist
 # GW              = integer(default=0)            # if GW=1 then a non-local GW self-energy is being read
 SGWnlFile       = string(default='S_GWnl.dat')  # file that contains the NON-LOCAL GW self-energy
 
+WriteOnlyQuant = force_list(default=None)

@@ -21,5 +21,5 @@ BANNER = r"""
 
 CODE_VERSION = 1, 1, "1"
 CODE_VERSION_STRING = ".".join(map(str,CODE_VERSION))
-CODE_DATE = "January 2021"
+CODE_DATE = "February 2021"
 OUTPUT_VERSION = 2, 2

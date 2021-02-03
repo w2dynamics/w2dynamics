@@ -1051,23 +1051,31 @@ class CtHybSolver(ImpuritySolver):
         return giw
 
     def calibrate_taudiff_max(self):
+        phase1pairnum = 1000
+        phase2taugrid = 100
+        phase2pairnum = 1000
+        nprogress = 100000
         ctqmc.init_counters()
-        while ctqmc.apt_index <= 1000:
-            ctqmc.ctqmc_calibrate(10000, True)
+        ctqmc.ctqmc_calibrate(True,
+                              phase1pairnum, phase2taugrid, phase2pairnum,
+                              nprogress)
         acctaulist = ctqmc.accpairtau
         acctaulist.sort()
-        taudiffmax = DistributedSample([np.array((acctaulist[995],))],
+        taudiffmax = DistributedSample([np.array((acctaulist[int(0.995 * phase1pairnum)],))],
                                        self.mpi_comm).mean()
         ctqmc.set_taudiffmax(taudiffmax)
         ctqmc.init_counters()
-        ctqmc.ctqmc_calibrate(100000, False)
+        ctqmc.ctqmc_calibrate(False,
+                              phase1pairnum, phase2taugrid, phase2pairnum,
+                              nprogress)
         return self.estimate_taudiff_max(self.config,
                                          self.mpi_comm,
                                          ctqmc.accpair,
-                                         taudiffmax)
+                                         taudiffmax,
+                                         phase2taugrid)
 
     @staticmethod
-    def estimate_taudiff_max(config, mpi_comm, accept_pair, taudiffmax):
+    def estimate_taudiff_max(config, mpi_comm, accept_pair, taudiffmax, phase2taugrid):
         accept_pair = DistributedSample([accept_pair],
                                         mpi_comm).mean()
 
@@ -1082,7 +1090,7 @@ class CtHybSolver(ImpuritySolver):
                 fit = opt.leastsq(expdecay,
                                   (accept_pair[b, s, 0], -1),
                                   (tf.tau_bins(taudiffmax,
-                                               1000,
+                                               phase2taugrid,
                                                "centre"),
                                    accept_pair[b, s]))
                 estimates[b, s] = np.log(1 - 0.99) / fit[0][1]
