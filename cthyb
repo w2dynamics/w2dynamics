@@ -316,16 +316,12 @@ for iter_no in range(stat_iterations+worm_iterations):
             solver.set_problem(imp_problem, compute_fourpnt)
             result_gen, result_comp = solver.solve_comp_stats(iter_no, worm_sector, icomponent, mc_cfg_container)
 
-            #only write result if component returns ne 0
-            if (cfg["QMC"]["WormComponents"] or
-                    any(np.any(entry["value"])
-                        for key, entry in result_comp.other.items())):
+            # only write result if component-list is user-specified
+            # or when eta>0, i.e. the component exists
+            worm_eta = result_comp.other['worm-eta/{:05}'.format(icomponent)].mean()
+            if (cfg["QMC"]["WormComponents"] or np.amax(worm_eta) > 0.):
                 output.write_impurity_result(0, result_comp.other)
-                try:
-                    output.write_impurity_result(0, result_gen.other)
-                except OSError:
-                    sys.stderr.write(
-                        "\nWARNING: Ignoring auxiliary entries for multiple worm estimators.\n\n")
+                output.write_impurity_result(0, result_gen.other)
 
             log("Done with component {}".format(icomponent))
 

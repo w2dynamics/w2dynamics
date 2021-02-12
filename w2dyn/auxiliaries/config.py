@@ -5,7 +5,10 @@ from warnings import warn
 import os.path
 import sys
 import configobj
-import validate
+try:
+    import configobj.validate as validate
+except ImportError:
+    import validate
 import numpy as np
 import h5py as hdf5
 

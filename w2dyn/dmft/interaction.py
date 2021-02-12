@@ -1,6 +1,9 @@
 from __future__ import absolute_import, print_function, unicode_literals
 import numpy as np
-import scipy.misc as misc
+try:
+    from scipy.special import factorial
+except ImportError:
+    from scipy.misc import factorial
 import re
 import sys
 import w2dyn.dmft.dynamicalU as dynamicalU
@@ -311,7 +314,7 @@ class Coulomb(Interaction):
           if k1<m1 or k2<m2: continue
           # multiply by a factor F to account for all the ways
           # you can get there by applying the lowering operator
-          F = misc.factorial(k1-m1+k2-m2) / ( misc.factorial(k1-m1)*misc.factorial(k2-m2) )
+          F = factorial(k1-m1+k2-m2) / ( factorial(k1-m1) * factorial(k2-m2) )
           # Apply the lowering operators
           c1,c2,C = 1,1,1
           for k in np.arange(k1,m1,-1):

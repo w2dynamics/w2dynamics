@@ -42,14 +42,10 @@ Trace.F90
 ADD_LIBRARY(CTQMCLIB STATIC ${CTQMC_src})
 SET_PROPERTY(TARGET CTQMCLIB PROPERTY POSITION_INDEPENDENT_CODE ON)
 set_target_properties(CTQMCLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
-add_dependencies(CTQMCLIB mtrng)
+target_link_libraries(CTQMCLIB mtrng)
 
   set(_name CTQMC)
   set (CPPSTDLIBRARY "-lstdc++")#placeholder if we decide to better parse platforms in the future...
-  set(SWITCHES ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
-  if(APPLE)
-    set(SWITCHES "--link-lapack_opt" "--link-fftw")
-  endif()
 
   # hack to not pass .dylib libraries directly because f2py does not
   # accept them as arguments, while it does accept .so ones...
@@ -78,6 +74,14 @@ add_dependencies(CTQMCLIB mtrng)
     rephrase_dylib(NFFT_LIBRARIES "${NFFT_LIBRARIES}")
   endif ()
 
+  if (BLAS_LIBRARIES)
+    rephrase_dylib(BLAS_LIBRARIES "${BLAS_LIBRARIES}")
+  endif ()
+
+  if (LAPACK_LIBRARIES)
+    rephrase_dylib(LAPACK_LIBRARIES "${LAPACK_LIBRARIES}")
+  endif ()
+
   # Define the command to generate the Fortran to Python interface module. The
   # output will be a shared library that can be imported by python.
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}"
@@ -85,10 +89,9 @@ add_dependencies(CTQMCLIB mtrng)
     COMMAND ${PYTHON_EXECUTABLE} -m numpy.f2py -c $<$<CONFIG:RELEASE>:--quiet> -m ${_name}
       --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
       ${_fcompiler_opts}
-      ${SWITCHES}
       ${LIB}/libmtrng.a
       ${CPPSTDLIBRARY}
-      ${CMAKE_THREAD_LIBS_INIT} ${_inc_opts} $<TARGET_LINKER_FILE:CTQMCLIB> ${NFFT_LIBRARIES} ${FFTW_LIBRARIES} ${SRCCTQMC}/CTQMC.F90
+      ${CMAKE_THREAD_LIBS_INIT} ${_inc_opts} $<TARGET_LINKER_FILE:CTQMCLIB> ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} ${NFFT_LIBRARIES} ${FFTW_LIBRARIES} ${SRCCTQMC}/CTQMC.F90
     DEPENDS "${SRCCTQMC}/CTQMC.F90" "${SRCCTQMC}/.f2py_f2cmap" CTQMCLIB
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     COMMENT "[F2PY] Building Fortran to Python interface module ${_name}")
@@ -103,7 +106,9 @@ ENDIF(USE_NFFT AND NOT NFFT_FOUND)
   # Therefore we have to move it
   add_custom_command(TARGET ${_name} POST_BUILD
                     COMMAND ${CMAKE_COMMAND} -E copy
-                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/auxiliaries/${_name}${F2PY_SUFFIX}")
+                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/auxiliaries/${_name}${F2PY_SUFFIX}"
+		    COMMAND ${CMAKE_COMMAND} -E remove
+                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
 
 
 IF(WIN32)

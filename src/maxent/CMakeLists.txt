@@ -31,10 +31,34 @@ SET_PROPERTY(TARGET MAXENTLIB PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 set_target_properties(MAXENTLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
 
+# hack to not pass .dylib libraries directly because f2py does not
+# accept them as arguments, while it does accept .so ones...
+function(rephrase_dylib TARGET_VAR LIBRARIES_STRING)
+  set(RESULT_LIST "")
+  foreach(entry ${LIBRARIES_STRING})
+    string(TOUPPER "${entry}" upcaseentry)
+    if(upcaseentry MATCHES "LIB([A-Za-z0-9_]*)\\.DYLIB$")
+      get_filename_component(entry_dir "${entry}" DIRECTORY)
+      string(LENGTH "${CMAKE_MATCH_1}" libname_length)
+      string(FIND "${upcaseentry}" "${CMAKE_MATCH_1}" libname_begin REVERSE)
+      string(SUBSTRING "${entry}" "${libname_begin}" "${libname_length}" libname)
+      list(APPEND RESULT_LIST "-L${entry_dir}" "-l${libname}")
+    else()
+      list(APPEND RESULT_LIST "${entry}")
+    endif()
+  endforeach()
+  set("${TARGET_VAR}" "${RESULT_LIST}" PARENT_SCOPE)
+endfunction()
+
+if (BLAS_LIBRARIES)
+  rephrase_dylib(BLAS_LIBRARIES "${BLAS_LIBRARIES}")
+endif ()
+
+if (LAPACK_LIBRARIES)
+  rephrase_dylib(LAPACK_LIBRARIES "${LAPACK_LIBRARIES}")
+endif ()
+
 set(EXTERNAL_LIBRARIES ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
-if(APPLE)
-    set(EXTERNAL_LIBRARIES "--link-lapack_opt")
-endif()
 
   set( _name MAXENT )
   # Define the command to generate the Fortran to Python interface module. The
@@ -56,7 +80,9 @@ endif()
   # Therefore we have to move it
   add_custom_command(TARGET ${_name} POST_BUILD 
                     COMMAND ${CMAKE_COMMAND} -E copy
-                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/maxent/${_name}${F2PY_SUFFIX}")
+                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/maxent/${_name}${F2PY_SUFFIX}"
+		    COMMAND ${CMAKE_COMMAND} -E remove
+                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
 
   add_dependencies(${_name} MAXENTLIB)
 

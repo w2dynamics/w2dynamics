@@ -1,10 +1,6 @@
 name: Build
 
-on:
-  push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+on: [push, pull_request]
 
 jobs:
   build:
@@ -25,7 +21,12 @@ jobs:
 
     - name: Install required dependencies using brew
       if: matrix.os == 'macos-latest'
-      run: brew install openblas fftw hdf5
+      run: |
+        brew install openblas fftw hdf5
+        echo "LD_LIBRARY_PATH=$(brew --prefix)/opt/openblas:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+        echo "DYLD_LIBRARY_PATH=$(brew --prefix)/opt/openblas:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
+        echo "BLAS_ROOT=$(brew --prefix)/opt/openblas" >> $GITHUB_ENV
+        echo "LAPACK_ROOT=$(brew --prefix)/opt/openblas" >> $GITHUB_ENV
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
@@ -34,11 +35,20 @@ jobs:
 
     - name: Configure
       if: matrix.python-version != '2.x'
-      run: cmake -B build
+      run: |
+        cmake -B build \
+              -DCMAKE_Fortran_COMPILER=gfortran-10 \
+              -DCMAKE_C_COMPILER=gcc-10 \
+              -DCMAKE_CXX_COMPILER=g++-10
 
     - name: Configure (use python2)
       if: matrix.python-version == '2.x'
-      run: cmake -B build -DPYTHON_EXECUTABLE=`which python2`
+      run: |
+        cmake -B build \
+              -DPYTHON_EXECUTABLE=`which python2` \
+              -DCMAKE_Fortran_COMPILER=gfortran-10 \
+              -DCMAKE_C_COMPILER=gcc-10 \
+              -DCMAKE_CXX_COMPILER=g++-10
 
     - name: Cache NFFT
       uses: actions/cache@v2

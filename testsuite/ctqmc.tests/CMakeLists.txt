@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 2.8.9)
-Project(ctqmc.tests Fortran)
+Project(ctqmc.tests Fortran CXX)
 find_package(PythonLibs REQUIRED)
 add_library(CTQMCMAIN STATIC ${SRCCTQMC}/CTQMC.F90)
 set_property(TARGET CTQMCMAIN PROPERTY POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(CTQMCMAIN CTQMCLIB)
 
 add_executable(1-get-MatFull 1-get-MatFull.F90)
 add_executable(2-time-evolve-in-eigenbasis 2-time-evolve-in-eigenbasis.F90)

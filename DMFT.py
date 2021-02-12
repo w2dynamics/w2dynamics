@@ -291,15 +291,18 @@ dmft_step = selfcons.DMFTStep(
 
 if restarted_run:
     fileold = cfg["General"]["fileold"]
-    if not os.path.isfile(fileold):
-        try:
+    try:
+        if not os.path.isfile(fileold):
             fileold = next(filter(lambda x: x != output.filename,
                                   sorted(glob.iglob(fileold), reverse=True)))
-        except StopIteration:
-            raise OSError(errno.ENOENT, os.strerror(errno.ENOENT), fileold)
-    iterold = restarted_run
-    log("Reading old data from file %s, iteration %d ...", fileold, iterold)
-    old_mu, siw_dd, smom_dd, dc_value, old_beta = output.load_old(fileold, iterold)
+        iterold = restarted_run
+        log("Reading old data from file %s, iteration %d ...", fileold, iterold)
+        old_mu, siw_dd, smom_dd, dc_value, old_beta = output.load_old(fileold, iterold)
+    except (StopIteration, OSError, TypeError):
+        raise ValueError("When General.readold is set to non-zero to continue "
+                         "from a previous calculation, General.fileold must "
+                         "contain a file path or glob pattern referring to a "
+                         "valid w2dynamics output file.")
 
     # ensure usable smom_dd for potential use in preprocessing
     if smom_dd is None:
@@ -415,7 +418,7 @@ if restarted_run:
 
     log("Continuing old run at old self-energy for %s mu = %.6g ...",
         mu_source_string, mu)
-    dmft_step.set_siws(siw_dd, smom_dd, dc_value, init=True)
+    dmft_step.set_siws(siw_dd, smom_dd, init=True)
     dmft_step.set_mu(mu)
 else:
     log("Starting new run without self-energy for %s mu = %.6g ...",
@@ -601,10 +604,10 @@ for iter_no in range(total_iterations + 1):
                 solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
                 result_gen, result_comp = solver.solve_comp_stats(iter_no, worm_sector, icomponent, mc_cfg_container)
 
-                #only write result if component returns ne 0
-                if (cfg["QMC"]["WormComponents"] or
-                        any(np.any(entry["value"])
-                            for key, entry in result_comp.other.items())):
+                # only write result if component-list is user-specified
+                # or when eta>0, i.e. the component exists
+                worm_eta = result_comp.other['worm-eta/{:05}'.format(icomponent)].mean()
+                if (cfg["QMC"]["WormComponents"] or np.amax(worm_eta) > 0.):
                     output.write_impurity_result(iimp, result_comp.other)
                     output.write_impurity_result(iimp, result_gen.other)
 
