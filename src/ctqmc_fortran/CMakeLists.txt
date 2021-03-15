@@ -43,6 +43,7 @@ ADD_LIBRARY(CTQMCLIB STATIC ${CTQMC_src})
 SET_PROPERTY(TARGET CTQMCLIB PROPERTY POSITION_INDEPENDENT_CODE ON)
 set_target_properties(CTQMCLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
 target_link_libraries(CTQMCLIB mtrng)
+target_link_libraries(CTQMCLIB nfft)
 
   set(_name CTQMC)
   set (CPPSTDLIBRARY "-lstdc++")#placeholder if we decide to better parse platforms in the future...
@@ -96,11 +97,11 @@ target_link_libraries(CTQMCLIB mtrng)
     WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
     COMMENT "[F2PY] Building Fortran to Python interface module ${_name}")
   # Add a custom target <name> to trigger the generation of the python module.
-IF(USE_NFFT AND NOT NFFT_FOUND)
-  add_custom_target(${_name} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" nfft_local)
+IF(USE_NFFT)
+  add_custom_target(${_name} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" nfft)
 ELSE()
   add_custom_target(${_name} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
-ENDIF(USE_NFFT AND NOT NFFT_FOUND)
+ENDIF(USE_NFFT)
   add_dependencies(${_name} CTQMCLIB)
   # CTQMC.so is generated in the source directory since f2py doesn't allow to specify the output directory of the object file.
   # Therefore we have to move it
