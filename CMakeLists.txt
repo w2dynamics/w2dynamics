@@ -76,8 +76,11 @@ if (USE_NFFT)
       INSTALL_COMMAND make install
       URL_HASH SHA256=cf3b2f3b2eabd79e49a5fbabf7f8d73fc3c57c4f68ae71e29f6dead853ab2901
       )
-# in the previous findPackage(NFFT) call an old version of NFFT could have been found. Here we override it with our up-to-date self-compiled version. We don't use the include directories.
-    set(NFFT_LIBRARIES ${PROJECT_BINARY_DIR}/nfft_local/lib/libnfft3.a) 
+    # in the previous findPackage(NFFT) call an old version of NFFT could have been found. Here we override it with our up-to-date self-compiled version. We don't use the include directories.
+    set(NFFT_LIBRARIES ${PROJECT_BINARY_DIR}/nfft_local/lib/libnfft3.a)
+    add_library(nfft STATIC IMPORTED)
+    set_target_properties(nfft PROPERTIES IMPORTED_LOCATION ${NFFT_LIBRARIES})
+    add_dependencies(nfft nfft_local)
   endif(NOT NFFT_FOUND)
   set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -DUSE_NFFT=1")
 else ()
