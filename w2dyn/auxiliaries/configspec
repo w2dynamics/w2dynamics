@@ -15,6 +15,7 @@ F4              = float(default=None)           # Slater integral for k=4
 F6              = float(default=None)           # Slater integral for k=6
 # Interaction from U-matrix
 umatrix         = string(default="u_matrix.dat")
+WriteUToFile    = string(default=None)          # write U matrix used for impurity-solver-treated orbitals of this impurity to a file
  
 QuantumNumbers  = string(default="auto")        # Good quantum numbers, string of whitespace-separated entries "Nt" for total occupation, "Szt" for spin component, "Qzt" for singly-occupiedness per orbital, "Azt" for occupation oer spin-orbital, "Lzt" for orbital angular momentum component assuming uniformly spaced ascending values symmetric around zero for the impurity orbitals, "Jzt" for total angular momentum component, and "All" for automatic partitioning of the Hamiltonian into blocks
 Nd              = integer(default=None)         # Number of bands
