@@ -247,48 +247,54 @@ for iter_no in range(stat_iterations+worm_iterations):
     output.write_quantity("muimp", [muimp])
  
     if iter_type == "stat":
-       log("Solving impurity problem ...")
+        log("Solving impurity problem ...")
 
-       if cfg["QMC"]["PercentageWormInsert"] != 0:
-          log("Use WormSteps instead of StatisticSteps for worm sampling.")
-          sys.exit()   
+        solver.set_problem(imp_problem, compute_fourpnt)
+        if cfg["QMC"]["ReuseMCConfig"] != 0:
+            if iter_no > 0:
+                mccfgcontainer = [mccfgs.pop(0)]
+            else:
+                mccfgcontainer = []
+            result = solver.solve(iter_no, mccfgcontainer)
+            result_worm = None
+            mccfgs.append(mccfgcontainer[0])
+        elif (cfg['QMC']['WormMeasGiw'] != 0
+                or cfg['QMC']['WormMeasGSigmaiw'] != 0
+                or cfg['QMC']['WormMeasQQ'] != 0):
+            result, result_worm = solver.solve_worm(iter_no, log_function=log)
+        else:
+            result = solver.solve(iter_no)
+            result_worm = None
 
-       solver.set_problem(imp_problem, compute_fourpnt)
-       if cfg["QMC"]["ReuseMCConfig"] != 0:
-          if iter_no > 0:
-             mccfgcontainer = [mccfgs.pop(0)]
-          else:
-             mccfgcontainer = []
-          result = solver.solve(iter_no, mccfgcontainer)
-          mccfgs.append(mccfgcontainer[0])
-       else:
-          result = solver.solve(iter_no)
-       result.postprocessing(siw_method, smom_method)
-       output.write_quantity("giw", [result.giw.mean()])
-       output.write_quantity("siw", [result.siw.mean()])
-       output.write_quantity("smom", [result.smom.mean()])
-       output.write_impurity_result(0, result.other)
+        result.postprocessing(siw_method, smom_method)
+        output.write_quantity("giw", [result.giw.mean()])
+        output.write_quantity("siw", [result.siw.mean()])
+        output.write_quantity("smom", [result.smom.mean()])
+        output.write_quantity("occ", [result.other["occ"].mean()])
+        output.write_impurity_result(0, result.other)
+        if result_worm is not None:
+            output.write_impurity_result(0, result_worm.other)
 
-       if cfg["QMC"]["WriteCovMeanGiw"]:
-           output.write_impurity_result(0,
-                                        {'giw-cov':
-                                         diagonal_covariance(result.giw)})
-       if cfg["QMC"]["WriteCovMeanSigmaiw"]:
-           output.write_impurity_result(0,
-                                        {'siw-cov':
-                                         diagonal_covariance(result.siw)})
+        if cfg["QMC"]["WriteCovMeanGiw"]:
+            output.write_impurity_result(0,
+                                         {'giw-cov':
+                                          diagonal_covariance(result.giw)})
+        if cfg["QMC"]["WriteCovMeanSigmaiw"]:
+            output.write_impurity_result(0,
+                                         {'siw-cov':
+                                          diagonal_covariance(result.siw)})
 
-       # write quantities not contained in result.other after
-       # pulling band and spin dimensions to the front
-       output.write_impurity_result(
-           0,
-           {'siw-full': result.siw
-            .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
-            'giw-full': result.giw
-            .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
-            'smom-full': result.smom
-            .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
-            })
+        # write quantities not contained in result.other after
+        # pulling band and spin dimensions to the front
+        output.write_impurity_result(
+            0,
+            {'siw-full': result.siw
+             .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
+             'giw-full': result.giw
+             .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
+             'smom-full': result.smom
+             .apply(lambda x: np.transpose(x, (1, 2, 3, 4, 0)), inplace=True),
+             })
     
     if iter_type == "worm":
         log("Solving impurity problem by worm sampling...")
