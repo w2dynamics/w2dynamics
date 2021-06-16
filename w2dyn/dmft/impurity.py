@@ -819,7 +819,7 @@ class CtHybSolver(ImpuritySolver):
         conf_comp = self.config["QMC"]["WormComponents"]
         if conf_comp is not None: # use the ones specified in the parameters file
             components = map(int, conf_comp)
-        if self.config['QMC']['offdiag'] == 0: # generate all diagonal components
+        elif self.config['QMC']['offdiag'] == 0: # generate all diagonal components
             components = [ci.GFComponent(bandspin=(iflav, iflav), n_ops=2, n_bands=self.problem.nflavours//2).index
                           for iflav in range(self.problem.nflavours)]
         else: # generate the full list
