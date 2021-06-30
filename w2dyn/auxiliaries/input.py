@@ -97,14 +97,14 @@ def read_u_matrix(u_file, spin=False):
     return u_matrix
 
 
-def write_u_matrix(ufilename, u_matrix, comment=None):
+def write_u_matrix(out, u_matrix, comment=None):
     """Writes a full four-index U matrix f$ U_{ijkl} f$ to a text file.
 
-    Expects a file name ufilename that can be appended to, u_matrix as
+    Expects a file object out that can be written to, u_matrix as
     either a four-dimensional array with (flavor, flavor, flavor,
     flavor) axes or an eight-dimensional array with a (band, spin)
-    pair of axes per flavor and appends the data to the file in the
-    format that can be read using read_u_matrix, i.e.
+    pair of axes per flavor and writes the data to the file in the
+    text format that can be read using read_u_matrix, i.e.
 
         <no of orbitals> BANDS
 
@@ -124,67 +124,60 @@ def write_u_matrix(ufilename, u_matrix, comment=None):
         1 u 1 d 1 u 1 d  2.50
         1 d 1 u 1 d 1 u  2.50
 
-    A string optionally passed in comment is written to the first line
-    as a comment; if it contains newlines, comment characters for
-    subsequent lines are not taken care of.
-
-    Exceptions due to output errors (IOError, OSError,
-    InterruptedError) are caught and a warning is issued instead.
+    A string optionally passed in comment is written first as a
+    comment (will be prefixed with #); if it contains newlines,
+    comment characters for subsequent lines are not taken care of.
 
     """
-    try:
-        with open(ufilename, "a") as out:
-            if comment is not None:
-                out.write("# {}\n".format(comment))
+    if comment is not None:
+        out.write("# {}\n".format(comment))
 
-            # reshape flavor-axes array to (band, spin)-axes array
-            if len(u_matrix.shape) == 4:
-                u_matrix = np.reshape(u_matrix,
-                                      sum(tuple((dim//2, 2)
-                                                for dim
-                                                in u_matrix.shape),
-                                          ()))
-            elif len(u_matrix.shape) != 8:
-                raise ValueError("u_matrix argument has wrong shape")
+    # reshape flavor-axes array to (band, spin)-axes array
+    if len(u_matrix.shape) == 4:
+        u_matrix = np.reshape(u_matrix,
+                              sum(tuple((dim//2, 2)
+                                        for dim
+                                        in u_matrix.shape),
+                                  ()))
+    elif len(u_matrix.shape) != 8:
+        raise ValueError("u_matrix argument has wrong shape")
 
-            out.write("{} BANDS\n".format(u_matrix.shape[0]))
+    out.write("{} BANDS\n".format(u_matrix.shape[0]))
 
-            # check whether the interaction fits spin-independent format
-            absoluteu = np.abs(u_matrix)
-            atol = 1.0e-8 * np.amin(absoluteu[absoluteu > 0.0])
-            if all((np.allclose(u_matrix[:, 0, :, 0, :, 0, :, 0],
-                                u_matrix[:, s1, :, s2, :, s3, :, s4],
-                                atol=atol)
-                    if (s1, s2, s3, s4) in ((0, 0, 0, 0),
-                                            (0, 1, 0, 1),
-                                            (1, 0, 1, 0),
-                                            (1, 1, 1, 1))
-                    else np.allclose(0.0,
-                                     u_matrix[:, s1, :, s2, :, s3, :, s4],
-                                     atol=atol))
-                   for s1, s2, s3, s4 in np.ndindex(u_matrix.shape[1:8:2])):
-                orbmatrix = u_matrix[:, 0, :, 0, :, 0, :, 0]
-                nonzero_indices = np.nonzero(orbmatrix)
-                np.savetxt(out,
-                           np.concatenate((np.transpose(nonzero_indices) + 1,
-                                           orbmatrix[nonzero_indices][:, np.newaxis]),
-                                          axis=1),
-                           fmt="%d %d %d %d %.18e")
-            else:
-                nonzero_indices = np.transpose(np.nonzero(u_matrix))
+    # check whether the interaction fits spin-independent format
+    absoluteu = np.abs(u_matrix)
+    atol = 1.0e-8 * np.amin(absoluteu[absoluteu > 0.0])
+    if all((np.allclose(u_matrix[:, 0, :, 0, :, 0, :, 0],
+                        u_matrix[:, s1, :, s2, :, s3, :, s4],
+                        atol=atol)
+            if (s1, s2, s3, s4) in ((0, 0, 0, 0),
+                                    (0, 1, 0, 1),
+                                    (1, 0, 1, 0),
+                                    (1, 1, 1, 1))
+            else np.allclose(0.0,
+                             u_matrix[:, s1, :, s2, :, s3, :, s4],
+                             atol=atol))
+           for s1, s2, s3, s4 in np.ndindex(u_matrix.shape[1:8:2])):
+        orbmatrix = u_matrix[:, 0, :, 0, :, 0, :, 0]
+        nonzero_indices = np.nonzero(orbmatrix)
+        np.savetxt(out,
+                   np.concatenate((np.transpose(nonzero_indices) + 1,
+                                   orbmatrix[nonzero_indices][:, np.newaxis]),
+                                  axis=1),
+                   fmt="%d %d %d %d %.18e")
+    else:
+        nonzero_indices = np.transpose(np.nonzero(u_matrix))
 
-                for indices in nonzero_indices:
-                    value = u_matrix[tuple(indices)]
-                    # 1-based indices for bands and 'd' and 'u' for spins
-                    for icol, val in enumerate(indices):
-                        if icol % 2 == 0:
-                            indices[icol] += 1
-                        else:
-                            indices[icol] = (
-                                ord('d') + (ord('u') - ord('d')) * val)
-                    out.write(("{} {:c} " * 4 + "{:.18e}\n").format(*indices, value))
-    except (OSError, IOError, InterruptedError) as e:
-        warn("Output error while writing U matrix to file: {}".format(e))
+        for indices in nonzero_indices:
+            value = u_matrix[tuple(indices)]
+            # 1-based indices for bands and 'd' and 'u' for spins
+            for icol, val in enumerate(indices):
+                if icol % 2 == 0:
+                    indices[icol] += 1
+                else:
+                    indices[icol] = (
+                        ord('d') + (ord('u') - ord('d')) * val)
+            out.write(("{} {:c} " * 4 + "{u_val:.18e}\n").format(*indices, u_val=value))
 
 
 def read_epsk_vk_file(epsk_file, vk_file):

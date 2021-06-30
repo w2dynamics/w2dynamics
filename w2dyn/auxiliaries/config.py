@@ -289,8 +289,12 @@ def atomlist_from_cfg(cfg, norbitals=None):
         typ = atom_cfg["type"]
         dd_int = interaction_from_cfg(atom_cfg, cfg)
         if atom_cfg["WriteUToFile"] is not None:
-            _input.write_u_matrix(atom_cfg["WriteUToFile"], dd_int.u_matrix,
-                                  comment="w2dyn-written: {}".format(dd_int))
+            try:
+                with open(atom_cfg["WriteUToFile"], "a") as ufile:
+                    _input.write_u_matrix(ufile, dd_int.u_matrix,
+                                          comment="w2dyn-written: {}".format(dd_int))
+            except (OSError, IOError, InterruptedError) as e:
+                warn("Output error while writing U matrix to file: {}".format(e))
         # read out symmetry moves
         symmetry_moves = symmoves_from_cfg(atom_cfg)
 
