@@ -290,11 +290,14 @@ def atomlist_from_cfg(cfg, norbitals=None):
         dd_int = interaction_from_cfg(atom_cfg, cfg)
         if atom_cfg["WriteUToFile"] is not None:
             try:
-                with open(atom_cfg["WriteUToFile"], "a") as ufile:
+                with open(atom_cfg["WriteUToFile"], "x") as ufile:
                     _input.write_u_matrix(ufile, dd_int.u_matrix,
                                           comment="w2dyn-written: {}".format(dd_int))
             except (OSError, IOError, InterruptedError) as e:
-                warn("Output error while writing U matrix to file: {}".format(e))
+                warn("Possible output error (when running with multiple "
+                     "processes and the error is 'File exists' although it "
+                     "did not, this is probably OK) while writing U matrix to "
+                     "file: {}".format(e))
         # read out symmetry moves
         symmetry_moves = symmoves_from_cfg(atom_cfg)
 
