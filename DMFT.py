@@ -538,7 +538,7 @@ for iter_no in range(total_iterations + 1):
 
             imp_electrons += (orbspin.trace(result.other["occ"].mean())
                               * len(ineq_list[iimp]))
-            imp_electrons_err += (orbspin.trace(result.other["occ"].var())
+            imp_electrons_err += ((result.other["occ"].apply(orbspin.trace).stderr())**2
                                   * len(ineq_list[iimp]))
 
             if cfg["QMC"]["WriteCovMeanGiw"]:
