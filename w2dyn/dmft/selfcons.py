@@ -510,8 +510,10 @@ class DMFTStep:
 class KappaMuExtrapolator:
     def __init__(self, totdens, last_mudiff=None, forced_kappa_sign=None):
         self.totdens = totdens
-        if forced_kappa_sign is not None and np.sign(forced_kappa_sign) == 0:
-            raise ValueError("Forced sign of kappa must not be 0")
+        if forced_kappa_sign is not None and np.sign(forced_kappa_sign) == 0.0:
+            warn("KappaMuExtrapolator.__init__: explicitly forced kappa sign "
+                 "of exactly zero has no effect")
+            forced_kappa_sign = None
         self.forced_kappa_sign = (np.sign(forced_kappa_sign)
                                   if forced_kappa_sign is not None
                                   else None)
