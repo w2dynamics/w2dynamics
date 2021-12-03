@@ -602,7 +602,7 @@ def klebe_siw(siw,niw,matsubara,siw_mom):
 
    return high_freq
 
-def get_sztau_sz0_diag(ntau_n0,ntau):
+def get_sztau_sz0_diag(ntau_n0, ntau_n0_err=None):
    "< S_z(tau) S_z(0) > diagonal in orbitals"
    nbands=ntau_n0.shape[0]
    ntau=ntau_n0.shape[-1]
@@ -613,9 +613,19 @@ def get_sztau_sz0_diag(ntau_n0,ntau):
       # this is not the formula that Werner wrote in his spin-freezing PRL, but used to produce the plot
       sztau_sz0[:]=sztau_sz0[:]+(ntau_n0[b1,0,b1,0,:]+ntau_n0[b1,1,b1,1,:]-ntau_n0[b1,1,b1,0,:]-ntau_n0[b1,0,b1,1,:])
 
+   if ntau_n0_err is not None:
+       sztau_sz0_err = np.zeros_like(sztau_sz0)
+       for b1 in range(0, nbands):
+           sztau_sz0_err[:] = sztau_sz0_err[:] + (ntau_n0_err[b1,0,b1,0,:]**2
+                                                  + ntau_n0_err[b1,1,b1,1,:]**2
+                                                  + ntau_n0_err[b1,1,b1,0,:]**2
+                                                  + ntau_n0_err[b1,0,b1,1,:]**2)
+       sztau_sz0_err = np.sqrt(sztau_sz0_err)
+       return sztau_sz0, sztau_sz0_err
+
    return sztau_sz0
 
-def get_sztau_sz0(ntau_n0,ntau):
+def get_sztau_sz0(ntau_n0, ntau_n0_err=None):
    "< S_z(tau) S_z(0) > full"
    nbands=ntau_n0.shape[0]
    ntau=ntau_n0.shape[-1]
@@ -626,13 +636,26 @@ def get_sztau_sz0(ntau_n0,ntau):
 
          sztau_sz0[:]=sztau_sz0[:]+(ntau_n0[b1,0,b2,0,:]+ntau_n0[b1,1,b2,1,:]-ntau_n0[b1,1,b2,0,:]-ntau_n0[b1,0,b2,1,:])
 
+   if ntau_n0_err is not None:
+       sztau_sz0_err = np.zeros_like(sztau_sz0)
+       for b1 in range(0, nbands):
+           for b2 in range(0, nbands):
+               sztau_sz0_err[:] = sztau_sz0_err[:] + (ntau_n0_err[b1,0,b2,0,:]**2
+                                                      + ntau_n0_err[b1,1,b2,1,:]**2
+                                                      + ntau_n0_err[b1,1,b2,0,:]**2
+                                                      + ntau_n0_err[b1,0,b2,1,:]**2)
+       sztau_sz0_err = np.sqrt(sztau_sz0_err)
+       return sztau_sz0, sztau_sz0_err
+
    return sztau_sz0
 
-def get_Ntau_N0(ntau_n0,ntau):
+def get_Ntau_N0(ntau_n0, ntau_n0_err=None):
    "< N(tau) N(0) > full"
+   if ntau_n0_err is not None:
+       return np.sum(ntau_n0, axis=(0, 1, 2, 3)), np.sqrt(np.sum(ntau_n0_err**2, axis=(0, 1, 2, 3)))
    return np.sum(ntau_n0, axis=(0, 1, 2, 3))
 
-def get_sztau_sz0_orb_resolved(ntau_n0,ntau):
+def get_sztau_sz0_orb_resolved(ntau_n0, ntau_n0_err=None):
    "< S_z(tau) S_z(0) > orbital resolved"
    nbands=ntau_n0.shape[0]
    ntau=ntau_n0.shape[-1]
@@ -642,9 +665,19 @@ def get_sztau_sz0_orb_resolved(ntau_n0,ntau):
 
       sztau_sz0[b1,:]=sztau_sz0[b1,:]+(ntau_n0[b1,0,b1,0,:]+ntau_n0[b1,1,b1,1,:]-ntau_n0[b1,1,b1,0,:]-ntau_n0[b1,0,b1,1,:])
 
+   if ntau_n0_err is not None:
+       sztau_sz0_err = np.zeros_like(sztau_sz0)
+       for b1 in range(0, nbands):
+           sztau_sz0_err[b1, :] = sztau_sz0_err[b1, :] + (ntau_n0_err[b1,0,b1,0,:]**2
+                                                          + ntau_n0_err[b1,1,b1,1,:]**2
+                                                          + ntau_n0_err[b1,1,b1,0,:]**2
+                                                          + ntau_n0_err[b1,0,b1,1,:]**2)
+       sztau_sz0_err = np.sqrt(sztau_sz0_err)
+       return sztau_sz0, sztau_sz0_err
+
    return sztau_sz0
 
-def get_sztau_sz0_offdiag(ntau_n0,ntau):
+def get_sztau_sz0_offdiag(ntau_n0, ntau_n0_err=None):
    "< S_z(tau) S_z(0) > orbital offdiagonal components"
    nbands=ntau_n0.shape[0]
    ntau=ntau_n0.shape[-1]
@@ -655,6 +688,18 @@ def get_sztau_sz0_offdiag(ntau_n0,ntau):
 
          if b1!=b2:
             sztau_sz0[:]=sztau_sz0[:]+(ntau_n0[b1,0,b2,0,:]+ntau_n0[b1,1,b2,1,:]-ntau_n0[b1,1,b2,0,:]-ntau_n0[b1,0,b2,1,:])
+
+   if ntau_n0_err is not None:
+       sztau_sz0_err = np.zeros_like(sztau_sz0)
+       for b1 in range(0, nbands):
+           for b2 in range(0, nbands):
+               if b1 != b2:
+                   sztau_sz0_err[:] = sztau_sz0_err[:] + (ntau_n0_err[b1,0,b2,0,:]**2
+                                                          + ntau_n0_err[b1,1,b2,1,:]**2
+                                                          + ntau_n0_err[b1,1,b2,0,:]**2
+                                                          + ntau_n0_err[b1,0,b2,1,:]**2)
+       sztau_sz0_err = np.sqrt(sztau_sz0_err)
+       return sztau_sz0, sztau_sz0_err
 
    return sztau_sz0
 
@@ -693,27 +738,27 @@ derived_quantities = {
                         ),
     "sztau-sz0": meta_from_func(get_sztau_sz0,
                         ['ineq', 'tausus'],
-                        ['value'],
+                        ['value', "error"],
                         ['ntau-n0']
                         ),
     "sztau-sz0-diag": meta_from_func(get_sztau_sz0_diag,
                         ['ineq', 'tausus'],
-                        ['value'],
+                        ['value', "error"],
                         ['ntau-n0']
                         ),
     "sztau-sz0-orb-resolved": meta_from_func(get_sztau_sz0_orb_resolved,
                         ['ineq', 'band', 'tausus'],
-                        ['value'],
+                        ['value', "error"],
                         ['ntau-n0']
                         ),
     "sztau-sz0-offdiag": meta_from_func(get_sztau_sz0_offdiag,
                         ['ineq', 'tausus',],
-                        ['value'],
+                        ['value', "error"],
                         ['ntau-n0']
                         ),
     "denstau-dens0": meta_from_func(get_Ntau_N0,
                         ['ineq', 'tausus'],
-                        ['value'],
+                        ['value', "error"],
                         ['ntau-n0']
                         ),
     "gtau-tauint": meta_from_func(
