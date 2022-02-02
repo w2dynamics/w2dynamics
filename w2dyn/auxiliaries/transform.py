@@ -139,8 +139,9 @@ def hybr_from_sites(epsk, vki, ffreq, tau, beta=None):
 
     vijk = vki.T.conj()[:,None,:] * vki.T[None,:,:]
     hybriv = (vijk[:,:,None,:] / (iwn[:,None] - epsk)).sum(-1)
-    hybrtau = ((vijk/(1 + np.exp(beta * epsk)))[:,:,None,:] *
-               np.exp(tau[:,None] * epsk)).sum(-1)
+    hybrtau = (vijk[:, :, None, :] /
+               (np.exp(-tau[:, None] * epsk)
+                + np.exp((beta - tau[:, None]) * epsk))).sum(-1)
 
     return hybriv, hybrtau
 
