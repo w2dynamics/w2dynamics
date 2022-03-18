@@ -401,6 +401,71 @@ class CtHybSolver(ImpuritySolver):
           print("         ****************************")
           print(" ")
 
+    def prepare_quantum_numbers(self):
+        """Calculates good quantum numbers based on self.problem.muimp
+        and self.problem.interaction.auto_quantum_numbers and prints
+        and returns the automatic quantum numbers if the default entry
+        'auto' is contained in the interaction's quantum_numbers,
+        otherwise prints a warning containing both automatic and
+        manual quantum numbers and returns the manually specified
+        quantum numbers."""
+
+        # begin with qns permitted by interaction
+        autoqns = self.problem.interaction.auto_quantum_numbers
+
+        if not self.g_diagonal_only:
+            # check for violations by quadratic part of Hamiltonian
+            if any(np.any(self.problem.muimp[:, s1, :, s2] != 0)
+                   for s1 in range(self.problem.muimp.shape[1])
+                   for s2 in range(self.problem.muimp.shape[3])
+                   if s1 != s2):
+                # spin-offdiagonals clear Azt, Szt, and (not necessarily)
+                # Jzt from good quantum numbers
+                if (any(qn in autoqns for qn in ("Azt", "Szt", "Jzt"))
+                   and "All" not in autoqns):
+                    # auto-partitioning might be worthwhile now
+                    autoqns = autoqns + ("All", )
+                autoqns = tuple(qn for qn in autoqns
+                                if qn not in ("Azt", "Szt", "Jzt"))
+            if any(np.any(self.problem.muimp[o1, :, o2, :] != 0)
+                   for o1 in range(self.problem.muimp.shape[0])
+                   for o2 in range(self.problem.muimp.shape[2])
+                   if o1 != o2):
+                # orbital-offdiagonals clear Azt, Qzt, Lzt and (not
+                # necessarily) Jzt from good quantum numbers
+                if (any(qn in autoqns for qn in ("Azt", "Qzt", "Lzt", "Jzt"))
+                   and "All" not in autoqns):
+                    # auto-partitioning might be worthwhile now
+                    autoqns = autoqns + ("All", )
+                autoqns = tuple(qn for qn in autoqns
+                                if qn not in ("Azt", "Qzt", "Lzt", "Jzt"))
+
+        if "auto" in self.problem.interaction.quantum_numbers:
+            qns = " ".join(autoqns)
+            if self.mpi_rank == 0:
+                print("Setting automatic quantum numbers '{}'".format(qns),
+                      file=sys.stderr)
+        else:
+            if self.mpi_rank == 0:
+                print("Overriding automatic quantum numbers '{}' with '{}'"
+                      .format(
+                          " ".join(autoqns),
+                          " ".join(self.problem.interaction.quantum_numbers)
+                      ), file=sys.stderr)
+            if any(qn not in autoqns
+                   for qn in self.problem.interaction.quantum_numbers
+                   if qn != "All"):
+                warn("Manually set quantum number(s) '{}' might be overly "
+                     "restrictive;\n note that non-conforming elements of the "
+                     "Hamiltonian will be IGNORED if present!"
+                     .format(" ".join(
+                         qn
+                         for qn in self.problem.interaction.quantum_numbers
+                         if qn not in autoqns and qn != "All"
+                     )))
+            qns = " ".join(self.problem.interaction.quantum_numbers)
+        return qns
+
     def set_problem(self, problem, compute_fourpoint=0):
         # problem
         self.problem = problem
@@ -409,7 +474,7 @@ class CtHybSolver(ImpuritySolver):
             "beta": problem.beta,
             "Nd": problem.norbitals,
             "ParaMag": int(problem.paramag),
-            "QuantumNumbers": " ".join(problem.interaction.quantum_numbers),
+            "QuantumNumbers": self.prepare_quantum_numbers(),
             "Phonon": int(problem.use_phonons),
             "g_phonon": " ".join(problem.phonon_g),
             "omega0": " ".join(problem.phonon_omega0),

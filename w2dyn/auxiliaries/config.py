@@ -268,13 +268,10 @@ def interaction_from_cfg(atom_cfg, cfg):
     else:
         raise ValueError('Unrecognized interaction: %s' % int_type)
 
-    if atom_cfg["QuantumNumbers"]:
-        manual_qn = tuple(atom_cfg["QuantumNumbers"].split())
-        if manual_qn != result.quantum_numbers:
-            warn("Overriding default quantum numbers %s with %s.\n"
-                 "This may very well eat your run." %
-                 (result.quantum_numbers, manual_qn))
-            result.quantum_numbers = manual_qn
+    if atom_cfg["QuantumNumbers"] == "auto":
+        result.quantum_numbers = ("auto", ) + result.auto_quantum_numbers
+    else:
+        result.quantum_numbers = tuple(atom_cfg["QuantumNumbers"].split())
 
     return result
 
