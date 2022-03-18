@@ -98,7 +98,7 @@ class Interaction:
       self.norbitals = nbands
       self.u_matrix = np.zeros(shape=(nbands,2,nbands,2,nbands,2,nbands,2),
                                dtype=float,order='C')
-      self.quantum_numbers = "Nt",
+      self.auto_quantum_numbers = "Nt",
 
    def set_u_matrix(self):
       """Abstract Method to fill U-matrix with arbitrary interaction"""
@@ -177,7 +177,7 @@ class Density(Interaction):
       self.v = v
       self.j = j
       self.set_u_matrix()
-      self.quantum_numbers = "Nt", "Szt", "Azt"
+      self.auto_quantum_numbers = "Nt", "Szt", "Azt"
 
    def set_u_matrix(self):
       """Adding the density-density interaction to the U-matrix."""
@@ -227,7 +227,7 @@ class Kanamori(Interaction):
        self.v = v
        self.j = j
        self.set_u_matrix()
-       self.quantum_numbers = "Nt", "Szt", "Qzt"
+       self.auto_quantum_numbers = "Nt", "Szt", "Qzt"
 
     def set_u_matrix(self):
       """Adding the Kanamori interaction to the U-matrix."""
@@ -282,7 +282,7 @@ class Coulomb(Interaction):
       self.f4 = f4
       self.f6 = f6
       self.set_u_matrix()
-      self.quantum_numbers = "Nt", "Szt", "All"
+      self.auto_quantum_numbers = "Nt", "Szt", "All"
 
    def Jplus(self,j,m):
       return np.sqrt(j*(j+1) - m*(m+1))
@@ -440,7 +440,7 @@ class CustomFull(Interaction):
       self.u_matrix = u_matrix
       self.set_u_matrix()
       self.name = "CustomFull"
-      self.quantum_numbers = "Nt", "All"
+      self.auto_quantum_numbers = "Nt", "All"
 
    def set_u_matrix(self):
       """Setting values of the U-matrix based on a file."""
@@ -462,7 +462,7 @@ class CustomSU2Invariant(CustomFull):
       self.orbital_u_matrix = orbital_u_matrix
       self.set_u_matrix()
       self.name = "CustomSU2Invariant"
-      self.quantum_numbers = "Nt", "Szt", "All"
+      self.auto_quantum_numbers = "Nt", "Szt", "All"
 
    def set_u_matrix(self):
       """Setting values of the U-matrix based on a file."""

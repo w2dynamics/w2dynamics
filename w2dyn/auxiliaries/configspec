@@ -16,7 +16,7 @@ F6              = float(default=None)           # Slater integral for k=6
 # Interaction from U-matrix
 umatrix         = string(default="u_matrix.dat")
  
-QuantumNumbers  = string(default="")            # Good quantum numbers
+QuantumNumbers  = string(default="auto")        # Good quantum numbers, string of whitespace-separated entries "Nt" for total occupation, "Szt" for spin component, "Qzt" for singly-occupiedness per orbital, "Azt" for occupation oer spin-orbital, "Lzt" for orbital angular momentum component assuming uniformly spaced ascending values symmetric around zero for the impurity orbitals, "Jzt" for total angular momentum component, and "All" for automatic partitioning of the Hamiltonian into blocks
 Nd              = integer(default=None)         # Number of bands
 Np              = integer(default=0)
 Nlig            = integer(default=0)
