@@ -43,7 +43,9 @@ ADD_LIBRARY(CTQMCLIB STATIC ${CTQMC_src})
 SET_PROPERTY(TARGET CTQMCLIB PROPERTY POSITION_INDEPENDENT_CODE ON)
 set_target_properties(CTQMCLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
 target_link_libraries(CTQMCLIB mtrng)
-target_link_libraries(CTQMCLIB nfft)
+if (USE_NFFT)
+  target_link_libraries(CTQMCLIB nfft)
+endif (USE_NFFT)
 
   set(_name CTQMC)
   set (CPPSTDLIBRARY "-lstdc++")#placeholder if we decide to better parse platforms in the future...
