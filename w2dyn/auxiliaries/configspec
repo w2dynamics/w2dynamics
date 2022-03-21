@@ -3,7 +3,7 @@
 [[__many__]]
 # Density/Coulomb/Kanamori/ReadIn/ReadUmatrix
 Hamiltonian     = option('Density','Kanamori','Coulomb','ReadUmatrix','ReadNormalUmatrix',default='Density')
-crystalfield    = float_list(default=None)
+crystalfield    = float_list(default=None)      # Either spin-independent with exactly Nd + Np entries or spin-dependent with exactly twice as many entries with the spin index running faster. This parameter is used for the band centers if DOS=Bethe and is added to the diagonal of the local Hamiltonian if a single-shot calculation with cthyb is performed. Under other circumstances, this parameter does not currently have any influence on the calculation.
 # Kanamori and density interaction parameters
 Udd             = float(default=0.0)            # intra orbital interaction
 Jdd             = float(default=0.0)            # Hunds coupling

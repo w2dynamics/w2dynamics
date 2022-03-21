@@ -148,10 +148,11 @@ cfg["QMC"]["FTType"]=cfg["General"]["FTType"]
 
 # Generating impurity problem
 log("Generating impurity problem ...")
-muimp = mu * np.eye(norbitals)
+muimp = (mu
+         * np.eye(norbitals)[:, np.newaxis, :, np.newaxis]
+         * np.eye(2)[np.newaxis, :, np.newaxis, :])
 if atom.crystalfield is not None:
     muimp -= atom.crystalfield
-muimp = muimp[:,None,:,None] * np.eye(2)[None,:,None,:]
 
 if cfg["General"]["muimpFile"] is not None:
     muimp = mpi_on_root(lambda: aux_input.read_muimp(cfg["General"]["muimpFile"]))

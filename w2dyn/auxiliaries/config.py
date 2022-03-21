@@ -120,7 +120,15 @@ def lattice_from_cfg(cfg):
             norb = atom_cfg["Nd"] + atom_cfg["Np"]
             if atom_cfg["crystalfield"] is not None:
                 centers_atom = np.array(atom_cfg["crystalfield"], float)
-                centers[start:start+norb,:] = centers_atom[:,None]
+                if len(centers_atom) == norb:
+                    centers[start:start+norb,:] = centers_atom[:,None]
+                elif len(centers_atom) == 2 * norb:
+                    centers[start:start+norb, :] = np.reshape(centers_atom,
+                                                              (norb, 2))
+                else:
+                    raise ValueError("crystalfield must contain exactly Nd + Np "
+                                     "(spin-independent) or 2 * (Nd + Np) "
+                                     "(spin-dependent) entries")
             start += norb
 
         mylattice = lattice.Bethe(beta, half_bw, centers)
@@ -289,9 +297,17 @@ def atomlist_from_cfg(cfg, norbitals=None):
         # construct crystal field
         crystalfield = atom_cfg["crystalfield"]
         if crystalfield is not None:
-            if len(crystalfield) != nds + nps:
-                raise ValueError("expecting entry for each d-orbital")
-            crystalfield = np.diag(crystalfield)
+            crystalfield = np.array(crystalfield)
+            if len(crystalfield) == nds + nps:
+                crystalfield = np.reshape(np.broadcast_to(crystalfield[:, None],
+                                                          (nds + nps, 2)),
+                                          (2 * (nds + nps),))
+            elif len(crystalfield) != 2 * (nds + nps):
+                raise ValueError("crystalfield must contain exactly Nd + Np "
+                                 "(spin-independent) or 2 * (Nd + Np) "
+                                 "(spin-dependent) entries")
+            crystalfield = np.reshape(np.diagflat(crystalfield),
+                                      (nds + nps, 2, nds + nps, 2))
         
         # add d atom
         if np == 0:
