@@ -69,6 +69,7 @@ SET_COMPILE_FLAG(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS}"
 )
 
 # Optimize for the host's architecture. The CrayPE usually sets this by a  chosen environment.
+IF (OPT_HOST_ARCH)
 IF(NOT (CMAKE_Fortran_COMPILER_ID STREQUAL "Cray"))
 SET_COMPILE_FLAG(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS}"
                  Fortran "-xHost"        # Intel
@@ -77,6 +78,7 @@ SET_COMPILE_FLAG(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS}"
                          "/QxHost"       # Intel Windows
                 )
 ENDIF()
+ENDIF (OPT_HOST_ARCH)
 
 # Backslash behaviour:
 SET_COMPILE_FLAG(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS}"

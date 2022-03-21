@@ -29,6 +29,7 @@ OPTION(USE_MPI "Use the MPI library for parallelization" ON)
 # This INCLUDE statement executes code that sets the compile flags for DEBUG,
 # RELEASE, and TESTING.  You should  review this file and make sure the flags 
 # are to your liking.
+option(OPT_HOST_ARCH "Target host machine instruction set" ON)
 INCLUDE(${CMAKE_MODULE_PATH}/SetFortranFlags.cmake)
 # Locate and set parallelization libraries.  There are some CMake peculiarities
 # taken care of here, such as the fact that the FindOpenMP routine doesn't know
