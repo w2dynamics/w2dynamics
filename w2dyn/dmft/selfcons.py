@@ -366,11 +366,15 @@ class DMFTStep:
             output.write_distributed("glocold",
                                   self.mpi_strategy.parts(self.glociw),
                                   self.mpi_strategy.shape(self.glociw))
-            glociw = self.mpi_strategy.allgather(orbspin.extract_diagonal(self.glociw))
-            output.write_quantity("glocold-lattice", glociw)
+            glociw = self.mpi_strategy.allgather(self.glociw)
         else:
             output.write_quantity("glocold", self.glociw)
-            output.write_quantity("glocold-lattice", orbspin.extract_diagonal(self.glociw))
+            glociw = self.glociw
+
+        glociw_diag = np.transpose(orbspin.extract_diagonal(glociw), (1, 2, 0))
+        glociw = np.transpose(glociw, (1, 2, 3, 4, 0))
+        output.write_quantity("glocold-lattice", glociw_diag)
+        output.write_quantity("glocold-lattice-full", glociw)
 
         output.write_quantity("gdensold", self.densmatrix)
 
@@ -381,11 +385,15 @@ class DMFTStep:
             output.write_distributed("glocnew",
                                   self.mpi_strategy.parts(self.glociw),
                                   self.mpi_strategy.shape(self.glociw))
-            glociw = self.mpi_strategy.allgather(orbspin.extract_diagonal(self.glociw))
-            output.write_quantity("glocnew-lattice", glociw)
+            glociw = self.mpi_strategy.allgather(self.glociw)
         else:
             output.write_quantity("glocnew", self.glociw)
-            output.write_quantity("glocnew-lattice", orbspin.extract_diagonal(self.glociw))
+            glociw = self.glociw
+
+        glociw_diag = np.transpose(orbspin.extract_diagonal(glociw), (1, 2, 0))
+        glociw = np.transpose(glociw, (1, 2, 3, 4, 0))
+        output.write_quantity("glocnew-lattice", glociw_diag)
+        output.write_quantity("glocnew-lattice-full", glociw)
 
         output.write_quantity("dc", self.dc_full)
         output.write_quantity("dc-latt", self.dc_full)

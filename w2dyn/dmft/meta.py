@@ -429,6 +429,10 @@ QUANTITIES = {
         axes=["lda-band", "spin", "iw"],
         desc="local Green's function in Matsubara (old self-energy), diagonal part for all lda-bands"
         ),
+    "glocold-lattice-full": dict(
+        axes=["lda-band1", "spin1", "lda-band2", "spin2", "iw"],
+        desc="local Green's function in Matsubara (old self-energy) for all bands"
+        ),
     "glocnew": dict(
         axes=["ineq", "band", "spin", "iw"],
         desc="local Green's function in Matsubara (new self-energy)"
@@ -436,6 +440,10 @@ QUANTITIES = {
     "glocnew-lattice": dict(
         axes=["lda-band", "spin", "iw"],
         desc="local Green's function in Matsubara (old self-energy), diagonal part for all lda-bands"
+        ),
+    "glocnew-lattice-full": dict(
+        axes=["lda-band1", "spin1", "lda-band2", "spin2", "iw"],
+        desc="local Green's function in Matsubara (new self-energy) for all bands"
         ),
     "dc": dict(
         axes=["ineq", "band", "spin"],
