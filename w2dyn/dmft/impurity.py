@@ -486,15 +486,19 @@ class CtHybSolver(ImpuritySolver):
         ctqmc.init_paras(all_params)
         ctqmc.fourpnt = compute_fourpoint
 
-        # prepare parameters
-        if self.config["QMC"]["offdiag"] == 0:
-           self.ftau=orbspin.promote_diagonal(orbspin.extract_diagonal(self.problem.ftau))
+        # remove hybridization and one-particle Hamiltonian off-diagonals in diagonal calculation
+        if self.g_diagonal_only:
+            self.ftau = orbspin.promote_diagonal(orbspin.extract_diagonal(self.problem.ftau))
+            self.muimp = orbspin.promote_diagonal(orbspin.extract_diagonal(self.problem.muimp))
+        else:
+            self.ftau = self.problem.ftau
+            self.muimp = self.problem.muimp
 
-        self.ftau = self.problem.ftau.transpose(1,2,3,4,0)
+        # move tau-axis to last
+        self.ftau = self.ftau.transpose(1,2,3,4,0)
 
         # CT-HYB uses a different convention for muimp
-        #self.muimp = -self.prepare_input(self.problem.muimp)
-        self.muimp = -self.problem.muimp
+        self.muimp = -self.muimp
         self.umatrix = self.problem.interaction.u_matrix.reshape(
                              self.problem.nflavours, self.problem.nflavours,
                              self.problem.nflavours, self.problem.nflavours)
