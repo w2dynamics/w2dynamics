@@ -62,7 +62,6 @@ implicit none
    real(KINDR)                :: PercentageGlobalMove, PercentageTauShiftMove
    real(KINDR)                :: PercentageOuterMove
    real(KINDR)                :: Percentage4OperatorMove
-   real(KINDR),allocatable    :: globalmove_check(:)
    integer(c_int64_t), allocatable :: AccPair(:,:,:)   ! o,sp,tau
    real(KINDR), allocatable   :: AccPairTau(:)
    integer                    :: NAccPair
@@ -456,13 +455,15 @@ subroutine init_CTQMC()
 
    ! in case of offdiagonal calculation, choose if hybridisation matrix is
    ! computed always from scratch for debugging, or by fast update algorithm
-   if (get_Integer_Parameter("full_offdiag")==0) then
-      b_full_offdiag = .false.
-      write(0,*) "--> fast offdiag."
-   else
-      b_full_offdiag = .true.
-      write(0,*) "--> full offdiag."
-   endif
+   if (b_offdiag) then
+      if (get_Integer_Parameter("full_offdiag")==0) then
+         b_full_offdiag = .false.
+         write(0,*) "--> fast offdiag."
+      else
+         b_full_offdiag = .true.
+         write(0,*) "--> full offdiag."
+      endif
+   end if
 
    if (get_Integer_Parameter("flavourchange_moves") == 0) then
       b_exch=.false.
@@ -755,9 +756,6 @@ subroutine init_CTQMC()
    allocate(lhisto(PMAX))
    allocate(rhisto(PMAX))
 
-   allocate(globalmove_check(0:2*NBands))
-   globalmove_check(:)=0d0
-
    allocate(AccPair(NBands,2,NGtau))
    NAccPair = NGtau
    AccPairMax = beta
@@ -915,7 +913,6 @@ subroutine dest_CTQMC()
    if(allocated(SignHistoStates))deallocate(SignHistoStates)
    if(allocated(TraceContribSuperstates))deallocate(TraceContribSuperstates)
    if(allocated(TraceContribStates))deallocate(TraceContribStates)
-   if(allocated(globalmove_check))deallocate(globalmove_check)
    if(allocated(AccPair))deallocate(AccPair)
    if(allocated(AccPairTau))deallocate(AccPairTau)
    if(allocated(histo_seg))deallocate(histo_seg)
@@ -4451,7 +4448,6 @@ subroutine StepGlob()
    else
       move_type = RandPerm
       call gen_GlobalUpdate_new(DTrace,DStates)
-      globalmove_check = globalmove_check + dtrace%gu  ! counter for uniformity checking (debug)
    endif
    call save_outer_sst(DTrace)
 
@@ -8732,14 +8728,6 @@ subroutine ctqmc_measure(iSector,iComponent)
       enddo
       GLeg(:,:,:)=-GLeg(:,:,:) * zScaling 
       GLeg_full(:,:,:,:,:)=-GLeg_full(:,:,:,:,:) * zScaling 
-
-      if(SimID.eq.0)then
-         write(*,*) "globalmove_check ", globalmove_check 
-         globalmove_check(0) = globalmove_check(0)&
-            /(sum(globalmove_check(1:))/(NBands*(2.0d0*NBands+1.0d0)))
-         globalmove_check(1:)=globalmove_check(1:)/(sum(globalmove_check(1:)))
-         write(*,*) "globalmove_check ", globalmove_check 
-      endif
 
       ! Add the overall normalisation factors (Boehnke 2011, C24) and statistical
       ! weight 1/N to the 4-point measurement
