@@ -31,8 +31,8 @@ SET_PROPERTY(TARGET MAXENTLIB PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 set_target_properties(MAXENTLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
 
-# hack to not pass .dylib libraries directly because f2py does not
-# accept them as arguments, while it does accept .so ones...
+# hack to not pass .dylib or .framework library file names directly
+# because f2py does not accept them as arguments
 function(rephrase_dylib TARGET_VAR LIBRARIES_STRING)
   set(RESULT_LIST "")
   foreach(entry ${LIBRARIES_STRING})
@@ -43,6 +43,9 @@ function(rephrase_dylib TARGET_VAR LIBRARIES_STRING)
       string(FIND "${upcaseentry}" "${CMAKE_MATCH_1}" libname_begin REVERSE)
       string(SUBSTRING "${entry}" "${libname_begin}" "${libname_length}" libname)
       list(APPEND RESULT_LIST "-L${entry_dir}" "-l${libname}")
+    elseif((upcaseentry MATCHES ".*ACCELERATE\\.FRAMEWORK.*") OR (upcaseentry MATCHES ".*VECLIB\\.FRAMEWORK.*"))
+      # f2py will use numpy.distutils.system_info
+      list(APPEND RESULT_LIST "--link-accelerate")
     else()
       list(APPEND RESULT_LIST "${entry}")
     endif()

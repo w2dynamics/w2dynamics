@@ -22,11 +22,7 @@ jobs:
     - name: Install required dependencies using brew
       if: matrix.os == 'macos-latest'
       run: |
-        brew install openblas fftw hdf5
-        echo "LD_LIBRARY_PATH=$(brew --prefix)/opt/openblas:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-        echo "DYLD_LIBRARY_PATH=$(brew --prefix)/opt/openblas:$DYLD_LIBRARY_PATH" >> $GITHUB_ENV
-        echo "BLAS_ROOT=$(brew --prefix)/opt/openblas" >> $GITHUB_ENV
-        echo "LAPACK_ROOT=$(brew --prefix)/opt/openblas" >> $GITHUB_ENV
+        brew install fftw hdf5
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
