@@ -413,38 +413,61 @@ class CtHybSolver(ImpuritySolver):
         # begin with qns permitted by interaction
         autoqns = self.problem.interaction.auto_quantum_numbers
 
+        threshold = abs(self.config["QMC"]["EPSBLOCK"])
+        maxignored = 0.0
+        elmsBelow = False
+
         if not self.g_diagonal_only:
             # check for violations by quadratic part of Hamiltonian
-            if any(np.any(self.problem.muimp[:, s1, :, s2] != 0)
-                   for s1 in range(self.problem.muimp.shape[1])
-                   for s2 in range(self.problem.muimp.shape[3])
-                   if s1 != s2):
-                # spin-offdiagonals clear Azt, Szt, and (not necessarily)
-                # Jzt from good quantum numbers
-                if (any(qn in autoqns for qn in ("Azt", "Szt", "Jzt"))
-                   and "All" not in autoqns):
-                    # auto-partitioning might be worthwhile now
-                    autoqns = autoqns + ("All", )
-                autoqns = tuple(qn for qn in autoqns
-                                if qn not in ("Azt", "Szt", "Jzt"))
-            if any(np.any(self.problem.muimp[o1, :, o2, :] != 0)
-                   for o1 in range(self.problem.muimp.shape[0])
-                   for o2 in range(self.problem.muimp.shape[2])
-                   if o1 != o2):
-                # orbital-offdiagonals clear Azt, Qzt, Lzt and (not
-                # necessarily) Jzt from good quantum numbers
-                if (any(qn in autoqns for qn in ("Azt", "Qzt", "Lzt", "Jzt"))
-                   and "All" not in autoqns):
-                    # auto-partitioning might be worthwhile now
-                    autoqns = autoqns + ("All", )
-                autoqns = tuple(qn for qn in autoqns
-                                if qn not in ("Azt", "Qzt", "Lzt", "Jzt"))
+            spinodblocks = [np.abs(self.problem.muimp[:, s1, :, s2])
+                            for s1 in range(self.problem.muimp.shape[1])
+                            for s2 in range(self.problem.muimp.shape[3])
+                            if s1 != s2]
+            if any(np.any(block != 0) for block in spinodblocks):
+                if any(np.any(block > threshold) for block in spinodblocks):
+                    # spin-offdiagonals clear Azt, Szt, and (not necessarily)
+                    # Jzt from good quantum numbers
+                    if (any(qn in autoqns for qn in ("Azt", "Szt", "Jzt"))
+                       and "All" not in autoqns):
+                        # auto-partitioning might be worthwhile now
+                        autoqns = autoqns + ("All", )
+                    autoqns = tuple(qn for qn in autoqns
+                                    if qn not in ("Azt", "Szt", "Jzt"))
+                else:
+                    maxignored = max(maxignored,
+                                     *(np.amax(block)
+                                       for block in spinodblocks))
+                    elmsBelow = True
+            orbodblocks = [np.abs(self.problem.muimp[o1, :, o2, :])
+                           for o1 in range(self.problem.muimp.shape[0])
+                           for o2 in range(self.problem.muimp.shape[2])
+                           if o1 != o2]
+            if any(np.any(block != 0) for block in orbodblocks):
+                if any(np.any(block > threshold) for block in orbodblocks):
+                    # orbital-offdiagonals clear Azt, Qzt, Lzt and (not
+                    # necessarily) Jzt from good quantum numbers
+                    if (any(qn in autoqns for qn in ("Azt", "Qzt", "Lzt", "Jzt"))
+                       and "All" not in autoqns):
+                        # auto-partitioning might be worthwhile now
+                        autoqns = autoqns + ("All", )
+                    autoqns = tuple(qn for qn in autoqns
+                                    if qn not in ("Azt", "Qzt", "Lzt", "Jzt"))
+                else:
+                    maxignored = max(maxignored,
+                                     *(np.amax(block)
+                                       for block in orbodblocks))
+                    elmsBelow = True
 
         if "auto" in self.problem.interaction.quantum_numbers:
             qns = " ".join(autoqns)
             if self.mpi_rank == 0:
                 print("Setting automatic quantum numbers '{}'".format(qns),
                       file=sys.stderr)
+                if elmsBelow:
+                    warn("Off-diagonal elements of the local Hamiltonian below "
+                         "EPSBLOCK (max. entry {:e}) were ignored for "
+                         "automatic choice of quantum numbers"
+                         .format(maxignored))
         else:
             if self.mpi_rank == 0:
                 print("Overriding automatic quantum numbers '{}' with '{}'"
