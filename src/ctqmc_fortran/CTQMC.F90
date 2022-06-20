@@ -7898,7 +7898,7 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    real(KINDR)                :: muimp_full(NBands,2,NBands,2)
    real(KINDR)                :: screening_function(NBands,2,NBands,2,Nftau)
 !local
-   real(KINDR), allocatable   :: HEValues(:)
+   real(KINDR), allocatable   :: HEValues(:), qnthreshold
    type(TPsis)                :: DPsis, DTransformed_Psis
    type(TOperator)            :: DH
    type(TOperator)            :: HEVectors
@@ -7959,7 +7959,8 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    !call print_Operator(DH,DStates) 
    !start now we analyze the hamiltonian for block diagonal form
    if (index(get_String_Parameter("QuantumNumbers"),"All").ne.0) then
-    call analyze_hamiltonian(DH, DStates, nsubstates, states2substates)
+    qnthreshold = get_Real_Parameter("EPSBLOCK")
+    call analyze_hamiltonian(DH, DStates, nsubstates, states2substates, qnthreshold, simid == 0)
     call dest_Psis(DPsis)
     call dest_TOperator(DH)
     call dest_States(DStates)

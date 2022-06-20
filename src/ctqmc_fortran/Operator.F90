@@ -300,11 +300,14 @@ end subroutine init_Psi
 !!   end if
 !! end for net
 !!
-subroutine analyze_hamiltonian(dh, dstates, nsubstates, states2substates)
+subroutine analyze_hamiltonian(dh, dstates, nsubstates, states2substates, threshold, log)
    type(TOperator)                        :: dh
    type(TStates),intent(in)               :: dstates
    integer                                :: nsubstates
    integer, allocatable                   :: states2substates(:), cstates2substates(:)
+   real(KINDR), intent(in)                :: threshold
+   logical, intent(in)                    :: log
+   real(KINDR)                            :: maxignored
    integer, allocatable                   :: nets(:,:)
    integer                                :: sst, net, node, edge, netnode
    integer                                :: cstate,nstates
@@ -320,6 +323,7 @@ subroutine analyze_hamiltonian(dh, dstates, nsubstates, states2substates)
    states2substates(:) = -1
    nsubstates = -1
    nstates = dstates%nstates
+   maxignored = 0.0d0
 
    do sst = 0, dstates%nsstates-1
      allocate(nets(0:dstates%substates(sst)%nstates-1,0:dstates%substates(sst)%nstates-1))
@@ -334,20 +338,24 @@ subroutine analyze_hamiltonian(dh, dstates, nsubstates, states2substates)
          if (nets(net,node).eq.-1) exit
          do edge = 0, dstates%substates(sst)%nstates-1 
            if (dh%subops(sst)%op(nets(net,node),edge).ne.0d0) then
+             if (abs(dh%subops(sst)%op(nets(net, node), edge)) > threshold) then
 !             write(*,*)nets(net,node),edge,dh%subops(sst)%op(node,edge)
-             member = .false.
-             do netnode = 0, dstates%substates(sst)%nstates-1
-               if (nets(net,netnode).eq.edge) then
-                 member = .true.
-                 exit
-               else if (nets(net,netnode).eq.-1) then
-                 empty_node = netnode
-                 exit
+               member = .false.
+               do netnode = 0, dstates%substates(sst)%nstates-1
+                 if (nets(net,netnode).eq.edge) then
+                   member = .true.
+                   exit
+                 else if (nets(net,netnode).eq.-1) then
+                   empty_node = netnode
+                   exit
+                 endif
+               enddo
+               if (.not.member) then
+                 nets(net,empty_node) = edge
+                 states2substates(dstates%substates(sst)%states(edge)) = nsubstates
                endif
-             enddo
-             if (.not.member) then
-               nets(net,empty_node) = edge
-               states2substates(dstates%substates(sst)%states(edge)) = nsubstates
+             else
+                maxignored = max(maxignored, abs(dh%subops(sst)%op(nets(net, node), edge)))
              endif
            endif
          enddo
@@ -425,8 +433,12 @@ outer:   do while(change)
    enddo outer
    nsubstates =  maxval(states2substates)+1
 !   write(*,*) states2substates
-   write (*,"('Analyzed Hamiltonian, found',I5,' blocks')") nsubstates
-
+   if (log) then
+      write (*,"('Analyzed Hamiltonian, found',I5,' blocks')") nsubstates
+      if (maxignored > 0.0d0) then
+         write (*, "('Maximum size of entries smaller than EPSBLOCK potentially ignored by automatic partitioning: ', E12.3)") maxignored
+      endif
+   endif
 end subroutine analyze_hamiltonian
 
 !===============================================================================
