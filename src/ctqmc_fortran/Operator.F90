@@ -247,6 +247,39 @@ end subroutine init_Psi
 !> we analyze the hamiltonian for the minimal block size and build
 !! up the array states2substates for later building the right
 !! substates.
+
+!! This proceeds as follows:
+!!- In each old superstate, 'nets' [subsets] of contained states that
+!!  are connected by application of the Hamiltonian (and thus mix under
+!!  time evolution) are constructed. A subset x is represented by a
+!!  slice nets(x, :), whose entries are the indices of the states it
+!!  contains in the States array of the old superstate or -1 at
+!!  'unoccupied' places (the nets array is preallocated to be able to
+!!  hold the maximum number of subsets with the maximum number of
+!!  subset members each). For initialization, the state with index 0 is
+!!  put into the first subset. Then, one loops over the subsets (index
+!!  net), over the contained states (index node) and over all states
+!!  (States-index edge) to find new states (edge) with non-zero
+!!  Hamiltonian matrix element (dh%subops(sst)%op(nets(net,node),edge)
+!!  between them and an already contained state (States-index nets(net,
+!!  node)), which are then appended to the subset (net) to be iterated
+!!  over in the "node"-loop. At the same time, the assignments of
+!!  states (bin. rep.) to newly subdivided superstates are kept track
+!!  of in states2substates, and when one has fully completed the
+!!  "node"-loop over a subset, another subset needs to be created if a
+!!  state in the old superstate that is not contained in a subset yet,
+!!  which is initialized with that state.
+!!
+!!- To fulfill the second condition for choosing superstates, that
+!!  application of a creator or annihilator may lead to at most one
+!!  other superstate, the mappings from states to superstates after
+!!  application of an operator are created (for each flavour & ca),
+!!  and if any two states from the same newly subdivided superstate
+!!  map to different superstates after the operator application, the
+!!  two target superstates are merged together (by assigning all
+!!  states contained in the one with higher index to the one with the
+!!  lower index and removing the former).
+!!
 !! we are doing the following for each substate in pseudo code:
 !!
 !! nets.append(net(nodes.pop))
