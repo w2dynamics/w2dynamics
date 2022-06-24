@@ -492,14 +492,16 @@ for iter_no in range(total_iterations + 1):
     log("Writing lattice quantities to output file ...")
     dmft_step.write_lattice_problem(output)
 
-    # The finish iteration is just there to get the final chemical potential
-    # and lattice quantities. No more QMC run is performed, so we stop here.
+    if iter_type == "dmft" or iter_no == 0:
+        log("Generating impurity problems from lattice problem ...")
+        dmft_step.gloc2fiw()
+        dmft_step.write_imp_problems(output)
+
+    # The finish iteration is just there to get the final chemical
+    # potential, lattice quantities and hybridization. No more QMC run
+    # is performed, so we stop here.
     if iter_type == "finish" or iter_type == "aborted":
         break
-
-    log("Generating impurity problems ...")
-    dmft_step.gloc2fiw()
-    dmft_step.write_imp_problems(output)
 
     giws = []
     siws = []
@@ -570,13 +572,16 @@ for iter_no in range(total_iterations + 1):
         output.write_quantity("smom", smoms)
         output.write_quantity("siw-trial", dmft_step.siw_dd)
 
-        if iter_type == "dmft": 
-            log("Feeding back self-energies ...")
-            dmft_step.set_siws(siws, smoms, giws=giws, occs=occs)
+        log("Feeding back unmixed self-energies into lattice problem ...")
+        dmft_step.set_siws(siws, smoms, giws=giws, occs=occs, mix=False)
 
         if fix_mu and mu_method == "kappa":
             imp_electrons_err = np.sqrt(imp_electrons_err)
             kmuiter.step(dmft_step.mu, imp_electrons, imp_electrons_err)
+
+        if iter_type == "dmft":
+            log("Feeding back mixed self-energies into lattice problem ...")
+            dmft_step.set_siws(siws, smoms, giws=giws, occs=occs, mix=True)
 
     elif iter_type == "worm":
         for iimp, imp_problem in enumerate(dmft_step.imp_problems):

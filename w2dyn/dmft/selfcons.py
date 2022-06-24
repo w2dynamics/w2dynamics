@@ -183,7 +183,7 @@ class DMFTStep:
         self.natoms = natoms
 
     def set_siws(self, siw_dd=None, smom_dd=None, dc_full=None, init=False,
-                 hartree_start=False,giws=None,occs=None):
+                 hartree_start=False, giws=None, occs=None, mix=True):
         new_run = siw_dd is None and init
 
         nspins = self.lattice.nspins
@@ -252,7 +252,10 @@ class DMFTStep:
         # mixing of all related quantities using the same mixer is
         # necessary in particular because the earlier values
         # themselves influence the ratios in which they are mixed in.
-        self.dc_full, self.siw_dd, self.smom_dd = self.siw_mixer(self.dc_full, siw_dd, smom_dd)
+        if mix:
+            self.dc_full, self.siw_dd, self.smom_dd = self.siw_mixer(self.dc_full, siw_dd, smom_dd)
+        else:
+            self.siw_dd, self.smom_dd = siw_dd, smom_dd
 
         # Fix the distance between selected d-orbitals and the p-manifold to the original distance of the LDA/GW Hamiltonian
         if self.dc_dp == 1:
