@@ -413,7 +413,12 @@ class CtHybSolver(ImpuritySolver):
         # begin with qns permitted by interaction
         autoqns = self.problem.interaction.auto_quantum_numbers
 
-        threshold = abs(self.config["QMC"]["EPSBLOCK"])
+        # threshold is relative to magnitude of largest entry in local
+        # Hamiltonian
+        threshold = max(
+            np.amax(np.abs(self.problem.muimp)),
+            np.amax(np.abs(self.problem.interaction.u_matrix))
+        ) * abs(self.config["QMC"]["EPSBLOCK"])
         maxignored = 0.0
         elmsBelow = False
 

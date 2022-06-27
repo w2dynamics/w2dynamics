@@ -7960,6 +7960,9 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    !start now we analyze the hamiltonian for block diagonal form
    if (index(get_String_Parameter("QuantumNumbers"),"All").ne.0) then
     qnthreshold = get_Real_Parameter("EPSBLOCK")
+    ! make threshold relative to the magnitude of the largest element of the local Hamiltonian
+    qnthreshold = qnthreshold * max(maxval(abs(muimp_full)),&
+                                    maxval(abs(u_matrix_in)))
     call analyze_hamiltonian(DH, DStates, nsubstates, states2substates, qnthreshold, simid == 0)
     call dest_Psis(DPsis)
     call dest_TOperator(DH)
