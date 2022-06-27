@@ -358,7 +358,7 @@ class DMFTStep:
         self.siw_GW_dyn = None
         #self.smom_GW = None
 
-    def write_gloc(self, output, infix):
+    def write_gloc(self, output, infix, full_od=False):
         # This quantity is potentially distributed over cores, so we need to
         # take that into account here.
         if self.mpi_comm is not None:
@@ -375,17 +375,18 @@ class DMFTStep:
         glociw = np.transpose(glociw, (1, 2, 3, 4, 0))
         output.write_quantity("gloc{infix}-lattice".format(infix=infix),
                               glociw_diag)
-        output.write_quantity("gloc{infix}-lattice-full".format(infix=infix),
-                              glociw)
+        if full_od:
+            output.write_quantity("gloc{infix}-lattice-full".format(infix=infix),
+                                  glociw)
 
         output.write_quantity("gdens{infix}".format(infix=infix),
                               self.densmatrix)
 
-    def write_before_mu_search(self, output):
-        self.write_gloc(output, "old")
+    def write_before_mu_search(self, output, full_od=False):
+        self.write_gloc(output, "old", full_od)
 
-    def write_lattice_problem(self, output):
-        self.write_gloc(output, "new")
+    def write_lattice_problem(self, output, full_od=False):
+        self.write_gloc(output, "new", full_od)
 
         output.write_quantity("dc", self.dc_full)
         output.write_quantity("dc-latt", self.dc_full)

@@ -478,7 +478,8 @@ for iter_no in range(total_iterations + 1):
             log("Total density = %g", dmft_step.densities.sum())
 
             log("Writing lattice quantities for old mu to output file ...")
-            dmft_step.write_before_mu_search(output)
+            dmft_step.write_before_mu_search(output,
+                                             full_od=cfg["General"]["WriteFullLattice"])
 
             log("Updating chemical potential ...")
             dmft_step.update_mu(totdens, epsn, 100.)
@@ -490,7 +491,8 @@ for iter_no in range(total_iterations + 1):
     log("Total density = %g", dmft_step.densities.sum())
 
     log("Writing lattice quantities to output file ...")
-    dmft_step.write_lattice_problem(output)
+    dmft_step.write_lattice_problem(output,
+                                    full_od=cfg["General"]["WriteFullLattice"])
 
     if iter_type == "dmft" or iter_no == 0:
         log("Generating impurity problems from lattice problem ...")

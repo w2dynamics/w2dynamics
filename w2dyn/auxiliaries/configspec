@@ -256,3 +256,4 @@ KListFile       = string (default=None)		# alternative filename for case.klist
 SGWnlFile       = string(default='S_GWnl.dat')  # file that contains the NON-LOCAL GW self-energy
 
 WriteOnlyQuant = force_list(default=None)
+WriteFullLattice = boolean(default=False)       # whether to write full matrices including offdiagonals for lattice gloc; note that this setting is currently off by default due to the possibility of undesirably or unexpectedly large additional output and that the default may be changed and possibly this parameter removed entirely afterwards in a future version 
