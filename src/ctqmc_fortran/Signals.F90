@@ -89,7 +89,7 @@ contains
 #endif
     end subroutine
 
-    integer function signal_number(sig)
+    recursive integer function signal_number(sig)
         !< \brief Extract "true" signal number out of the handler´s sig parameter
         !!
         !! This function is necessary because there is a bug in gfortran until
@@ -106,7 +106,7 @@ contains
         endif
     end function
 
-    integer function trap_stop(sig)
+    recursive integer function trap_stop(sig)
         !< Predefined signal handler, which causes the program to halt
         integer, intent(in) :: sig
         write (0,'(A)') '[trap_stop] Stopping program on signal'
@@ -114,7 +114,7 @@ contains
         trap_stop = sig
     end function
 
-    integer function trap_notify(sig)
+    recursive integer function trap_notify(sig)
         !< \brief Predefined signal handler, which records caught signals
         !!
         !! This handler updates the module variables any_signal_fired,
