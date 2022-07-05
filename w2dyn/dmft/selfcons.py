@@ -118,7 +118,7 @@ class DMFTStep:
         if beta < 0: raise ValueError("beta must be positive")
         if niwf <= 0 or niwf % 2 != 0: raise ValueError("niwf must be even")
         if nftau <= 1: raise ValueError("nftau must be greater than 1")
-        if dc is None: dc = doublecounting.Zero()
+        if dc is None: dc = doublecounting.Zero(lattice.norbitals, lattice.nspins)
         if siw_mixer is None: siw_mixer = mixing.FlatMixingDecorator(mixing.LinearMixer())
         if mu_mixer is None: mu_mixer = mixing.LinearMixer()
 
