@@ -7905,7 +7905,8 @@ subroutine init_solver(u_matrix_in,Ftau_full,muimp_full,&
    real(KINDR)                :: muimp_full(NBands,2,NBands,2)
    real(KINDR)                :: screening_function(NBands,2,NBands,2,Nftau)
 !local
-   real(KINDR), allocatable   :: HEValues(:), qnthreshold
+   real(KINDR), allocatable   :: HEValues(:)
+   real(KINDR)                :: qnthreshold
    type(TPsis)                :: DPsis, DTransformed_Psis
    type(TOperator)            :: DH
    type(TOperator)            :: HEVectors
