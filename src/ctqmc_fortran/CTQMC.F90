@@ -3354,7 +3354,7 @@ subroutine StepAdd(change_outer,Sector)
    type(TLogDet)                 :: DetNew, DetRat
    real(KINDR)                   :: BosTraceNew,taudiff_factor
    real(KINDR)                   :: outer_state_factor, outertau_old
-   type(TOperPointer)            :: Oper(2),begin,end
+   type(TOperPointer)            :: Oper(2), begin, endp
    real(KINDR),pointer           :: Q(:),R(:)
    logical                       :: adjacent,adj_qn_violate, global
    real(kindr) :: prob
@@ -3439,24 +3439,24 @@ subroutine StepAdd(change_outer,Sector)
          ! after the last operator before the insertion ("inner sst")
          adjacent = .true.
          begin%p => begin%p%prev
-         end%p => begin%p
+         endp%p => begin%p
       else
-         end%p => Oper(1)%p%next
+         endp%p => Oper(1)%p%next
       endif
    else
       begin%p => Oper(1)%p%prev
-      end%p => Oper(2)%p%next
+      endp%p => Oper(2)%p%next
    endif
-   call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+   call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
 
    if (adjacent) then
       ! check sequence from Oper(2) over beta back to itself,
       ! beginning with the result of its application to the inner sst
       ! and ending with the inner sst
       begin%p => Oper(2)%p
-      end%p => Oper(2)%p
+      endp%p => Oper(2)%p
       end_sst = begin_sst
-      begin_sst = DStates%SubStates(end_sst)%Connect(end%p%Orbital, end%p%Spin, end%p%CA)
+      begin_sst = DStates%SubStates(end_sst)%Connect(endp%p%Orbital, endp%p%Spin, endp%p%CA)
       if (begin_sst == -1) adj_qn_violate = .true.
    endif
 
@@ -3465,7 +3465,7 @@ subroutine StepAdd(change_outer,Sector)
    call save_outer_sst(DTrace)
    !now we can check the quantum number violations
    if ((.not.check_EqualTime(DTrace,Sector)) .or. (adj_qn_violate .eqv. .true.)&
-       .or. (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst))) then
+       .or. (.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst))) then
       call restore_outer_sst(DTrace)
       !if we violate quantum numbers we need to remove operators again before exiting
       call remove_Oper(DTrace,Oper)
@@ -3653,7 +3653,7 @@ subroutine StepAdd4(Sector)
    integer                       :: NPairs_only12, NPairs_only34
    integer                       :: NPairs_only14, NPairs_only23
    integer                       :: NPairs_all
-   type(TOperPointer)            :: Oper(4), begin, end, oplist(2)
+   type(TOperPointer)            :: Oper(4), begin, endp, oplist(2)
    logical                       :: equal_times
    real(kindr) :: prob
    type(TSubMatrix),pointer      :: FullHybr(:,:)
@@ -3814,18 +3814,18 @@ subroutine StepAdd4(Sector)
       begin%p => Oper(3)%p%prev
    end if
    if (Oper(2)%p%tau > Oper(4)%p%tau) then
-      end%p => Oper(2)%p%next
+      endp%p => Oper(2)%p%next
    else
-      end%p => Oper(4)%p%next
+      endp%p => Oper(4)%p%next
    end if
-   call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+   call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
 
    call save_outer_sst(DTrace)
    !now we can check the quantum number violations
    !TODO: equal_times considers regular operators,
    !check_EqualTime considers worm operators (naming conflict?)
    if (equal_times .or. (.not.check_EqualTime(DTrace,Sector))&
-       .or. (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst))) then
+       .or. (.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst))) then
       call restore_outer_sst(DTrace)
       !if we violate quantum numbers we need to remove operators again before exiting
       call remove_Oper(DTrace,Oper(1:2))
@@ -3953,7 +3953,7 @@ subroutine StepRem(change_outer,Sector)
    type(TLogDet)                 :: DetNew, DetRat
    real(KINDR)                   :: BosTraceNew,hybpairremfactor
    real(KINDR)                   :: outer_state_factor,outertau_old,outertau_new
-   type(TOperPointer)            :: Oper(2),begin,end
+   type(TOperPointer)            :: Oper(2), begin, endp
    type(TOper),pointer           :: El
    logical                       :: adjacent,adj_qn_violate,global
    real(kindr) :: prob
@@ -3990,25 +3990,25 @@ subroutine StepRem(change_outer,Sector)
          ! the trace should be attempted, just store the sst after the
          ! first removed operator ("inner sst")
          adjacent = .true.
-         end%p => begin%p
+         endp%p => begin%p
       else
-         end%p => Oper(1)%p%next
+         endp%p => Oper(1)%p%next
       endif
    else
       begin%p => Oper(1)%p%prev
-      end%p => Oper(2)%p%next
+      endp%p => Oper(2)%p%next
    endif
-   call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+   call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
 
    if (adjacent) then
       ! check sequence from Oper(2)%next over beta back to itself,
       ! beginning with the result of its application to the inner sst
       ! and ending with the inner sst
       begin%p => Oper(2)%p%next
-      end%p => Oper(2)%p%next
+      endp%p => Oper(2)%p%next
       end_sst = begin_sst
-      if (associated(end%p)) begin_sst = DStates%SubStates(end_sst)&
-                                                %Connect(end%p%Orbital, end%p%Spin, end%p%CA)
+      if (associated(endp%p)) begin_sst = DStates%SubStates(end_sst)&
+                                                %Connect(endp%p%Orbital, endp%p%Spin, endp%p%CA)
       if (begin_sst == -1) adj_qn_violate = .true.
    endif
 
@@ -4017,7 +4017,7 @@ subroutine StepRem(change_outer,Sector)
    call save_outer_sst(DTrace)
    !now we can check the quantum number violations
    if ((adj_qn_violate .eqv. .true.)&
-       .or. (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst))) then
+       .or. (.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst))) then
       call restore_outer_sst(DTrace)
       !if we violate quantum numbers we need to insert operators again before exiting
       call insert_Oper(DTrace,Oper)      
@@ -4222,7 +4222,7 @@ subroutine StepRem4()
    type(TLogDet)                 :: DetNew, DetRat
    real(KINDR)                   :: BosTraceNew,rempair_factor
    real(KINDR)                   :: taudiff_factor
-   type(TOperPointer)            :: Oper(4), begin, end, oplist(2)
+   type(TOperPointer)            :: Oper(4), begin, endp, oplist(2)
    real(kindr) :: prob
    type(TSubMatrix),pointer      :: FullHybr(:,:)
    real(kindr),pointer           :: FullHybr_offdiag(:,:)
@@ -4356,14 +4356,14 @@ subroutine StepRem4()
       begin%p => Oper(3)%p%prev
    end if
    if (Oper(2)%p%tau > Oper(4)%p%tau) then
-      end%p => Oper(2)%p%next
+      endp%p => Oper(2)%p%next
    else
-      end%p => Oper(4)%p%next
+      endp%p => Oper(4)%p%next
    end if
-   call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+   call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
 
    call save_outer_sst(DTrace)
-   if (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst)) then
+   if (.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst)) then
       call restore_outer_sst(DTrace)
       DTrace%NPairs = old_NPairs
       !if we violate quantum numbers we need to insert operators again before exiting
@@ -4382,11 +4382,11 @@ subroutine StepRem4()
    else
       if (associated(DTrace%first)) DTrace%first%calc_new = .true.
    end if
-   if (associated(end%p)) then
-      if (associated(end%p%prev)) then
-         end%p%prev%calc_new = .true.
+   if (associated(endp%p)) then
+      if (associated(endp%p%prev)) then
+         endp%p%prev%calc_new = .true.
       else
-         end%p%calc_new = .true.
+         endp%p%calc_new = .true.
       end if
    else
       if (associated(DTrace%last)) DTrace%last%calc_new = .true.
@@ -4910,7 +4910,7 @@ subroutine StepFlavourchange_general()
    type(TLogTr)                  :: TraceNew
    real(KINDR)                   :: BosTraceNew
    type(TLogDet)                 :: DetNew, DetRat
-   type(TOperPointer)            :: Oper(2), begin, end
+   type(TOperPointer)            :: Oper(2), begin, endp
    real(kindr),pointer           :: FullHybr_offdiag(:,:)
    real(kindr)                   :: prob
    integer :: oldorb1, oldspin1
@@ -4949,10 +4949,10 @@ subroutine StepFlavourchange_general()
    call insert_Oper(DTrace, Oper)
 
    begin%p => Oper(1)%p%prev
-   end%p => Oper(2)%p%next
-   call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+   endp%p => Oper(2)%p%next
+   call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
    call save_outer_sst(DTrace)
-   if (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst)) then
+   if (.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst)) then
       call restore_outer_sst(DTrace)
       call remove_Oper(DTrace, Oper)
       oper(1)%p%orbital=oldorb1
@@ -5066,7 +5066,7 @@ subroutine StepWormAdd(Sector,flavor)
 !local
    integer                       :: begin_sst,end_sst
    type(TLogTr)                  :: TraceNew
-   type(TOperPointer)            :: begin,end
+   type(TOperPointer)            :: begin, endp
    integer                       :: iO,i,FPos(2)
    real(KINDR)                   :: BosTraceNew
    real(KINDR)                   :: rand,prefact
@@ -5141,8 +5141,8 @@ subroutine StepWormAdd(Sector,flavor)
 
    ! determine substring of trace that needs quantum number checking
    begin%p => Oper(1)%p%prev
-   end%p => Oper(size(Oper))%p%next
-   call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+   endp%p => Oper(size(Oper))%p%next
+   call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
 
    !we now add the oper pairs
    do i=1,NOperWorm(Sector),2
@@ -5156,7 +5156,7 @@ subroutine StepWormAdd(Sector,flavor)
 
    !now we can check the quantum number violations
    if((.not.check_EqualTime(DTrace,Sector)).or.(prefact.eq.0d0)&
-       .or. (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst))) then
+       .or. (.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst))) then
       
       call restore_outer_sst(DTrace)
       !if we violate quantum numbers we need to remove operators again before exiting
@@ -5243,7 +5243,7 @@ subroutine StepWormRem(Sector)
    integer                       :: begin_sst,end_sst
    type(TLogTr)                  :: TraceNew
    real(KINDR)                   :: throwaway
-   type(TOperPointer)            :: begin,end
+   type(TOperPointer)            :: begin, endp
    integer                       :: iO,i,FPos(2)
    real(KINDR)                   :: rand,prefact
    real(KINDR)                   :: BosTraceNew
@@ -5263,8 +5263,8 @@ subroutine StepWormRem(Sector)
 
    ! determine substring of trace that needs quantum number checking
    begin%p => Oper(1)%p%prev
-   end%p => Oper(size(Oper))%p%next
-   call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+   endp%p => Oper(size(Oper))%p%next
+   call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
    
    !we now remove the oper pairs
    do i=1,NOperWorm(Sector),2
@@ -5273,7 +5273,7 @@ subroutine StepWormRem(Sector)
 
    call save_outer_sst(DTrace)
    !now we can check the quantum number violations
-   if (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst)) then
+   if (.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst)) then
       call restore_outer_sst(DTrace)
      !if we violate quantum numbers we need to insert operators again before exiting
      do i=1,NOperWorm(Sector),2
@@ -5365,7 +5365,7 @@ subroutine StepWormHybAdd(Sector,flavor)
 !local
    integer                       :: begin_sst,end_sst
    type(TLogTr)                  :: TraceNew
-   type(TOperPointer)            :: begin,end
+   type(TOperPointer)            :: begin, endp
    integer                       :: iO,i,FPos(4)
    real(KINDR)                   :: BosTraceNew
    real(KINDR)                   :: rand,prefact
@@ -5439,16 +5439,16 @@ subroutine StepWormHybAdd(Sector,flavor)
       begin%p => Oper(3)%p%prev
    end if
    if (Oper(2)%p%tau > Oper(4)%p%tau) then
-      end%p => Oper(2)%p%next
+      endp%p => Oper(2)%p%next
    else
-      end%p => Oper(4)%p%next
+      endp%p => Oper(4)%p%next
    end if
-   call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+   call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
 
    call save_outer_sst(DTrace)
    !now we can check the quantum number violations
    if((.not.check_EqualTime(DTrace,Sector))&
-       .or. (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst))) then
+       .or. (.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst))) then
       call restore_outer_sst(DTrace)
       !if we violate quantum numbers we need to remove operators again before exiting
       call remove_Oper(DTrace,Oper(1:2))
@@ -5591,7 +5591,7 @@ subroutine StepWormHybRem(Sector)
    
    integer                       :: begin_sst,end_sst
    type(TLogTr)                  :: TraceNew
-   type(TOperPointer)            :: begin,end
+   type(TOperPointer)            :: begin, endp
    integer                       :: iO,FPos(4)
    real(KINDR)                   :: rand,prefact
    real(KINDR)                   :: BosTraceNew
@@ -5636,15 +5636,15 @@ subroutine StepWormHybRem(Sector)
       begin%p => Oper(3)%p%prev
    end if
    if (Oper(2)%p%tau > Oper(4)%p%tau) then
-      end%p => Oper(2)%p%next
+      endp%p => Oper(2)%p%next
    else
-      end%p => Oper(4)%p%next
+      endp%p => Oper(4)%p%next
    end if
-   call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+   call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
    
    call save_outer_sst(DTrace)
    !now we can check the quantum number violations
-   if (.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst)) then
+   if (.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst)) then
       call restore_outer_sst(DTrace)
      !if we violate quantum numbers we need to insert operators again before exiting
      call insert_Oper(DTrace,Oper(3:4))
@@ -5951,7 +5951,7 @@ subroutine StepWormReplace(Sector)
    type(TLogTr)               :: TraceNew
    type(TOper),pointer        :: OperHyb
    type(TOper),pointer        :: Element
-   type(TOperPointer)         :: Oper(4), qtraceord(3), begin, end
+   type(TOperPointer)         :: Oper(4), qtraceord(3), begin, endp
    real(KINDR),pointer        :: u(:),vdag(:)
    logical                    :: force_diagonal=.true.,multimove=.false.
 
@@ -6260,19 +6260,19 @@ subroutine StepWormReplace(Sector)
       ! until after the new Q
       if (OperHyb%tau < DTrace%wormContainer(rand)%p%tau) then
          begin%p => qtraceord(1)%p%prev
-         end%p => DTrace%wormContainer(qrepind(maxloc(qtimeind(1:nobj), 1)))%p%next
+         endp%p => DTrace%wormContainer(qrepind(maxloc(qtimeind(1:nobj), 1)))%p%next
       else
          begin%p => DTrace%wormContainer(qrepind(minloc(qtimeind(1:nobj), 1)))%p%prev
-         end%p => qtraceord(nobj)%p%next
+         endp%p => qtraceord(nobj)%p%next
       end if
-      call get_current_ssts(DTrace, begin, end, begin_sst, end_sst)
+      call get_current_ssts(DTrace, begin, endp, begin_sst, end_sst)
 
       ! temporarily set the wormContainer pointers so check_EqualTime works
       do iN = 1, nobj
          DTrace%wormContainer(qrepind(iN))%p => qtraceord(qtimeind(iN))%p
       end do
       if (.not.check_EqualTime(DTrace,Sector)&
-          .or.(.not. check_sst_sequence(DTrace, DStates, begin, end, begin_sst, end_sst))) then
+          .or.(.not. check_sst_sequence(DTrace, DStates, begin, endp, begin_sst, end_sst))) then
          do iN = 1, nobj - 1
             DTrace%wormContainer(qrepind(iN))%p => Oper(iN)%p
          end do
