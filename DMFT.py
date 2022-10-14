@@ -203,6 +203,11 @@ if cfg["General"]["equiv"] is not None:
     log("Forcing equivalence to: %s", equiv_new)
     equiv = equiv_new[:]
 
+neq2at, at2neq = np.unique(equiv, return_inverse=True)
+nneq = len(neq2at)
+output.write_quantity("nneq", nneq)
+output.write_quantity("neq2at", neq2at)
+output.write_quantity("at2neq", at2neq)
 
 log("Checking if d-d blocks are diagonal in spin and orbital ...")
 epsoffdiag = cfg["General"]["EPSOFFDIAG"]
