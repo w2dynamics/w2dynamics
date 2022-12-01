@@ -130,6 +130,11 @@ def lattice_electrons(gdensnew, gdensnew_err=None):
     gdensnew = np.diagonal(np.trace(np.real(gdensnew), 0, -4, -2), 0, -2, -1)
     return (gdensnew[..., 0], gdensnew[..., 1], np.sum(gdensnew, axis=-1))
 
+def lattice_density(gdensnew, gdensnew_err=None):
+    """number of electrons in the lattice model per band and spin"""
+    # (..., orb, sp, orb, sp) -> (orb, sp)
+    return np.diagonal(np.diagonal(np.real(gdensnew), 0, -4, -2), 0, -3, -2)
+
 def sigmaiw_improved(gsigmaiw, giw, gsigmaiw_err=None, giw_err=None):
     """self energy in Matsubara expansion from improved estimators"""
     return divide(gsigmaiw, giw, gsigmaiw_err, giw_err)
@@ -718,6 +723,9 @@ derived_quantities = {
                         moment,
                         ["ineq","band1","band2"], ["value","error"],
                         ["occ"]
+                        ),
+    "latt-density": meta_from_func(lattice_density,
+                        ["lda-band", "spin"], ["value"]
                         ),
     "latt-electrons": meta_from_func(lattice_electrons,
                         [], ["spin-up", "spin-dn", "total"]
