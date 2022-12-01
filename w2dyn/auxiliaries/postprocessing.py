@@ -123,12 +123,13 @@ def impurity_electrons(occ, occ_err=None):
         return get_traces(occ), np.sqrt(get_traces(np.abs(occ_err)**2))
     else:
         return get_traces(occ)
-     
+
 def lattice_electrons(gdensnew, gdensnew_err=None):
-    """total number of electrons in the lattice model"""
-    band_sum = np.sum(gdensnew, -2)
-    return (band_sum[...,0], band_sum[...,1], np.sum(band_sum,-1))
-     
+    """number of electrons in the lattice model, total and per spin"""
+    # (..., orb, sp, orb, sp) -> (..., sp)
+    gdensnew = np.diagonal(np.trace(np.real(gdensnew), 0, -4, -2), 0, -2, -1)
+    return (gdensnew[..., 0], gdensnew[..., 1], np.sum(gdensnew, axis=-1))
+
 def sigmaiw_improved(gsigmaiw, giw, gsigmaiw_err=None, giw_err=None):
     """self energy in Matsubara expansion from improved estimators"""
     return divide(gsigmaiw, giw, gsigmaiw_err, giw_err)
@@ -719,7 +720,7 @@ derived_quantities = {
                         ["occ"]
                         ),
     "latt-electrons": meta_from_func(lattice_electrons,
-                        ["ineq"], ["spin-up", "spin-dn", "total"]
+                        [], ["spin-up", "spin-dn", "total"]
                         ),
     "chi-ph": meta_from_func(get_chi_ph,
                         ['ineq','band1','spin1','band2','spin2','iwf-g4','iwf-g4','iwb-g4'],
