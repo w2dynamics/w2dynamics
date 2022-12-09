@@ -172,7 +172,7 @@ subroutine qns2substates(this, nsubstates, states2substates)
       inner: do st2 = st1, this%nstates-1
          hst2 = this%StatesSStates(st2,1)
          if(states2substates(hst2).ne.-1)cycle inner
-         if(index(QNs,"Nt").ne.0.and..not.eq(get_Nt(this,hst1),get_Nt(this,hst2)))cycle inner
+         if( index(QNs,"Nt").ne.0.and.(get_Nt(this,hst1) .ne. get_Nt(this,hst2))) cycle inner
          if(index(QNs,"Szt").ne.0.and..not.eq(get_Szt(this,hst1),get_Szt(this,hst2)))cycle inner
          if(index(QNs,"Qzt").ne.0.and..not.eq(get_Qzt(this,hst1),get_Qzt(this,hst2)))cycle inner
          if(index(QNs,"Azt").ne.0.and..not.eq(get_Azt(this,hst1),get_Azt(this,hst2)))cycle inner
@@ -185,18 +185,18 @@ end subroutine qns2substates
 
 
 !===============================================================================
-real(KINDR) function get_Nt(this,State)
+integer function get_Nt(this, State)
 !===============================================================================
    type(TStates)                       :: this
 !input
    integer,intent(in)                  :: State
 !local
-   integer                             :: iB,iS
-   get_Nt=0d0
-   do iB=0,this%NBands-1
-   do iS=0,1
-      if(btest(State,iB+this%NBands*iS))get_Nt=get_Nt+1d0
-   enddo
+   integer                             :: iB
+
+   get_Nt = 0
+   do iB = 0, this%NBands-1
+      if(btest(State,iB              )) get_Nt=get_Nt+1
+      if(btest(State,iB + this%NBands)) get_Nt=get_Nt+1
    enddo
 end function get_Nt
 
@@ -369,7 +369,7 @@ subroutine print_States(this)
    
    do iSt=0,this%NStates-1
       write(stdout,'("State: ",2I5)')this%StatesSStates(iSt,1),iSt
-      write(chr,'("|",2f5.1,"> ")')get_Nt(this,this%StatesSStates(iSt,1)),get_Szt(this,this%StatesSStates(iSt,1))
+      write(chr,'("|",2f5.1,"> ")')real(get_Nt(this,this%StatesSStates(iSt,1))),get_Szt(this,this%StatesSStates(iSt,1))
       write(stdout,*)chr,get_OccStr(this,this%StatesSStates(iSt,1))
    enddo
 end subroutine print_States
@@ -386,7 +386,7 @@ subroutine print_JanStates(this)
    do iSSt=0,this%NSStates-1
       do iSt=0,this%SubStates(iSSt)%NStates-1
          write(chr,'(I5,f6.2,7I4)')&
-         int(get_Nt(this,this%SubStates(iSSt)%States(iSt))),get_Szt(this,this%SubStates(iSSt)%States(iSt)),&
+         get_Nt(this,this%SubStates(iSSt)%States(iSt)),get_Szt(this,this%SubStates(iSSt)%States(iSt)),&
          get_t2g_up(this%SubStates(iSSt)%States(iSt)),get_t2g_do(this,this%SubStates(iSSt)%States(iSt)),&
          get_eg_up(this%SubStates(iSSt)%States(iSt)),get_eg_do(this,this%SubStates(iSSt)%States(iSt)),&
          iSSt,iSt,this%SubStates(iSSt)%Offset+iSt
@@ -406,7 +406,7 @@ subroutine print_SubStates(this)
 
 
    do iSSt=0,this%NSStates-1
-      write(stdout,'("Nt: ",f5.2,", Szt: ",f5.2,"; NStates: ",I3,"; ISSt: ",I3," ;")',advance="no")&
+      write(stdout,'("Nt: ",I5,", Szt: ",f5.2,"; NStates: ",I3,"; ISSt: ",I3," ;")',advance="no")&
          get_Nt(this,this%SubStates(iSSt)%States(0)),&
          get_Szt(this,this%SubStates(iSSt)%States(0)),&
          this%SubStates(iSSt)%NStates,&
@@ -448,7 +448,7 @@ subroutine print_densitymatrix_basis(this, iter_no)
    do iE=0,size(this%SubStates(iSSt)%States)-1
 
       write(345,'("Nt: ",f5.2," , Szt: ",f5.2," , Qzt: ",f12.2," ; NStates: ",I4," , ISSt: ",I4," , integer repr.: ",I4," , state: ")',advance="no")&
-         get_Nt(this,this%SubStates(iSSt)%States(iE)),&
+         real(get_Nt(this,this%SubStates(iSSt)%States(iE))),&
          get_Szt(this,this%SubStates(iSSt)%States(iE)),&
          get_Qzt(this,this%SubStates(iSSt)%States(iE)),&
          this%SubStates(iSSt)%NStates,&
