@@ -2811,8 +2811,7 @@ subroutine MeasureS2_from_densitymatrix()
 !===============================================================================
 
     real(kindr), allocatable  :: tempmat(:, :)
-    integer                   :: iSSt, iSt, offset, NStates_sst
-    real(kindr) :: Nelectrons
+    integer                   :: iSSt, iSt, offset, NStates_sst, Nelectrons
 
     do iSSt=0,DStates%NSStates-1
 
