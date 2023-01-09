@@ -105,7 +105,7 @@ class MaxEntBase:
    
    def computeGrid(self):
       #creating w-grid for the three regions
-      self.grid=np.zeros((self.NGrid),dtype=np.float)
+      self.grid=np.zeros((self.NGrid),dtype=np.double)
       self.grid[:self.NGrid1]=np.linspace(self.wmin,self.w1,num=self.NGrid1,endpoint=False)
       self.grid[self.NGrid1:self.NGrid1+self.NGrid2]=np.linspace(self.w1,self.w2,num=self.NGrid2,endpoint=True)
       self.grid[-self.NGrid3:]=np.linspace(self.wmax,self.w2,num=self.NGrid3,endpoint=False)[::-1]
@@ -122,7 +122,7 @@ class MaxEntBase:
       self.grid = np.zeros(self.NGrid,dtype=float,order='F')
       self.model = np.zeros(self.NGrid,dtype=float,order='F')
       self.spec = np.zeros(self.NGrid,dtype=float,order='F')
-      self.gws = np.zeros(self.NGrid,dtype=np.complex,order='F')
+      self.gws = np.zeros(self.NGrid,dtype=np.cdouble,order='F')
 
    def computeSpec(self):
       #f2py call

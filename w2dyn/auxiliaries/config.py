@@ -110,7 +110,7 @@ def lattice_from_cfg(cfg):
         hk, _ = _input.read_hamiltonian(hkfile, has_spin_orbit)
         mylattice = lattice.KspaceHamiltonian(beta, hk)
     elif latt_type == 'Bethe' or latt_type == 'semicirc':
-        half_bw = np.array(cfg["General"]["half-bandwidth"], np.float)
+        half_bw = np.array(cfg["General"]["half-bandwidth"], np.double)
         half_bw = half_bw[:, np.newaxis].repeat(2, 1)
 
         # set "crystal field" terms

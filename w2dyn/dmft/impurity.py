@@ -161,7 +161,7 @@ class ImpurityProblem:
         self.use_screening = screening is not None
         if not self.use_screening:
             screening = np.zeros((self.nftau, self.norbitals, self.nspins,
-                                  self.norbitals, self.nspins), np.complex)
+                                  self.norbitals, self.nspins), np.cdouble)
         self.screening = screening
         self.verify()
 
@@ -716,7 +716,7 @@ class CtHybSolver(ImpuritySolver):
 
         if int(self.config['QMC']['WormSearchEta']) == 1:
             # Patrik's eta search: bisection (?)
-            ctqmc.wormeta[:] = np.float(self.config['QMC']['WormEta'])
+            ctqmc.wormeta[:] = np.double(self.config['QMC']['WormEta'])
             max_iter = 50
             for i_try in range(max_iter):
                 steps_worm = np.array(0, dtype=np.int)

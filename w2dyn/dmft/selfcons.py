@@ -194,7 +194,7 @@ class DMFTStep:
             smom_dd = []
             for ineq in self.ineq_list:
                 siw_block = np.zeros((self.niwf, ineq.nd, nspins, ineq.nd, 
-                                      nspins), np.complex)
+                                      nspins), np.cdouble)
                 if not self.paramag:
                     siw_block[:,:,0,:,0] += .5 * ineq.se_shift
                     siw_block[:,:,1,:,1] -= .5 * ineq.se_shift

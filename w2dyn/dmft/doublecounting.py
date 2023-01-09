@@ -278,7 +278,7 @@ class Trace(SelfConsistent):
             # TODO: this is tied to diagonal hybr
             dens_impurity = orbspin.promote_diagonal(
                         orbspin.extract_diagonal(occ))
-            dens_impurity = np.array(dens_impurity).astype(np.float)
+            dens_impurity = np.array(dens_impurity).astype(np.double)
             dens_impurity = np.sum(dens_impurity)
 
             # we do not use the non interacting density from Weiss field

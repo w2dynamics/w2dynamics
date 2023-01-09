@@ -32,7 +32,7 @@ def kkt(aws, ws, integrator=scipy.integrate.simps):
 
 def aws_to_gws(aws, ws):
     """Takes A(w) and computes the (complex) G(w) using a KKT."""
-    gws = np.empty(shape=aws.shape, dtype=np.complex)
+    gws = np.empty(shape=aws.shape, dtype=np.cdouble)
     gws.real = kkt(aws, ws)
     gws.imag = -np.pi*aws
     return gws
@@ -84,7 +84,7 @@ def get_gw_jac(sigma, wplusmu, hk, gtarget=None, jac=False):
     """ Returns G for a diagonal Sigma plus the Jacobian dG/dSigma for one w """
     print(" sigma(w) =", cformat("%10g%+10gj ", sigma), end=' ')
     denom = np.diag(wplusmu - sigma)
-    gw = np.zeros(shape=(sigma.size,sigma.size), dtype=np.complex)
+    gw = np.zeros(shape=(sigma.size,sigma.size), dtype=np.cdouble)
     
     # do the k summation
     if jac:
@@ -117,7 +117,7 @@ class wrapper_folding:
     def __init__(self, func, folding, const_sigmas):
         self.func = func
         self.mapping = np.asarray(folding, dtype=np.int)
-        self.const_sigmas = np.asarray(const_sigmas, dtype=np.complex)
+        self.const_sigmas = np.asarray(const_sigmas, dtype=np.cdouble)
         unique, inverse = np.unique(self.mapping, return_index=True)
         self.inv_mapping = inverse[(unique[0] == -1):]
         assert self.mapping.size == self.const_sigmas.size

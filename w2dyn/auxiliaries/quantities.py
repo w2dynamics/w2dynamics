@@ -661,14 +661,14 @@ class FieldContainer:
 class RealContainer(FieldContainer):
     def __init__(self, node):
         FieldContainer.__init__(self, node)
-        self.dtype = np.float
+        self.dtype = np.double
     def __getitem__(self, selector):
         return FieldContainer.__getitem__(self,selector).real
 
 class ImagContainer(FieldContainer):
     def __init__(self, node):
         FieldContainer.__init__(self, node)
-        self.dtype = np.float
+        self.dtype = np.double
     def __getitem__(self, selector):
         return FieldContainer.__getitem__(self,selector).imag
 
