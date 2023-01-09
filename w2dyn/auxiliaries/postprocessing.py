@@ -232,7 +232,7 @@ def meta_from_func(func, axes, fields=["value"], base=None):
     if base is None:
         base = []
         error_mode = False
-        for arg in inspect.getargspec(func).args:
+        for arg in inspect.getfullargspec(func).args:
             if arg.endswith("_err"): 
                 error_mode = True
                 continue
