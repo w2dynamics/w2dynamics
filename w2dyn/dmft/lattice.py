@@ -408,7 +408,7 @@ class KspaceHamiltonian(Lattice):
             eigv[...] = np.nan
             for iiw, z_fixiw in enumerate(ziw):
                 eigv[iiw] = _linalg.eigvals(z_fixiw - hk)
-            return eigv.reshape(niw, -1)
+            return eigv.reshape(niw, np.prod(result_shape[1:]))
 
         def __init__(self, lattice, iw, siw, smom, strategy):
             Lattice.TraceFactory.__init__(self, lattice, iw, siw, smom, strategy)
