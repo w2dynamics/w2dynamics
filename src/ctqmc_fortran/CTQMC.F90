@@ -8383,6 +8383,13 @@ subroutine ctqmc_measure(iSector,iComponent)
    real(c_double), pointer    :: buffer1d(:), buffer2d(:,:)
    integer                    :: i_sample, max_tick
 
+   if (iSector == SectorZ) then
+      if (SimID == 0 .and. PercentageWormInsert /= 0.0d0) then
+         write (*, *) "WARNING: ignoring PercentageWormInsert != 0.0 because this is a pure Z-space run"
+      end if
+      PercentageWormInsert = 0.0d0
+   end if
+
    if (allocated(AccPair)) then
       deallocate(AccPair)
       allocate(AccPair(NBands, 2, NGtau))
