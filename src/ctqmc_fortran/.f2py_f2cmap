@@ -1,1 +1,1 @@
-{'real':{'kindr':'double', 'kind(0.d0)':'double', 'c_double':'double'},'complex':{'kindc':'complex_double', 'kind(0.d0)':'complex_double', 'c_double_complex':'complex_double'},'integer':{'c_int64_t':'long_long', 'c_long':'long', 'c_int':'int'}}
+{'real':{'kindr':'double', 'kind(0.d0)':'double', 'c_double':'double'},'complex':{'kindc':'complex_double', 'kind(0.d0)':'complex_double', 'c_double_complex':'complex_double'},'integer':{'c_long_long':'long_long', 'c_int64_t':'long_long', 'c_long':'long', 'c_int':'int'}}
