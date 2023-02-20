@@ -719,8 +719,8 @@ class CtHybSolver(ImpuritySolver):
             ctqmc.wormeta[:] = np.double(self.config['QMC']['WormEta'])
             max_iter = 50
             for i_try in range(max_iter):
-                steps_worm = np.array(0, dtype=int)
-                steps_z = np.array(0, dtype=int)
+                steps_worm = np.array(0, dtype=np.longlong)
+                steps_z = np.array(0, dtype=np.longlong)
                 ctqmc.count_steps(isector, icomponent, WormWarmups, steps_worm, steps_z)
                 if not (steps_worm + steps_z == WormWarmups):
                     raise ValueError('{} steps in worm, {} steps in Z, '
@@ -750,8 +750,8 @@ class CtHybSolver(ImpuritySolver):
                 to get the number of steps in Z and worm space
                 for a given eta. 
                 '''
-                steps_worm = np.array(0, dtype=int)
-                steps_z = np.array(0, dtype=int)
+                steps_worm = np.array(0, dtype=np.longlong)
+                steps_z = np.array(0, dtype=np.longlong)
                 ctqmc.wormeta[:] = eta # TODO: is it impossible to set a single array element?
                 ctqmc.count_steps(isector, icomponent, WormWarmups, steps_worm, steps_z)
                 if not (steps_worm + steps_z == WormWarmups):

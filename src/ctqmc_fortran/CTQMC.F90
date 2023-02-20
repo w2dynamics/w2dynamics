@@ -6309,7 +6309,7 @@ subroutine count_steps(iSector, iComponent, Nfix, stepsWorm, stepsZ)
   integer :: iSector, iComponent, Nfix
   integer                    :: maxIter
 
-  integer, intent(inout) :: stepsWorm, stepsZ
+  integer(c_long_long), intent(inout) :: stepsWorm, stepsZ
 
 !local
   real(KINDR)                :: rand_num
