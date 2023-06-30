@@ -116,7 +116,7 @@ class wrapper_folding:
     """Consider only some bands and set rest of self-energies to small value"""
     def __init__(self, func, folding, const_sigmas):
         self.func = func
-        self.mapping = np.asarray(folding, dtype=np.int)
+        self.mapping = np.asarray(folding, dtype=int)
         self.const_sigmas = np.asarray(const_sigmas, dtype=np.cdouble)
         unique, inverse = np.unique(self.mapping, return_index=True)
         self.inv_mapping = inverse[(unique[0] == -1):]

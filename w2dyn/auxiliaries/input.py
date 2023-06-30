@@ -312,7 +312,7 @@ def read_hamiltonian(hk_file, spin_orbit=False):
     if header[0] == 'VERSION':
         warn("Version 2 headers are obsolete (specify in input file!)")
         nkpoints, natoms = map(int, nextline())
-        lines = np.array([nextline() for _ in range(natoms)], np.int)
+        lines = np.array([nextline() for _ in range(natoms)], int)
         nbands = np.sum(lines[:,:2])
         del lines, natoms
     elif len(header) != 3:

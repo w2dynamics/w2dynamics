@@ -407,7 +407,7 @@ class Fixed_dp_Distance():
     a=0
     for a in range(0,natoms):
       for b in range(0,np.asarray(siw_dd).shape[2]):
-        idx = np.int(b + a*dc.shape[0]/natoms)
+        idx = int(b + a*dc.shape[0]/natoms)
         #print '              DC Bands:', idx, a
         dc[idx,0,idx,0] = siw_t2g_real_avg
         dc[idx,1,idx,1] = siw_t2g_real_avg

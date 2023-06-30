@@ -21,7 +21,7 @@ def ineq_quantity(iter, qname, field=("value", "error"), ineq=None,
     if file_version is None:
         file_version = tuple(iter.parent.attrs["outfile-version"])
     try:
-        ineq = np.atleast_1d(np.asarray(ineq, dtype=np.int))
+        ineq = np.atleast_1d(np.asarray(ineq, dtype=int))
     except TypeError:
         if ineq is None: ineq = slice(None)
     if qname in iter:
