@@ -458,7 +458,7 @@ class DMFTStep:
 
             # GW Inclusion and Inclusion of GW 0th Moment  
             if (self.use_gw == 1) and (np.sum(self.siw_full) != 0):
-                norbitals_per_atom = np.int(self.lattice.norbitals/self.natoms)
+                norbitals_per_atom = int(self.lattice.norbitals/self.natoms)
                 orbits = slice( atom*norbitals_per_atom , (atom+1)*norbitals_per_atom )
                 # => Model based
                 if self.use_gw_kaverage == 0:    
