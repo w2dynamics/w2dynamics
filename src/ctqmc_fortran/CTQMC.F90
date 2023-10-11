@@ -5975,12 +5975,11 @@ subroutine StepWormReplace(Sector)
       !we only exchange the operators which are not equal time operators
       rand=randint(4, size(DTrace%wormContainer(4:)) + 3)
    elseif(Sector .eq. SectorP3) then
-     !we only exchange the operators which are not equal time operators
-      rand=randint(1, 2)
+      rand = randint(1, 4)
+      if (rand > 2) nobj = 2
    elseif(Sector .eq. SectorP3pp) then
-      !we only exchange the operators which are not equal time operators
-      rand=randint(1, 2)
-      if(rand.eq.2) rand=3
+      rand = randint(1, 4)
+      if(modulo(rand, 2) == 0) nobj = 2
    !we do not attempt replacment moves for two legged GF
    elseif (Sector == SectorQQ) then
       ! move parts of three-operator object
@@ -6131,7 +6130,9 @@ subroutine StepWormReplace(Sector)
       ! moved (and always in trace order). qtimeind contains the
       ! positions in trace order ("ascending tau") of the three
       ! operators with indices qrepind in the equal time three
-      ! operator sequence.
+      ! operator sequence (i.e. qtimeind[i] < qtimeind [j] =>
+      ! wormContainer[qrepind[i]]%tau < wormContainer[qrepind[j]]%tau
+      ! by epsilon -> 0+).
       multimove = .true.
       select case (rand)
       case (1)
@@ -6193,6 +6194,30 @@ subroutine StepWormReplace(Sector)
       case (6)
          qrepind = (/5, 4, 6/)
          qtimeind = (/1, 3, 2/)
+      end select
+   else if (Sector == SectorP3 .and. nobj > 1) then
+      ! same as above, but only the first one is moved and the third place is unused
+      multimove = .true.
+      select case (rand)
+      ! huge to provoke segmentation fault as much as possible in case of programmer error
+      case (3)
+         qrepind = (/4, 3, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      case (4)
+         qrepind = (/3, 4, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
+      end select
+   else if (Sector == SectorP3pp .and. nobj > 1) then
+      ! same as above, but only the first one is moved and the third place is unused
+      multimove = .true.
+      select case (rand)
+      ! huge to provoke segmentation fault as much as possible in case of programmer error
+      case (2)
+         qrepind = (/4, 2, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      case (4)
+         qrepind = (/2, 4, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
       end select
    else if (Sector == SectorUccaa) then
       ! same as above, but only the first one is moved and the third place is unused
