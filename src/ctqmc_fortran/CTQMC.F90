@@ -5967,8 +5967,10 @@ subroutine StepWormReplace(Sector)
    !select one of the two worm operators for exchange
    if(Sector .eq. SectorG .or. Sector .eq. SectorG4) then
       rand=randint(1, size(DTrace%wormContainer))
-   elseif(Sector .eq. SectorGSigma &
-     .or. Sector .eq. SectorH4 &
+   else if (Sector .eq. SectorGSigma) then
+      rand = randint(1, 4)
+      if (rand /= 4) nobj = 3  ! part of Q selected
+   elseif(Sector .eq. SectorH4 &
      .or. Sector .eq. SectorQUDdag) then ! I hope this works for QUDdag
       !we only exchange the operators which are not equal time operators
       rand=randint(4, size(DTrace%wormContainer(4:)) + 3)
@@ -6079,7 +6081,7 @@ subroutine StepWormReplace(Sector)
    wca=DTrace%wormContainer(rand)%p%CA
 
    ! TODO: someone should look into this more carefully
-   if(b_offdiag .and. .not. (Sector == SectorQQ .or. Sector == SectorQ4 .or. Sector == SectorUccaa .or. Sector == SectorUcaca .or. Sector == SectorNQQdag)) then
+   if(b_offdiag .and. .not. (Sector == SectorGSigma .or. Sector == SectorQQ .or. Sector == SectorQ4 .or. Sector == SectorUccaa .or. Sector == SectorUcaca .or. Sector == SectorNQQdag)) then
       N=(DTrace%NOper-size(DTrace%wormContainer))/2
    else
       N=DTrace%NOSOper(wb,ws)/2
@@ -6227,6 +6229,21 @@ subroutine StepWormReplace(Sector)
       case (4)
          qrepind = (/3, 4, huge(qrepind(1))/)
          qtimeind = (/1, 2, huge(qtimeind(1))/)
+      end select
+   else if (Sector == SectorGSigma .and. rand /= 4) then
+      ! same as for QQ, but only the first three indices are Q (and 4
+      ! is of a single operator handled like part of G)
+      multimove = .true.
+      select case (rand)
+      case (1)
+         qrepind = (/3, 2, 1/)
+         qtimeind = (/2, 3, 1/)
+      case (2)
+         qrepind = (/1, 3, 2/)
+         qtimeind = (/1, 2, 3/)
+      case (3)
+         qrepind = (/1, 2, 3/)
+         qtimeind = (/1, 3, 2/)
       end select
    else
       multimove = .false. ! just to be very explicit
