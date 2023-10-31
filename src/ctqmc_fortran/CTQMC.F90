@@ -5974,13 +5974,15 @@ subroutine StepWormReplace(Sector)
      .or. Sector .eq. SectorQUDdag) then ! I hope this works for QUDdag
       !we only exchange the operators which are not equal time operators
       rand=randint(4, size(DTrace%wormContainer(4:)) + 3)
+   else if (Sector == SectorP2 .or. Sector == SectorP2pp) then
+      rand = randint(1, 4)
+      nobj = 2
    elseif(Sector .eq. SectorP3) then
       rand = randint(1, 4)
       if (rand > 2) nobj = 2
    elseif(Sector .eq. SectorP3pp) then
       rand = randint(1, 4)
       if(modulo(rand, 2) == 0) nobj = 2
-   !we do not attempt replacment moves for two legged GF
    elseif (Sector == SectorQQ) then
       ! move parts of three-operator object
       nobj = 3
@@ -6194,6 +6196,42 @@ subroutine StepWormReplace(Sector)
       case (6)
          qrepind = (/5, 4, 6/)
          qtimeind = (/1, 3, 2/)
+      end select
+   else if (Sector == SectorP2) then
+      ! same as above, but only the first one is moved and the third place is unused
+      multimove = .true.
+      select case (rand)
+      ! huge to provoke segmentation fault as much as possible in case of programmer error
+      case (1)
+         qrepind = (/2, 1, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      case (2)
+         qrepind = (/1, 2, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
+      case (3)
+         qrepind = (/4, 3, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      case (4)
+         qrepind = (/3, 4, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
+      end select
+   else if (Sector == SectorP2pp) then
+      ! same as above, but only the first one is moved and the third place is unused
+      multimove = .true.
+      select case (rand)
+      ! huge to provoke segmentation fault as much as possible in case of programmer error
+      case (1)
+         qrepind = (/3, 1, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      case (2)
+         qrepind = (/4, 2, huge(qrepind(1))/)
+         qtimeind = (/1, 2, huge(qtimeind(1))/)
+      case (3)
+         qrepind = (/1, 3, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
+      case (4)
+         qrepind = (/2, 4, huge(qrepind(1))/)
+         qtimeind = (/2, 1, huge(qtimeind(1))/)
       end select
    else if (Sector == SectorP3 .and. nobj > 1) then
       ! same as above, but only the first one is moved and the third place is unused
