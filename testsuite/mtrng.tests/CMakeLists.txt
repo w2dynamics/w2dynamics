@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.9)
+cmake_minimum_required(VERSION 3.0)
 Project(mtrng.tests Fortran CXX)
 
 add_executable(1-basic-call 1-basic-call.F90)

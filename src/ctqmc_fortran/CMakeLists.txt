@@ -90,9 +90,15 @@ endif (USE_NFFT)
 
   # Define the command to generate the Fortran to Python interface module. The
   # output will be a shared library that can be imported by python.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
+    set(F2PY_EXTRA_CFLAGS "CFLAGS=-Wno-error=incompatible-function-pointer-types $$CFLAGS")
+  else()
+    set(F2PY_EXTRA_CFLAGS "--")
+  endif()
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}"
     COMMAND ${CMAKE_COMMAND} -E copy "${SRCCTQMC}/.f2py_f2cmap" "${CMAKE_CURRENT_BINARY_DIR}/.f2py_f2cmap"
-    COMMAND ${PYTHON_EXECUTABLE} -m numpy.f2py -c $<$<CONFIG:RELEASE>:--quiet> -m ${_name}
+    COMMAND ${CMAKE_COMMAND} -E env "${F2PY_EXTRA_CFLAGS}"
+      ${PYTHON_EXECUTABLE} -m numpy.f2py -c $<$<CONFIG:RELEASE>:--quiet> -m ${_name}
       --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
       ${_fcompiler_opts}
       ${LIB}/libmtrng.a
