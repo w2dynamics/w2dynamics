@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.9)
+cmake_minimum_required(VERSION 3.0)
 Project(maxent.tests Fortran)
 find_package(PythonLibs REQUIRED)
 add_library(MAXENTMAIN STATIC ${SRCMAXENT}/MaximumEntropy.F90)
