@@ -2,18 +2,23 @@ name: Build
 
 on: [push, pull_request]
 
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: 2
+  CTEST_PARALLEL_LEVEL: 2
+  CTEST_OUTPUT_ON_FAILURE: 1
+
 jobs:
   build:
 
-    runs-on: ${{ matrix.os }}
-
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: [2.x, 3.x]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v4
 
     - name: Install required dependencies using apt-get
       if: matrix.os == 'ubuntu-latest'
@@ -22,36 +27,20 @@ jobs:
     - name: Install required dependencies using brew
       if: matrix.os == 'macos-latest'
       run: |
-        brew install fftw hdf5
+        brew install gcc fftw hdf5 wentzell/triqs/nfft
+        echo "PATH=$(brew --prefix)/opt/gcc/bin:$PATH" >> $GITHUB_ENV
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v2
+    - name: Set up Python
+      uses: actions/setup-python@v4
       with:
-        python-version: ${{ matrix.python-version }}
+        python-version: '3.11' # 3.12 removed distutils
 
     - name: Configure
-      if: matrix.python-version != '2.x'
       run: |
         cmake -B build \
-              -DCMAKE_Fortran_COMPILER=gfortran-10 \
-              -DCMAKE_C_COMPILER=gcc-10 \
-              -DCMAKE_CXX_COMPILER=g++-10
-
-    - name: Configure (use python2)
-      if: matrix.python-version == '2.x'
-      run: |
-        cmake -B build \
-              -DPYTHON_EXECUTABLE=`which python2` \
-              -DCMAKE_Fortran_COMPILER=gfortran-10 \
-              -DCMAKE_C_COMPILER=gcc-10 \
-              -DCMAKE_CXX_COMPILER=g++-10
-
-    - name: Cache NFFT
-      uses: actions/cache@v2
-      if: matrix.os != 'ubuntu-latest'
-      with:
-        path: build/nfft_local
-        key: ${{ runner.os }}-nfft
+              -DCMAKE_Fortran_COMPILER=gfortran \
+              -DCMAKE_C_COMPILER=gcc \
+              -DCMAKE_CXX_COMPILER=g++
 
     - name: Build
       run: cmake --build build
