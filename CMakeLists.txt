@@ -4,7 +4,7 @@
 # Define the project and the dependencies that it has
 ##################################################
 
-CMAKE_MINIMUM_REQUIRED(VERSION 3.0)
+CMAKE_MINIMUM_REQUIRED(VERSION 3.18)
 PROJECT(ctqmc Fortran CXX C)
 if(POLICY CMP0074)
   cmake_policy(SET CMP0074 NEW)
@@ -94,8 +94,32 @@ IF(NOT NUMPY_FOUND)
     if (${ERRORCODE})
     MESSAGE(FATAL_ERROR "Couldn't install numpy -> ABORTING!!!")
     endif()
+    install_via_pip("setuptools" ERRORCODE)
+    if (${ERRORCODE})
+    MESSAGE(FATAL_ERROR "Couldn't install setuptools -> ABORTING!!!")
+    endif()
+    install_via_pip("meson" ERRORCODE)
+    if (${ERRORCODE})
+    MESSAGE(FATAL_ERROR "Couldn't install meson -> ABORTING!!!")
+    endif()
 ENDIF()
 
+find_package(
+  Python
+  COMPONENTS Interpreter Development.Module NumPy
+  REQUIRED)
+
+# F2PY headers
+execute_process(
+  COMMAND "${PYTHON_EXECUTABLE}" -c
+          "import numpy.f2py; print(numpy.f2py.get_include())"
+  OUTPUT_VARIABLE F2PY_INCLUDE_DIR
+  OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+add_library(fortranobject OBJECT "${F2PY_INCLUDE_DIR}/fortranobject.c")
+target_link_libraries(fortranobject PUBLIC Python::NumPy)
+target_include_directories(fortranobject PUBLIC "${F2PY_INCLUDE_DIR}")
+set_property(TARGET fortranobject PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 find_package(H5PY)
 find_package(HDF5 1.6 COMPONENTS Fortran)# enforce the availability of the Fortran bindings. FIXME: Test on a suitable computer
@@ -158,8 +182,6 @@ if(NOT CONFIGOBJ_FOUND)
     MESSAGE(FATAL_ERROR "Couldn't install configobj(required for DMFT.py) -> ABORTING!!!")
     endif()
 endif()
-#set up some common F2PY Variables
-INCLUDE(${CMAKE_MODULE_PATH}/SetupF2Py.cmake)
 
 # Define the executable name
 SET(CTQMCEXE ctqmc)
