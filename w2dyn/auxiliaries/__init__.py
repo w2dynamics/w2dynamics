@@ -19,7 +19,7 @@ BANNER = r"""
                                        Version %s, %s
 """
 
-CODE_VERSION = 1, 1, "3"
+CODE_VERSION = 1, 1, "4"
 CODE_VERSION_STRING = ".".join(map(str,CODE_VERSION))
-CODE_DATE = "July 2022"
+CODE_DATE = "November 2023"
 OUTPUT_VERSION = 2, 2
