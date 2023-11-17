@@ -67,33 +67,20 @@ set(EXTERNAL_LIBRARIES ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
   # Define the command to generate the Fortran to Python interface module. The
   # output will be a shared library that can be imported by python.
   set(ADDITIONAL_OPTS -fPIC -DLAPACK77_Interface)
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
-      set(F2PY_EXTRA_CFLAGS "CFLAGS=-Wno-error=incompatible-function-pointer-types $$CFLAGS")
-    else()
-      set(F2PY_EXTRA_CFLAGS "")
-    endif()
-    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}"
-      COMMAND ${CMAKE_COMMAND} -E copy "${SRCMAXENT}/.f2py_f2cmap" "${CMAKE_CURRENT_BINARY_DIR}/.f2py_f2cmap"
-      COMMAND ${CMAKE_COMMAND} -E env "${F2PY_EXTRA_CFLAGS}"
-        ${PYTHON_EXECUTABLE} -m numpy.f2py -c $<$<CONFIG:RELEASE>:--quiet> -m ${_name}
-        --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
-        ${_fcompiler_opts} --opt="${ADDITIONAL_OPTS}" ${_inc_opts}
-        ${EXTERNAL_LIBRARIES}
-        ${CMAKE_THREAD_LIBS_INIT} $<TARGET_LINKER_FILE:MAXENTLIB> ${SRCMAXENT}/MaximumEntropy.F90
-      DEPENDS "${SRCMAXENT}/MaximumEntropy.F90" "${SRCMAXENT}/.f2py_f2cmap" MAXENTLIB
-      WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-      COMMENT "[F2PY] Building Fortran to Python interface module ${_name}")
-  # Add a custom target <name> to trigger the generation of the python module.
-  add_custom_target(${_name} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
-  # MAXENT.so is generated in the source directory since f2py doesn't allow to specify the output directory of the object file.
-  # Therefore we have to move it
-  add_custom_command(TARGET ${_name} POST_BUILD 
-                    COMMAND ${CMAKE_COMMAND} -E copy
-                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/maxent/${_name}${F2PY_SUFFIX}"
-		    COMMAND ${CMAKE_COMMAND} -E remove
-                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
+  add_custom_command(
+    OUTPUT ${_name}module.c ${_name}-f2pywrappers.f
+    DEPENDS MaximumEntropy.F90 .f2py_f2cmap
+    VERBATIM
+    COMMAND "${Python_EXECUTABLE}" -m numpy.f2py
+            "${CMAKE_CURRENT_SOURCE_DIR}/MaximumEntropy.F90" -m ${_name} --lower
+            --f2cmap "${CMAKE_CURRENT_SOURCE_DIR}/.f2py_f2cmap")
 
-  add_dependencies(${_name} MAXENTLIB)
+  python_add_library(${_name} MODULE "${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/MaximumEntropy.F90" WITH_SOABI)
+  set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c" PROPERTIES
+    COMPILE_OPTIONS $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,16>>:-Wno-error=incompatible-function-pointer-types>)
+  target_link_libraries(${_name} PRIVATE fortranobject)
+  target_link_libraries(${_name} PUBLIC MAXENTLIB)
 
 #####################################
 # Tell how to install this executable

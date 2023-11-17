@@ -90,38 +90,20 @@ endif (USE_NFFT)
 
   # Define the command to generate the Fortran to Python interface module. The
   # output will be a shared library that can be imported by python.
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
-    set(F2PY_EXTRA_CFLAGS "CFLAGS=-Wno-error=incompatible-function-pointer-types $$CFLAGS")
-  else()
-    set(F2PY_EXTRA_CFLAGS "")
-  endif()
-  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}"
-    COMMAND ${CMAKE_COMMAND} -E copy "${SRCCTQMC}/.f2py_f2cmap" "${CMAKE_CURRENT_BINARY_DIR}/.f2py_f2cmap"
-    COMMAND ${CMAKE_COMMAND} -E env "${F2PY_EXTRA_CFLAGS}"
-      ${PYTHON_EXECUTABLE} -m numpy.f2py -c $<$<CONFIG:RELEASE>:--quiet> -m ${_name}
-      --build-dir "${CMAKE_Fortran_MODULE_DIRECTORY}"
-      ${_fcompiler_opts}
-      ${LIB}/libmtrng.a
-      ${CPPSTDLIBRARY}
-      ${CMAKE_THREAD_LIBS_INIT} ${_inc_opts} $<TARGET_LINKER_FILE:CTQMCLIB> ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} ${NFFT_LIBRARIES} ${FFTW_LIBRARIES} ${SRCCTQMC}/CTQMC.F90
-    DEPENDS "${SRCCTQMC}/CTQMC.F90" "${SRCCTQMC}/.f2py_f2cmap" CTQMCLIB
-    WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-    COMMENT "[F2PY] Building Fortran to Python interface module ${_name}")
-  # Add a custom target <name> to trigger the generation of the python module.
-IF(USE_NFFT)
-  add_custom_target(${_name} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" nfft)
-ELSE()
-  add_custom_target(${_name} ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
-ENDIF(USE_NFFT)
-  add_dependencies(${_name} CTQMCLIB)
-  # CTQMC.so is generated in the source directory since f2py doesn't allow to specify the output directory of the object file.
-  # Therefore we have to move it
-  add_custom_command(TARGET ${_name} POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy
-                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}" "${CMAKE_SOURCE_DIR}/w2dyn/auxiliaries/${_name}${F2PY_SUFFIX}"
-		    COMMAND ${CMAKE_COMMAND} -E remove
-                    "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}")
+  add_custom_command(
+    OUTPUT ${_name}module.c ${_name}-f2pywrappers.f
+    DEPENDS CTQMC.F90 .f2py_f2cmap
+    VERBATIM
+    COMMAND "${Python_EXECUTABLE}" -m numpy.f2py
+            "${CMAKE_CURRENT_SOURCE_DIR}/CTQMC.F90" -m ${_name} --lower
+            --f2cmap "${CMAKE_CURRENT_SOURCE_DIR}/.f2py_f2cmap")
 
+  python_add_library(${_name} MODULE "${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/CTQMC.F90" WITH_SOABI)
+  set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c" PROPERTIES
+    COMPILE_OPTIONS $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,16>>:-Wno-error=incompatible-function-pointer-types>)
+  target_link_libraries(${_name} PRIVATE fortranobject)
+  target_link_libraries(${_name} PUBLIC CTQMCLIB $<$<BOOL:${USE_NFFT}>:nfft>)
 
 IF(WIN32)
     SET(CMAKE_INSTALL_PREFIX "C:\\Program Files")

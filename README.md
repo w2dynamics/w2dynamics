@@ -42,7 +42,7 @@ Requirements:
   - [Python](https://www.python.org/) (>= 2.6)
   - Fortran 90 compiler, e.g. [GCC](https://gcc.gnu.org/)
   - C++11 compiler, e.g. [GCC](https://gcc.gnu.org/)
-  - [CMake](https://cmake.org/) (>= 2.8.5)
+  - [CMake](https://cmake.org/) (>= 3.18)
   - [BLAS](https://www.netlib.org/blas/), ideally an optimized version as provided e.g. by [OpenBLAS](https://www.openblas.net/) or [Intel MKL](https://software.intel.com/mkl)
   - [LAPACK](https://www.netlib.org/lapack/), ideally an optimized version as provided e.g. by [OpenBLAS](https://www.openblas.net/) or [Intel MKL](https://software.intel.com/mkl)
 

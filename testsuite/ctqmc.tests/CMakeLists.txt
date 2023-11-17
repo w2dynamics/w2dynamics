@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.18)
 Project(ctqmc.tests Fortran CXX)
 find_package(PythonLibs REQUIRED)
 add_library(CTQMCMAIN STATIC ${SRCCTQMC}/CTQMC.F90)

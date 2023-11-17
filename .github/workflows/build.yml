@@ -33,7 +33,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11' # 3.12 removed distutils
+        python-version: '3.x'
 
     - name: Configure
       run: |
@@ -43,7 +43,7 @@ jobs:
               -DCMAKE_CXX_COMPILER=g++
 
     - name: Build
-      run: cmake --build build
+      run: cmake --build build --verbose
 
     - name: Test
       run: |

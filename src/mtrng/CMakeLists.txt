@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.18)
 Project(mtrng C CXX Fortran)
 
 IF(NOT CMAKE_VERSION VERSION_LESS "3.2")

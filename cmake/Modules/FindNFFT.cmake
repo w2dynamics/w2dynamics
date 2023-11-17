@@ -68,14 +68,7 @@ if(NOT (NFFT_LIBRARIES STREQUAL "NFFT_LIBRARIES-NOTFOUND"))
     set_property(TARGET nfft PROPERTY IMPORTED_LOCATION ${NFFT_LIBRARIES})
     set_property(TARGET nfft PROPERTY INTERFACE_LINK_LIBRARIES m)
     set_property(TARGET nfft PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${NFFT_INCLUDE_DIR})
-    find_package(FFTW QUIET)
-    if (NOT FFTW_FOUND)
-        set(FFTW_LIBRARIES "")
-        execute_process(COMMAND ${PYTHON_EXECUTABLE} -c "import numpy.distutils.system_info as s;print(s.get_info('fftw3')['include_dirs'][0])"
-                        OUTPUT_VARIABLE FFTW_INCLUDES
-			ERROR_QUIET)
-    endif ()
-    string(STRIP "${FFTW_INCLUDES}" FFTW_INCLUDES)
+    find_package(FFTW REQUIRED)
     SET(WORK_DIR ${CMAKE_BINARY_DIR}${CMAKE_FILES_DIRECTORY}/FindNFFT)
     SET(NFFT_VERSION_SRC 
     "#include <stdio.h>
