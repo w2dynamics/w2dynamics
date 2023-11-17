@@ -93,7 +93,7 @@ endif (USE_NFFT)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
     set(F2PY_EXTRA_CFLAGS "CFLAGS=-Wno-error=incompatible-function-pointer-types $$CFLAGS")
   else()
-    set(F2PY_EXTRA_CFLAGS "--")
+    set(F2PY_EXTRA_CFLAGS "")
   endif()
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_name}${F2PY_SUFFIX}"
     COMMAND ${CMAKE_COMMAND} -E copy "${SRCCTQMC}/.f2py_f2cmap" "${CMAKE_CURRENT_BINARY_DIR}/.f2py_f2cmap"
