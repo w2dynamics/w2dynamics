@@ -389,7 +389,7 @@ subroutine init_Trace(this,DStates,FTau,FTau_full,screening_function,Nftau,muimp
       this%b_offdiag = .true.
    endif
 
-   if (get_Integer_Parameter("FixedPreallocatedVecs") == 0) then
+   if (get_Integer_Parameter("FixedPreallocatedVecs") == 0 .and. DStates%NStatesMax > 1) then
       this%b_fix_prealloc_stvec = .false.
    else
       this%b_fix_prealloc_stvec = .true.
@@ -5359,19 +5359,8 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
    type(TOper),pointer,optional        :: FixEndR
    logical, optional                   :: global
 !local
-   type(TOper),pointer                 :: ElementR, ElementL, StartR, StartL, EndR
-   integer                             :: sst, nsst, NStates_sst, NStates_nsst
-   integer                             :: iNTruncSt, louter_sst_size, outer_index
-   integer                             :: vec_outer_ind
-   real(KINDR)                         :: bra_t(DStates%NStatesMax), bra_logmax
-! bra after time evolution
-   real(KINDR)                         :: bra_tp(DStates%NStatesMax)
-! ket before time evolution
-   real(KINDR)                         :: ket_t(DStates%NStatesMax), ket_logmax
-! ket after time evolution
-   real(KINDR)                         :: ket_tp(DStates%NStatesMax)
-   real(KINDR)                         :: tauR, tauL, braket, braket_logmax
-   logical                             :: CalcNew, FullR, FullL, tainted
+   type(TOper),pointer                 :: StartR, StartL, EndR
+   logical                             :: CalcNew, FullR, FullL
 
    get_Trace_EB = TLogTr(log = -huge(0.0_KINDR), sign = 0.0_KINDR)
    this%tparttrace(:) = TLogTr(log = -huge(0.0_KINDR), sign = 0.0_KINDR)
@@ -5391,12 +5380,6 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
    end if
    CalcNew = CalcNew .or. this%outer_sst /= this%outer_sst_old&
              .or. this%outer_state /= this%outer_state_old
-   outer_index = this%sst_to_statesindex(this%outer_sst)
-   if (this%b_statesampling) then
-      louter_sst_size = 1
-   else
-      louter_sst_size = this%States(outer_index, 2)
-   end if
 
    ! The trace will be recalculated between StartR and StartL or from
    ! tau = 0 instead of StartR if FullR is set and from tau = beta
@@ -5552,6 +5535,232 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
    this%LastEndR => EndR
 
    ! call check_preconditions()
+
+   if (DStates%NStatesMax > 1) then
+      get_Trace_EB = get_Trace_EB_fullmatrix(this, DStates, StartR, FullR, EndR, StartL, FullL)
+   else
+      get_Trace_EB = get_Trace_EB_onlyscalars(this, DStates, StartR, FullR, EndR, StartL, FullL)
+   end if
+
+   ! if the move is not a global move, states up to the current window
+   ! edge were calculated and stored in state, so we can start from
+   ! there
+   if (.not. CalcNew) this%last_prewin => this%prewin
+end function get_Trace_EB
+
+
+!===============================================================================
+!> Calculates the value of the local trace for the current
+!  configuration and stores and caches states and superstates in the
+!  operators.
+type(TLogTr) function get_Trace_EB_onlyscalars(this, DStates, StartR, FullR, EndR, StartL, FullL)
+!===============================================================================
+   type(TTrace)                        :: this
+!input
+   type(TStates)                       :: DStates
+   type(TOper), pointer, intent(in)    :: StartR, EndR, StartL
+   logical, intent(in)                 :: FullR, FullL
+!local
+   type(TOper), pointer                :: ElementR, ElementL
+   integer                             :: sst, nsst
+   real(KINDR)                         :: bra_sign, bra_logmax
+   real(KINDR)                         :: ket_sign, ket_logmax
+   real(KINDR)                         :: tauR, tauL
+   logical                             :: tainted
+
+   get_Trace_EB_onlyscalars = TLogTr(log = -huge(0.0_KINDR), sign = 0.0_KINDR)
+
+   ! StateLoop: do iNTruncSt = this%outer_state, this%outer_state + louter_sst_size - 1
+!=====================================================
+! start from the suitable starting point at lesser tau
+!=====================================================
+      ElementR => StartR
+
+      if (FullR) then
+         sst = this%outer_sst
+         ket_logmax = 0.0_KINDR
+         ket_sign = 1.0_KINDR
+         tauR = 0.0_KINDR
+         tainted = .true.
+      else
+         sst = ElementR%following_sst
+         ket_logmax = ElementR%slogmax(1)
+         ket_sign = ElementR%state(1, 1)
+         tauR = ElementR%tau
+         tainted = ElementR%calc_new
+         ElementR%calc_new = .false.
+         ElementR => ElementR%next
+      end if
+
+      ElementRLoop: do while (associated(ElementR))
+         if (associated(ElementR, EndR)) exit
+         if (ElementR%calc_new) tainted = .true.
+
+         nsst = DStates%SubStates(sst)%Connect(ElementR%Orbital,ElementR%Spin,ElementR%CA)
+
+! exp(-tau H)ket
+         ket_logmax = ket_logmax&
+              -(DStates%substates(sst)%Eval(0) - this%Egs) * (ElementR%tau - tauR)
+
+! O(^+)ket
+!ket_t(0:DStates%SubStates(nsst)%NStates-1)=&
+!&matmul(DStates%SubStates(sst)%Psis_EB(ElementR%Orbital,ElementR%Spin,ElementR%CA)%Op,&
+!        ket_tp(0:DStates%SubStates(sst)%NStates-1))
+
+         ket_logmax = ket_logmax&
+              + log(abs(DStates%SubStates(sst)%Psis_EB(ElementR%Orbital,ElementR%Spin,ElementR%CA)%Op(1, 1)))
+         ket_sign = ket_sign * sign(1.0_KINDR, DStates%SubStates(sst)%Psis_EB(ElementR%Orbital,ElementR%Spin,ElementR%CA)%Op(1, 1))
+
+         ! once a changed operator is encountered, the calculated
+         ! states are stored in cache and not in state
+         if (.not. tainted) then
+            ElementR%preceding_sst = sst
+            ElementR%following_sst = nsst
+            ElementR%ket_state = .true.
+            ElementR%cache_written = .false.
+            this%UpdateR => ElementR
+
+            ElementR%calc_new = .false.
+
+            ElementR%state(1, 1) = ket_sign
+            ElementR%slogmax(1) = ket_logmax
+         else
+            ElementR%cache_pre_sst = sst
+            ElementR%cache_post_sst = nsst
+            ElementR%ket_cache = .true.
+            ElementR%cache_written = .true.
+
+            ElementR%calc_new = .false.
+
+            ElementR%cache(1, 1) = ket_sign
+            ElementR%clogmax(1) = ket_logmax
+         end if
+
+         tauR = ElementR%tau
+         sst = nsst
+         ElementR => ElementR%next
+      enddo ElementRLoop
+
+      ! to use as stopping condition in L loop
+      if (associated(ElementR)) then
+         ElementR => ElementR%prev
+      else
+         ElementR => this%last
+      end if
+
+!======================================================
+! start from the suitable starting point at greater tau
+!======================================================
+      ElementL => StartL
+
+      if (FullL) then
+         sst = this%outer_sst
+         bra_logmax = 0.0_KINDR
+         bra_sign = 1.0_KINDR
+         tauL = this%beta
+         tainted = .true.
+      else
+         sst = ElementL%preceding_sst
+         bra_logmax = ElementL%slogmax(1)
+         bra_sign = ElementL%state(1, 1)
+         tauL = ElementL%tau
+         tainted = ElementL%calc_new
+         ElementL%calc_new = .false.
+         ElementL => ElementL%prev
+      end if
+
+      ElementLLoop: do while (associated(ElementL))
+         if (associated(ElementL, ElementR)) exit
+         if (ElementL%calc_new) tainted = .true.
+
+         nsst = DStates%SubStates(sst)%Connect(ElementL%Orbital,ElementL%Spin,3-ElementL%CA)
+
+! exp(-tau H)bra
+         bra_logmax = bra_logmax&
+              -(DStates%substates(sst)%Eval(0) - this%Egs) * (-(ElementL%tau - tauL))
+
+! O(^+)bra
+!bra_t(0:DStates%SubStates(nsst)%NStates-1)=&
+!matmul(DStates%SubStates(sst)%Psis_EB(ElementL%Orbital,ElementL%Spin,3-ElementL%CA)%Op,&
+!       bra_tp(0:DStates%SubStates(sst)%NStates-1))
+
+         bra_logmax = bra_logmax&
+              + log(abs(DStates%SubStates(sst)%Psis_EB(ElementL%Orbital,ElementL%Spin,3-ElementL%CA)%Op(1, 1)))
+         bra_sign = bra_sign * sign(1.0_KINDR, DStates%SubStates(sst)%Psis_EB(ElementL%Orbital,ElementL%Spin,3-ElementL%CA)%Op(1, 1))
+
+         if (.not. tainted) then
+            ElementL%preceding_sst = nsst
+            ElementL%following_sst = sst
+            ElementL%ket_state = .false.
+            ElementL%cache_written = .false.
+            this%UpdateL => ElementL
+
+            ElementL%calc_new = .false.
+
+            ElementL%state(1, 1) = bra_sign
+            ElementL%slogmax(1) = bra_logmax
+         else
+            ElementL%cache_post_sst = sst
+            ElementL%cache_pre_sst = nsst
+            ElementL%ket_cache = .false.
+            ElementL%cache_written = .true.
+
+            ElementL%calc_new = .false.
+
+            ElementL%cache(1, 1) = bra_sign
+            ElementL%clogmax(1) = bra_logmax
+         end if
+
+         tauL = ElementL%tau
+         sst = nsst
+         ElementL => ElementL%prev
+      enddo ElementLLoop
+
+      bra_logmax = bra_logmax&
+            -(DStates%substates(sst)%Eval(0) - this%Egs) * (tauL - tauR)
+
+      this%tparttrace(1) = TLogTr(log = bra_logmax + ket_logmax,&
+                                  sign = bra_sign * ket_sign)
+      get_Trace_EB_onlyscalars = this%tparttrace(1)
+
+   ! enddo StateLoop
+end function get_Trace_EB_onlyscalars
+
+
+!===============================================================================
+!> Calculates the value of the local trace for the current
+!  configuration and stores and caches states and superstates in the
+!  operators.
+type(TLogTr) function get_Trace_EB_fullmatrix(this, DStates, StartR, FullR, EndR, StartL, FullL)
+!===============================================================================
+   type(TTrace)                        :: this
+!input
+   type(TStates)                       :: DStates
+   type(TOper), pointer, intent(in)    :: StartR, EndR, StartL
+   logical, intent(in)                 :: FullR, FullL
+!local
+   type(TOper),pointer                 :: ElementR, ElementL
+   integer                             :: sst, nsst, NStates_sst, NStates_nsst
+   integer                             :: iNTruncSt, outer_index, louter_sst_size
+   integer                             :: vec_outer_ind
+   real(KINDR)                         :: bra_t(DStates%NStatesMax), bra_logmax
+! bra after time evolution
+   real(KINDR)                         :: bra_tp(DStates%NStatesMax)
+! ket before time evolution
+   real(KINDR)                         :: ket_t(DStates%NStatesMax), ket_logmax
+! ket after time evolution
+   real(KINDR)                         :: ket_tp(DStates%NStatesMax)
+   real(KINDR)                         :: tauR, tauL, braket, braket_logmax
+   logical                             :: tainted
+
+   get_Trace_EB_fullmatrix = TLogTr(log = -huge(0.0_KINDR), sign = 0.0_KINDR)
+
+   outer_index = this%sst_to_statesindex(this%outer_sst)
+   if (this%b_statesampling) then
+      louter_sst_size = 1
+   else
+      louter_sst_size = this%States(outer_index, 2)
+   end if
 
    StateLoop: do iNTruncSt = this%outer_state, this%outer_state + louter_sst_size - 1
       if (this%b_statesampling) then
@@ -5819,16 +6028,9 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
 
       this%tparttrace(iNTruncSt) = TLogTr(log = braket_logmax,&
                                           sign = sign(1.0_KINDR, braket))
-      get_Trace_EB = get_Trace_EB + this%tparttrace(iNTruncSt)
+      get_Trace_EB_fullmatrix = get_Trace_EB_fullmatrix + this%tparttrace(iNTruncSt)
 
    enddo StateLoop
-
-   ! if the move is not a global move, states up to the current window
-   ! edge were calculated and stored in state, so we can start from
-   ! there
-   if (.not. CalcNew) this%last_prewin => this%prewin
-
-   !call print_trace(this,9992,get_trace_eb)
 
 ! contains
 !    subroutine check_preconditions()
@@ -5897,8 +6099,7 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
 !       end if
 !    end subroutine check_preconditions
 
-end function get_Trace_EB
-
+end function get_Trace_EB_fullmatrix
 
 
 !===============================================================================
