@@ -59,6 +59,7 @@ implicit none
    complex(KINDC),allocatable :: G4iw_pp(:,:,:,:,:,:,:) !o1,s1,o2,s2,iw,iw',iW
    real(KINDR)                :: meas_sign
    real(KINDR)                :: beta
+   logical                    :: glob_has_Szt, glob_has_user_symmove
    real(KINDR)                :: PercentageGlobalMove, PercentageTauShiftMove
    real(KINDR)                :: PercentageOuterMove
    real(KINDR)                :: Percentage4OperatorMove
@@ -320,6 +321,16 @@ subroutine init_CTQMC()
    beta=get_Real_Parameter("beta")
    !FourPnt=get_Integer_Parameter("FourPnt")
    PercentageGlobalMove=get_Real_Parameter("PercentageGlobalMove")
+   if (index(get_String_Parameter("QuantumNumbers"), "Szt") /= 0) then
+      glob_has_Szt = .true.
+   else
+      glob_has_Szt = .false.
+   end if
+   if (get_Integer_Parameter("NSymMove") > 0) then
+      glob_has_user_symmove = .true.
+   else
+      glob_has_user_symmove = .false.
+   end if
    if (b_segment) then
       PercentageTauShiftMove = 0d0
    else
@@ -4458,7 +4469,7 @@ subroutine StepGlob()
    elseif (rand < 0.6d0) then
       move_type = CAFlip
       call gen_CAFlip(DTrace, DStates)
-   elseif(rand < 0.8d0 .and. get_Integer_Parameter("NSymMove").gt.0)then
+   elseif(rand < 0.8d0 .and. glob_has_user_symmove)then
       move_type = UserSym
       call gen_SymUpdate(DTrace,DStates)
    else
@@ -4468,7 +4479,7 @@ subroutine StepGlob()
    call save_outer_sst(DTrace)
 
    if (move_type == SpinFlip) then
-      if (index(get_String_Parameter("QuantumNumbers"), "Szt") /= 0) then
+      if (glob_has_Szt) then
          sst_factor = perform_spinflip_check_qn(DTrace, DStates)
       else
          sst_factor = perform_global_check_qn(DTrace, DStates)
