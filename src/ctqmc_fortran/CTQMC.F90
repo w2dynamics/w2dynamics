@@ -234,7 +234,6 @@ implicit none
    logical :: b_offdiag
    logical :: b_full_offdiag
    logical :: b_exch
-   logical :: b_fix_prealloc_stvec
 
    logical :: GtauDetRat
 
@@ -291,12 +290,6 @@ subroutine init_CTQMC()
    else
       b_statesampling = .false.
    end if
-
-   if (get_Integer_Parameter("FixedPreallocatedVecs") == 0) then
-      b_fix_prealloc_stvec = .false.
-   else
-      b_fix_prealloc_stvec = .true.
-   endif
 
    Nwarmups=get_LongInteger_Parameter("Nwarmups")
    Nmeas=get_LongInteger_Parameter("Nmeas")
