@@ -47,5 +47,7 @@ jobs:
 
     - name: Test
       run: |
+        env "PYTHONPATH=$PWD/w2dyn/auxiliaries:$PYTHONPATH" python3 -c 'import CTQMC'
+        env "PYTHONPATH=$PWD/w2dyn/maxent:$PYTHONPATH" python3 -c 'import MAXENT'
         cd build
         ctest --output-on-failure

@@ -31,56 +31,30 @@ SET_PROPERTY(TARGET MAXENTLIB PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 set_target_properties(MAXENTLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
 
-# hack to not pass .dylib or .framework library file names directly
-# because f2py does not accept them as arguments
-function(rephrase_dylib TARGET_VAR LIBRARIES_STRING)
-  set(RESULT_LIST "")
-  foreach(entry ${LIBRARIES_STRING})
-    string(TOUPPER "${entry}" upcaseentry)
-    if(upcaseentry MATCHES "LIB([A-Za-z0-9_]*)\\.DYLIB$")
-      get_filename_component(entry_dir "${entry}" DIRECTORY)
-      string(LENGTH "${CMAKE_MATCH_1}" libname_length)
-      string(FIND "${upcaseentry}" "${CMAKE_MATCH_1}" libname_begin REVERSE)
-      string(SUBSTRING "${entry}" "${libname_begin}" "${libname_length}" libname)
-      list(APPEND RESULT_LIST "-L${entry_dir}" "-l${libname}")
-    elseif((upcaseentry MATCHES ".*ACCELERATE\\.FRAMEWORK.*") OR (upcaseentry MATCHES ".*VECLIB\\.FRAMEWORK.*"))
-      # f2py will use numpy.distutils.system_info
-      list(APPEND RESULT_LIST "--link-accelerate")
-    else()
-      list(APPEND RESULT_LIST "${entry}")
-    endif()
-  endforeach()
-  set("${TARGET_VAR}" "${RESULT_LIST}" PARENT_SCOPE)
-endfunction()
-
-if (BLAS_LIBRARIES)
-  rephrase_dylib(BLAS_LIBRARIES "${BLAS_LIBRARIES}")
-endif ()
-
-if (LAPACK_LIBRARIES)
-  rephrase_dylib(LAPACK_LIBRARIES "${LAPACK_LIBRARIES}")
-endif ()
-
-set(EXTERNAL_LIBRARIES ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
-
   set( _name MAXENT )
   # Define the command to generate the Fortran to Python interface module. The
   # output will be a shared library that can be imported by python.
   set(ADDITIONAL_OPTS -fPIC -DLAPACK77_Interface)
   add_custom_command(
-    OUTPUT ${_name}module.c ${_name}-f2pywrappers.f
+    OUTPUT ${_name}module.c ${_name}-f2pywrappers.f ${_name}-f2pywrappers2.f90
     DEPENDS MaximumEntropy.F90 .f2py_f2cmap
     VERBATIM
+    COMMAND "${CMAKE_COMMAND}" -E touch "${_name}module.c" "${_name}-f2pywrappers.f" "${_name}-f2pywrappers2.f90"
     COMMAND "${Python_EXECUTABLE}" -m numpy.f2py
             "${CMAKE_CURRENT_SOURCE_DIR}/MaximumEntropy.F90" -m ${_name} --lower
             --f2cmap "${CMAKE_CURRENT_SOURCE_DIR}/.f2py_f2cmap")
 
-  python_add_library(${_name} MODULE "${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c"
-                     "${CMAKE_CURRENT_SOURCE_DIR}/MaximumEntropy.F90" WITH_SOABI)
+  python_add_library(${_name} MODULE WITH_SOABI
+                     "${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c"
+                     "${CMAKE_CURRENT_BINARY_DIR}/${_name}-f2pywrappers.f"
+                     "${CMAKE_CURRENT_BINARY_DIR}/${_name}-f2pywrappers2.f90"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/MaximumEntropy.F90")
   set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c" PROPERTIES
-    COMPILE_OPTIONS $<$<AND:$<CXX_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<CXX_COMPILER_VERSION>,16>>:-Wno-error=incompatible-function-pointer-types>)
-  target_link_libraries(${_name} PRIVATE fortranobject)
-  target_link_libraries(${_name} PUBLIC MAXENTLIB)
+    COMPILE_OPTIONS $<$<AND:$<C_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<C_COMPILER_VERSION>,16>>:-Wno-error=incompatible-function-pointer-types>)
+  target_link_libraries(${_name} PRIVATE fortranobject MAXENTLIB ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
+  add_custom_command(TARGET ${_name} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy -t "${CMAKE_SOURCE_DIR}/w2dyn/maxent" $<TARGET_FILE:${_name}>
+    COMMAND_EXPAND_LISTS)
 
 #####################################
 # Tell how to install this executable
