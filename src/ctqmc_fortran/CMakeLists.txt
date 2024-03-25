@@ -68,7 +68,7 @@ endif (USE_NFFT)
     COMPILE_OPTIONS $<$<AND:$<C_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<C_COMPILER_VERSION>,16>>:-Wno-error=incompatible-function-pointer-types>)
   target_link_libraries(${_name} PRIVATE fortranobject CTQMCLIB ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES} ${FFTW_LIBRARIES} $<$<BOOL:${USE_NFFT}>:nfft>)
   add_custom_command(TARGET ${_name} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy -t "${PROJECT_SOURCE_DIR}/w2dyn/auxiliaries" $<TARGET_FILE:${_name}>
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:${_name}> ${PROJECT_SOURCE_DIR}/w2dyn/auxiliaries/
     COMMAND_EXPAND_LISTS)
 
 IF(WIN32)
