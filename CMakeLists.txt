@@ -14,7 +14,7 @@ endif(POLICY CMP0074)
 SET(VERSION 1.0)
 
 # Set the module path, so that CMake also considers our modules
-SET(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/Modules/")
+SET(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/Modules/")
 
 # Uncomment if it is required that Fortran 90 is supported
 IF(NOT CMAKE_Fortran_COMPILER_SUPPORTS_F90)
@@ -187,9 +187,9 @@ endif()
 SET(CTQMCEXE ctqmc)
 
 # Define some directories
-SET(SRC ${CMAKE_SOURCE_DIR}/src)
+SET(SRC ${PROJECT_SOURCE_DIR}/src)
 SET(LIB ${CMAKE_CURRENT_BINARY_DIR}/lib)
-#SET(BIN ${CMAKE_SOURCE_DIR}/bin)
+#SET(BIN ${PROJECT_SOURCE_DIR}/bin)
 
 SET(SRCCTQMC ${SRC}/ctqmc_fortran)
 SET(SRCMAXENT ${SRC}/maxent)
@@ -207,7 +207,7 @@ ADD_SUBDIRECTORY(${SRCMAXENT})
 
 # Add a distclean target to the Makefile
 ADD_CUSTOM_TARGET(distclean 
-    COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/distclean.cmake
+    COMMAND ${CMAKE_COMMAND} -P ${PROJECT_SOURCE_DIR}/distclean.cmake
 )
 
 ADD_SUBDIRECTORY(testsuite/mtrng.tests)

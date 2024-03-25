@@ -1,7 +1,7 @@
 if (PYTHON_VERSION_MAJOR GREATER 2)
   execute_process(COMMAND
-    ${PYTHON_EXECUTABLE} -m compileall ${CMAKE_SOURCE_DIR}/w2dyn)
+    ${PYTHON_EXECUTABLE} -m compileall ${PROJECT_SOURCE_DIR}/w2dyn)
 else ()
   execute_process(COMMAND
-    ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/testsuite/w2dyn.tests/compileall.py ${CMAKE_SOURCE_DIR}/w2dyn)
+    ${PYTHON_EXECUTABLE} ${PROJECT_SOURCE_DIR}/testsuite/w2dyn.tests/compileall.py ${PROJECT_SOURCE_DIR}/w2dyn)
 endif()
