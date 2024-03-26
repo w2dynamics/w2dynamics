@@ -53,7 +53,7 @@ set_target_properties(MAXENTLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
     COMPILE_OPTIONS $<$<AND:$<C_COMPILER_ID:Clang>,$<VERSION_GREATER_EQUAL:$<C_COMPILER_VERSION>,16>>:-Wno-error=incompatible-function-pointer-types>)
   target_link_libraries(${_name} PRIVATE fortranobject MAXENTLIB ${BLAS_LIBRARIES} ${LAPACK_LIBRARIES})
   add_custom_command(TARGET ${_name} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy -t "${CMAKE_SOURCE_DIR}/w2dyn/maxent" $<TARGET_FILE:${_name}>
+    COMMAND ${CMAKE_COMMAND} -E copy -t "${PROJECT_SOURCE_DIR}/w2dyn/maxent" $<TARGET_FILE:${_name}>
     COMMAND_EXPAND_LISTS)
 
 #####################################
