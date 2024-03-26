@@ -225,7 +225,6 @@ message(STATUS "Configuration for installation (optional):")
 message(STATUS "Installation prefix directory (variable CMAKE_INSTALL_PREFIX): ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "Installing executables DMFT.py, cthyb, Maxent.py, hgrep (option INSTALL_EXECUTABLES): ${INSTALL_EXECUTABLES}")
 
-install(SCRIPT PyCompileall.txt)
 install(DIRECTORY w2dyn
   DESTINATION lib/python${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}/site-packages
   COMPONENT Python_Package)

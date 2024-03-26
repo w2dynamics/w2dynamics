@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.18)
-Project(ctqmc.tests Fortran CXX)
 find_package(PythonLibs REQUIRED)
 add_library(CTQMCMAIN STATIC ${SRCCTQMC}/CTQMC.F90)
 set_property(TARGET CTQMCMAIN PROPERTY POSITION_INDEPENDENT_CODE ON)
