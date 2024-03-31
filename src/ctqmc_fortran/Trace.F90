@@ -44,8 +44,8 @@ use MCompoundIndex
 !! stored after application of the operator, i.e. at tau+ for kets and
 !! tau- for bras.  cache_written indicates that the cache is to be
 !! substituted for the state if the current move is accepted.
-      real(KINDR), pointer             :: state(:, :)=>null(), cache(:, :)=>null()
-      real(KINDR), pointer             :: slogmax(:)=>null(), clogmax(:)=>null()
+      real(KINDR), allocatable         :: state(:, :), cache(:, :)
+      real(KINDR), allocatable         :: slogmax(:), clogmax(:)
       logical                          :: ket_state=.true., ket_cache=.true., cache_written=.false.
 !> We need to renomaralize the states at each step since the time-evolution in
 !! imaginary time is not unitarian. 
@@ -200,10 +200,12 @@ use MCompoundIndex
 !    is enabled
       integer                          :: outer_sst, outer_sst_old, outer_sst_size
       integer                          :: outer_state, outer_state_old
-      logical                          :: b_statesampling, b_offdiag
+      logical                          :: b_statesampling, b_offdiag, b_fix_prealloc_stvec
 
 !> The number of lowest energy states which we consider in the trace.
       integer                          :: NTruncStates, NTruncStatesMax
+!> hack: make NStatesMax available without DStates for b_fix_prealloc_stvec
+      integer                          :: NStatesMax
 !> The ground state energy of the system in the atomic limit.
       real(KINDR)                      :: Egs
 ! in this array the state at beta half is stored every time the local trace is calculated
@@ -387,6 +389,12 @@ subroutine init_Trace(this,DStates,FTau,FTau_full,screening_function,Nftau,muimp
       this%b_offdiag = .true.
    endif
 
+   if (get_Integer_Parameter("FixedPreallocatedVecs") == 0) then
+      this%b_fix_prealloc_stvec = .false.
+   else
+      this%b_fix_prealloc_stvec = .true.
+   endif
+
    this%equal_time_offset=this%beta*1d-14
 
    allocate(this%HybrF(DStates%NBands,2,Nftau))
@@ -469,6 +477,7 @@ subroutine init_Trace(this,DStates,FTau,FTau_full,screening_function,Nftau,muimp
       end do
    enddo
 
+   this%NStatesMax = DStates%NStatesMax
 
    allocate(this%sst_to_statesindex(0:DStates%NSStates-1))
    this%sst_to_statesindex = -1
@@ -702,10 +711,10 @@ subroutine dest_Trace(this)
    Element=>this%first
    if(associated(Element))then
       do while(associated(Element))
-         if (associated(Element%state)) deallocate(Element%state)
-         if (associated(Element%cache)) deallocate(Element%cache)
-         if (associated(Element%slogmax)) deallocate(Element%slogmax)
-         if (associated(Element%clogmax)) deallocate(Element%clogmax)
+         if (allocated(Element%state)) deallocate(Element%state)
+         if (allocated(Element%cache)) deallocate(Element%cache)
+         if (allocated(Element%slogmax)) deallocate(Element%slogmax)
+         if (allocated(Element%clogmax)) deallocate(Element%clogmax)
 !          deallocate(Element%norml)
 !          deallocate(Element%normr)
          element_temp=>Element
@@ -749,10 +758,10 @@ subroutine dest_Trace(this)
    this%iOperPool=0
    i=1
    do while(associated(this%OperPool(i)%p))
-     if (associated(this%OperPool(i)%p%state)) deallocate(this%OperPool(i)%p%state)
-     if (associated(this%OperPool(i)%p%cache)) deallocate(this%OperPool(i)%p%cache)
-     if (associated(this%OperPool(i)%p%slogmax)) deallocate(this%OperPool(i)%p%slogmax)
-     if (associated(this%OperPool(i)%p%clogmax)) deallocate(this%OperPool(i)%p%clogmax)
+     if (allocated(this%OperPool(i)%p%state)) deallocate(this%OperPool(i)%p%state)
+     if (allocated(this%OperPool(i)%p%cache)) deallocate(this%OperPool(i)%p%cache)
+     if (allocated(this%OperPool(i)%p%slogmax)) deallocate(this%OperPool(i)%p%slogmax)
+     if (allocated(this%OperPool(i)%p%clogmax)) deallocate(this%OperPool(i)%p%clogmax)
 !    deallocate(this%OperPool(i)%p%norml)
 !    deallocate(this%OperPool(i)%p%normr)
      deallocate(this%OperPool(i)%p) 
@@ -5241,10 +5250,10 @@ subroutine clear_Trace(this,DStates)
          
    do CA=1,size(Oper)
       if (associated(Oper(CA)%p)) then
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
+         if(allocated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
+         if(allocated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
+         if(allocated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
+         if(allocated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
          deallocate(Oper(CA)%p)
       end if
    enddo
@@ -5567,7 +5576,7 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
          sst = ElementR%following_sst
          NStates_sst = DStates%SubStates(sst)%NStates
          ket_logmax = ElementR%slogmax(vec_outer_ind)
-         ket_t(1:NStates_sst) = ElementR%state(:, vec_outer_ind)
+         ket_t(1:NStates_sst) = ElementR%state(1:NStates_sst, vec_outer_ind)
          tauR = ElementR%tau
          tainted = ElementR%calc_new
          if (vec_outer_ind == louter_sst_size) ElementR%calc_new = .false.
@@ -5614,12 +5623,17 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
          ! states are stored in cache and not in state
          if (.not. tainted) then
             if (vec_outer_ind == 1) then
-               if (associated(ElementR%state)) then
+               if (this%b_fix_prealloc_stvec) then
+                  ElementR%state(:, :) = 0.0_KINDR
+                  ElementR%slogmax(:) = -huge(ElementR%slogmax(1))
+               else
+               if (allocated(ElementR%state)) then
                   deallocate(ElementR%state)
                   deallocate(ElementR%slogmax)
                end if
                allocate(ElementR%state(NStates_nsst, louter_sst_size))
                allocate(ElementR%slogmax(louter_sst_size))
+               end if
 
                ElementR%preceding_sst = sst
                ElementR%following_sst = nsst
@@ -5631,16 +5645,21 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
                ElementR%calc_new = .false.
             end if
 
-            ElementR%state(:, vec_outer_ind) = ket_t(1:NStates_nsst)
+            ElementR%state(1:NStates_nsst, vec_outer_ind) = ket_t(1:NStates_nsst)
             ElementR%slogmax(vec_outer_ind) = ket_logmax
          else
             if (vec_outer_ind == 1) then
-               if (associated(ElementR%cache)) then
+               if (this%b_fix_prealloc_stvec) then
+                  ElementR%cache(:, :) = 0.0_KINDR
+                  ElementR%clogmax(:) = -huge(ElementR%clogmax(1))
+               else
+               if (allocated(ElementR%cache)) then
                   deallocate(ElementR%cache)
                   deallocate(ElementR%clogmax)
                end if
                allocate(ElementR%cache(NStates_nsst, louter_sst_size))
                allocate(ElementR%clogmax(louter_sst_size))
+               end if
 
                ElementR%cache_pre_sst = sst
                ElementR%cache_post_sst = nsst
@@ -5651,7 +5670,7 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
                ElementR%calc_new = .false.
             end if
 
-            ElementR%cache(:, vec_outer_ind) = ket_t(1:NStates_nsst)
+            ElementR%cache(1:NStates_nsst, vec_outer_ind) = ket_t(1:NStates_nsst)
             ElementR%clogmax(vec_outer_ind) = ket_logmax
          end if
 
@@ -5685,7 +5704,7 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
          sst = ElementL%preceding_sst
          NStates_sst = DStates%SubStates(sst)%NStates
          bra_logmax = ElementL%slogmax(vec_outer_ind)
-         bra_t(1:NStates_sst) = ElementL%state(:, vec_outer_ind)
+         bra_t(1:NStates_sst) = ElementL%state(1:NStates_sst, vec_outer_ind)
          tauL = ElementL%tau
          tainted = ElementL%calc_new
          if (vec_outer_ind == louter_sst_size) ElementL%calc_new = .false.
@@ -5730,12 +5749,17 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
 
          if (.not. tainted) then
             if (vec_outer_ind == 1) then
-               if (associated(ElementL%state)) then
+               if (this%b_fix_prealloc_stvec) then
+                  ElementL%state(:, :) = 0.0_KINDR
+                  ElementL%slogmax(:) = -huge(ElementL%slogmax(1))
+               else
+               if (allocated(ElementL%state)) then
                   deallocate(ElementL%state)
                   deallocate(ElementL%slogmax)
                end if
                allocate(ElementL%state(NStates_nsst, louter_sst_size))
                allocate(ElementL%slogmax(louter_sst_size))
+               end if
 
                ElementL%preceding_sst = nsst
                ElementL%following_sst = sst
@@ -5747,16 +5771,21 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
                ElementL%calc_new = .false.
             end if
 
-            ElementL%state(:, vec_outer_ind) = bra_t(1:NStates_nsst)
+            ElementL%state(1:NStates_nsst, vec_outer_ind) = bra_t(1:NStates_nsst)
             ElementL%slogmax(vec_outer_ind) = bra_logmax
          else
             if (vec_outer_ind == 1) then
-               if (associated(ElementL%cache)) then
+               if (this%b_fix_prealloc_stvec) then
+                  ElementL%cache(:, :) = 0.0_KINDR
+                  ElementL%clogmax(:) = -huge(ElementL%clogmax(1))
+               else
+               if (allocated(ElementL%cache)) then
                   deallocate(ElementL%cache)
                   deallocate(ElementL%clogmax)
                end if
                allocate(ElementL%cache(NStates_nsst, louter_sst_size))
                allocate(ElementL%clogmax(louter_sst_size))
+               end if
 
                ElementL%cache_post_sst = sst
                ElementL%cache_pre_sst = nsst
@@ -5767,7 +5796,7 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
                ElementL%calc_new = .false.
             end if
 
-            ElementL%cache(:, vec_outer_ind) = bra_t(1:NStates_nsst)
+            ElementL%cache(1:NStates_nsst, vec_outer_ind) = bra_t(1:NStates_nsst)
             ElementL%clogmax(vec_outer_ind) = bra_logmax
          end if
 
@@ -5846,22 +5875,22 @@ type(TLogTr) function get_Trace_EB(this,DStates,FixEndR,global)
 !       if (associated(StartR)) then
 !          if (.not. StartR%ket_state&
 !          .or. StartR%calc_new&
-!          .or. .not. associated(StartR%state)) then
-!             if (associated(StartR%prev)) then
+!          .or. .not. allocated(StartR%state)) then
+!             if (allocated(StartR%prev)) then
 !                if (.not. StartR%prev%ket_state&
 !                .or. StartR%prev%calc_new&
-!                .or. .not. associated(StartR%prev%state))&
+!                .or. .not. allocated(StartR%prev%state))&
 !                stop "StartR restart impossible"
 !             end if
 !          end if
 !          if (StartR%tau >= StartL%tau) stop "incorrect ordering of StartR and StartL"
 !          if (StartL%ket_state&
 !          .or. StartL%calc_new&
-!          .or. .not. associated(StartL%state)) then
+!          .or. .not. allocated(StartL%state)) then
 !             if (associated(StartL%next)) then
 !                if (StartL%next%ket_state&
 !                .or. StartL%next%calc_new&
-!                .or. .not. associated(StartL%next%state))&
+!                .or. .not. allocated(StartL%next%state))&
 !                stop "StartL restart impossible"
 !             end if
 !          end if
@@ -5882,7 +5911,7 @@ subroutine update_trace_EB(this, global)
    logical, optional                   :: global
 !local
    type(TOper),pointer                 :: ElementR, StartR, StartL, EndR
-   real(KINDR), pointer                :: temp(:, :), templm(:)
+   real(KINDR), allocatable            :: temp(:, :), templm(:)
    logical                             :: CalcNew, FullR, FullL
 
    this%parttrace(:)=this%tparttrace(:)
@@ -5958,13 +5987,13 @@ subroutine update_trace_EB(this, global)
          ElementR%preceding_sst = ElementR%cache_pre_sst
          ElementR%ket_state = ElementR%ket_cache
 
-         temp => ElementR%state
-         ElementR%state => ElementR%cache
-         ElementR%cache => temp
+         call move_alloc(ElementR%state, temp)
+         call move_alloc(ElementR%cache, ElementR%state)
+         call move_alloc(temp, ElementR%cache)
 
-         templm => ElementR%slogmax
-         ElementR%slogmax => ElementR%clogmax
-         ElementR%clogmax => templm
+         call move_alloc(ElementR%slogmax, templm)
+         call move_alloc(ElementR%clogmax, ElementR%slogmax)
+         call move_alloc(templm, ElementR%clogmax)
 
          ElementR%cache_written = .false.
       end if
@@ -6091,7 +6120,7 @@ subroutine update_b2_states_eb(this,DStates)
             sst = Element%following_sst
             NStates_sst = DStates%SubStates(sst)%NStates
             ket_logmax = Element%slogmax(vec_outer_ind)
-            ket_t(1:NStates_sst) = Element%state(:, vec_outer_ind)
+            ket_t(1:NStates_sst) = Element%state(1:NStates_sst, vec_outer_ind)
             tauR = Element%tau
             Element => Element%next
          end if
@@ -6173,7 +6202,7 @@ subroutine update_b2_states_eb(this,DStates)
             sst = Element%preceding_sst
             NStates_sst = DStates%SubStates(sst)%NStates
             bra_logmax = Element%slogmax(vec_outer_ind)
-            bra_t(1:NStates_sst) = Element%state(:, vec_outer_ind)
+            bra_t(1:NStates_sst) = Element%state(1:NStates_sst, vec_outer_ind)
             tauL = Element%tau
             Element => Element%prev
          end if
@@ -6778,6 +6807,12 @@ subroutine fresh_oper(this, oper)
 
    if (this%iOperPool == 0) then
       allocate(oper)
+      if (this%b_fix_prealloc_stvec) then
+         allocate(oper%state(this%NStatesMax, this%NTruncStatesMax))
+         allocate(oper%cache(this%NStatesMax, this%NTruncStatesMax))
+         allocate(oper%slogmax(this%NTruncStatesMax))
+         allocate(oper%clogmax(this%NTruncStatesMax))
+      end if
       oper%calc_new = .true.
    else
       oper => this%OperPool(this%iOperPool)%p
@@ -6814,21 +6849,17 @@ subroutine duplicate_oper(this, opera, operb)
    operb%ket_state = opera%ket_state
    operb%ket_cache = opera%ket_cache
    operb%cache_written = opera%cache_written
-   if (associated(opera%state)) then
-      allocate(operb%state(size(opera%state, dim=1), size(opera%state, dim=2)))
-      operb%state = opera%state
+   if (allocated(opera%state)) then
+      operb%state = opera%state(:, :)
    end if
-   if (associated(opera%cache)) then
-      allocate(operb%cache(size(opera%cache, dim=1), size(opera%cache, dim=2)))
-      operb%cache = opera%cache
+   if (allocated(opera%cache)) then
+      operb%cache = opera%cache(:, :)
    end if
-   if (associated(opera%slogmax)) then
-      allocate(operb%slogmax(size(opera%slogmax, dim=1)))
-      operb%slogmax = opera%slogmax
+   if (allocated(opera%slogmax)) then
+      operb%slogmax = opera%slogmax(:)
    end if
-   if (associated(opera%clogmax)) then
-      allocate(operb%clogmax(size(opera%clogmax, dim=1)))
-      operb%clogmax = opera%clogmax
+   if (allocated(opera%clogmax)) then
+      operb%clogmax = opera%clogmax(:)
    end if
 end subroutine duplicate_oper
 
@@ -6839,10 +6870,12 @@ subroutine recycle_oper(this, oper)
 !output
    type(TOper), pointer, intent(inout) :: oper
 
-   if (associated(oper%state)) deallocate(oper%state)
-   if (associated(oper%cache)) deallocate(oper%cache)
-   if (associated(oper%slogmax)) deallocate(oper%slogmax)
-   if (associated(oper%clogmax)) deallocate(oper%clogmax)
+   if (.not. this%b_fix_prealloc_stvec) then
+   if (allocated(oper%state)) deallocate(oper%state)
+   if (allocated(oper%cache)) deallocate(oper%cache)
+   if (allocated(oper%slogmax)) deallocate(oper%slogmax)
+   if (allocated(oper%clogmax)) deallocate(oper%clogmax)
+   end if
    oper%calc_new=.true.
    oper%cache_written = .false.
    this%iOperPool = this%iOperPool + 1

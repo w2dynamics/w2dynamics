@@ -107,6 +107,7 @@ MeasG4iwPP = integer(default=0)
 MeasGSigmaiw = integer(default=0)
 MeasGtauDetRat = integer(default=0)
 
+FixedPreallocatedVecs = integer(default=0)
 Eigenbasis		 = integer(default=1)
 statesampling   = integer(default=0)
 ReuseMCConfig   = integer(default=0)
