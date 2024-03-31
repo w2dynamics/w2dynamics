@@ -233,6 +233,7 @@ implicit none
    logical :: b_offdiag
    logical :: b_full_offdiag
    logical :: b_exch
+   logical :: b_fix_prealloc_stvec
 
    logical :: GtauDetRat
 
@@ -289,6 +290,12 @@ subroutine init_CTQMC()
    else
       b_statesampling = .false.
    end if
+
+   if (get_Integer_Parameter("FixedPreallocatedVecs") == 0) then
+      b_fix_prealloc_stvec = .false.
+   else
+      b_fix_prealloc_stvec = .true.
+   endif
 
    Nwarmups=get_LongInteger_Parameter("Nwarmups")
    Nmeas=get_LongInteger_Parameter("Nmeas")
@@ -3367,24 +3374,9 @@ subroutine StepAdd(change_outer,Sector)
    nullify(FullHybr_offdiag)
    global = .false.
 
-   if(DTrace%iOperPool < 2)then
-      do CA=1,2
-         allocate(Oper(CA)%p)
-!        allocate(Oper(CA)%p%normr(DTrace%NTruncStatesMax))
-!        allocate(Oper(CA)%p%norml(DTrace%NTruncStatesMax))
-         Oper(CA)%p%calc_new=.true.
-      enddo
-   else
-      Oper(1)%p=>DTrace%OperPool(DTrace%iOperPool)%p
-      Oper(2)%p=>DTrace%OperPool(DTrace%iOperPool-1)%p
-      DTrace%OperPool(DTrace%iOperPool)%p=>null()
-      DTrace%OperPool(DTrace%iOperPool-1)%p=>null()
-      DTrace%iOperPool=DTrace%iOperPool-2
-      Oper(1)%p%calc_new=.true.
-      Oper(2)%p%calc_new=.true.
-      Oper(1)%p%cache_written = .false.
-      Oper(2)%p%cache_written = .false.
-   endif
+   do CA = 1, 2
+      call fresh_oper(DTrace, Oper(CA)%p)
+   end do
 
    TryAdd(Sector)=TryAdd(Sector)+1
    if (change_outer .eqv. .true.) TryAddOuter = TryAddOuter + 1
@@ -3411,15 +3403,8 @@ subroutine StepAdd(change_outer,Sector)
 
    if (equal_times) then
       do CA=1,size(Oper)
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
-         Oper(CA)%p%calc_new=.true.
-         Oper(CA)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+2
 
       AccQNAdd(Sector)=AccQNAdd(Sector)+1
       if (change_outer .eqv. .true.) AccQNAddOuter = AccQNAddOuter + 1
@@ -3471,15 +3456,8 @@ subroutine StepAdd(change_outer,Sector)
       call remove_Oper(DTrace,Oper)
       ! it is not necessary to deallocate stuff here
       do CA=1,size(Oper)
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
-         Oper(CA)%p%calc_new=.true.
-         Oper(CA)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+2
       
       AccQNAdd(Sector)=AccQNAdd(Sector)+1
       if (change_outer .eqv. .true.) AccQNAddOuter = AccQNAddOuter + 1
@@ -3619,15 +3597,8 @@ subroutine StepAdd(change_outer,Sector)
       end if
 
       do CA=1,size(Oper)
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
-         Oper(CA)%p%calc_new=.true.
-         Oper(CA)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+2
 
       if (b_offdiag .and. b_full_offdiag) deallocate(FullHybr_offdiag)
 
@@ -3664,20 +3635,9 @@ subroutine StepAdd4(Sector)
    ! Fortran 90 does not guarantee nullified pointers
    nullify(FullHybr)
 
-   if(DTrace%iOperPool<4)then
-      do CA=1,size(Oper)
-         allocate(Oper(CA)%p)
-         Oper(CA)%p%calc_new=.true.
-      enddo
-   else
-      do CA=1,size(Oper)
-         Oper(CA)%p=>DTrace%OperPool(DTrace%iOperPool)%p
-         DTrace%OperPool(DTrace%iOperPool)%p=>null()
-         DTrace%iOperPool=DTrace%iOperPool-1
-         Oper(CA)%p%calc_new=.true.
-         Oper(CA)%p%cache_written = .false.
-      enddo
-   endif
+   do CA = 1, size(Oper)
+      call fresh_oper(DTrace, Oper(CA)%p)
+   end do
 
    TryAdd4=TryAdd4+1
 
@@ -3832,15 +3792,8 @@ subroutine StepAdd4(Sector)
       call remove_Oper(DTrace,Oper(3:4))
       DTrace%NPairs = old_NPairs
       do CA=1,size(Oper)
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
-         Oper(CA)%p%calc_new=.true.
-         Oper(CA)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+4
       
       !AccQNAdd(Sector)=AccQNAdd(Sector)+1
       return
@@ -3910,15 +3863,8 @@ subroutine StepAdd4(Sector)
       call remove_Oper(DTrace,Oper(3:4))
       DTrace%NPairs = old_NPairs
       do CA=1,size(Oper)
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
-         Oper(CA)%p%calc_new=.true.
-         Oper(CA)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+4
 
       if(b_offdiag)then
 
@@ -4179,16 +4125,8 @@ subroutine StepRem(change_outer,Sector)
       end if
 
       do CA=1,size(Oper)
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
-         Oper(CA)%p%calc_new=.true.
-         Oper(CA)%p%cache_written = .false.
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      
-      DTrace%iOperPool=DTrace%iOperPool+2
       
       AccRem(Sector)=AccRem(Sector)+1
       if (change_outer .eqv. .true.) AccRemOuter = AccRemOuter + 1
@@ -4447,16 +4385,8 @@ subroutine StepRem4()
       
       call update_trace_EB(DTrace)
       do CA=1,size(Oper)
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
-         Oper(CA)%p%calc_new=.true.
-         Oper(CA)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      
-      DTrace%iOperPool=DTrace%iOperPool+4
       
       AccRem4=AccRem4+1
       
@@ -5086,22 +5016,10 @@ subroutine StepWormAdd(Sector,flavor)
    
    TryWormAdd(Sector)=TryWormAdd(Sector)+1
    
-   !allocating oper stuff, in case memory already allocated
-   !we use the opers stored in OperPool
-   if(DTrace%iOperPool<NOperWorm(Sector))then
-      do iO=1,size(Oper)
-         allocate(Oper(iO)%p)
-         Oper(iO)%p%calc_new=.true.
-      enddo
-   else
-      do iO=1,size(Oper)
-         Oper(iO)%p=>DTrace%OperPool(DTrace%iOperPool)%p
-         DTrace%OperPool(DTrace%iOperPool)%p=>null()
-         DTrace%iOperPool=DTrace%iOperPool-1
-         Oper(iO)%p%calc_new=.true.
-         Oper(iO)%p%cache_written = .false.
-      enddo
-   endif
+   !allocating oper stuff
+   do iO = 1, size(Oper)
+      call fresh_oper(DTrace, Oper(iO)%p)
+   end do
 
    !attaching tags to the generated operators
    !make sure they have no hyb lines attached
@@ -5166,15 +5084,8 @@ subroutine StepWormAdd(Sector,flavor)
       
       deallocate(DTrace%wormContainer)
       do iO=1,size(Oper)
-         if(associated(Oper(iO)%p%state))deallocate(Oper(iO)%p%state)
-         if(associated(Oper(iO)%p%cache))deallocate(Oper(iO)%p%cache)
-         if(associated(Oper(iO)%p%slogmax))deallocate(Oper(iO)%p%slogmax)
-         if(associated(Oper(iO)%p%clogmax))deallocate(Oper(iO)%p%clogmax)
-         Oper(iO)%p%calc_new=.true.
-         Oper(iO)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+iO)%p=>Oper(iO)%p
+         call recycle_oper(DTrace, Oper(iO)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+NOperWorm(Sector)
       
       AccQNWormAdd(Sector)=AccQNWormAdd(Sector)+1
       Sector=1
@@ -5216,15 +5127,8 @@ subroutine StepWormAdd(Sector,flavor)
       
       !put operators memory in operator pool
       do iO=1,size(Oper)
-         if(associated(Oper(iO)%p%state))deallocate(Oper(iO)%p%state)
-         if(associated(Oper(iO)%p%cache))deallocate(Oper(iO)%p%cache)
-         if(associated(Oper(iO)%p%slogmax))deallocate(Oper(iO)%p%slogmax)
-         if(associated(Oper(iO)%p%clogmax))deallocate(Oper(iO)%p%clogmax)
-         Oper(iO)%p%calc_new=.true.
-         Oper(iO)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+iO)%p=>Oper(iO)%p
+         call recycle_oper(DTrace, Oper(iO)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+NOperWorm(Sector)
     
       !make sure we change sector after updating pool
       Sector=SectorZ
@@ -5316,15 +5220,8 @@ subroutine StepWormRem(Sector)
       call update_trace_EB(DTrace,global=.true.)
 
       do iO=1,size(Oper)
-         if(associated(Oper(iO)%p%state))deallocate(Oper(iO)%p%state)
-         if(associated(Oper(iO)%p%cache))deallocate(Oper(iO)%p%cache)
-         if(associated(Oper(iO)%p%slogmax))deallocate(Oper(iO)%p%slogmax)
-         if(associated(Oper(iO)%p%clogmax))deallocate(Oper(iO)%p%clogmax)
-         DTrace%OperPool(DTrace%iOperPool+iO)%p=>Oper(iO)%p
-         Oper(iO)%p%calc_new=.true.
-         Oper(iO)%p%cache_written = .false.
+         call recycle_oper(DTrace, Oper(iO)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+NOperWorm(Sector)
       
       !if operator rem accepted and without hyb lines, change sector
       AccWormRem(Sector)=AccWormRem(Sector)+1
@@ -5396,22 +5293,10 @@ subroutine StepWormHybAdd(Sector,flavor)
    !TODO:change to account for WormHyb Steps
    TryWormAdd(Sector)=TryWormAdd(Sector)+1
    
-   !allocating oper stuff, in case memory already allocated
-   !we use the opers stored in OperPool
-   if(DTrace%iOperPool<4)then
-      do iO=1,size(Oper)
-         allocate(Oper(iO)%p)
-         Oper(iO)%p%calc_new=.true.
-      enddo
-   else
-      do iO=1,size(Oper)
-         Oper(iO)%p=>DTrace%OperPool(DTrace%iOperPool)%p
-         DTrace%OperPool(DTrace%iOperPool)%p=>null()
-         DTrace%iOperPool=DTrace%iOperPool-1
-         Oper(iO)%p%calc_new=.true.
-         Oper(iO)%p%cache_written = .false.
-      enddo
-   endif
+   !allocating oper stuff
+   do iO = 1, size(Oper)
+      call fresh_oper(DTrace, Oper(iO)%p)
+   end do
 
    !Oper(1:2) worm operators, Oper(3:4) hyb operators
    call set_OperFlavor(Oper(1:2),2,NBands,wflavor)
@@ -5455,15 +5340,8 @@ subroutine StepWormHybAdd(Sector,flavor)
       call remove_Oper(DTrace,Oper(3:4))
       deallocate(DTrace%wormContainer)
       do iO=1,size(Oper)
-         if(associated(Oper(iO)%p%state))deallocate(Oper(iO)%p%state)
-         if(associated(Oper(iO)%p%cache))deallocate(Oper(iO)%p%cache)
-         if(associated(Oper(iO)%p%slogmax))deallocate(Oper(iO)%p%slogmax)
-         if(associated(Oper(iO)%p%clogmax))deallocate(Oper(iO)%p%clogmax)
-         Oper(iO)%p%calc_new=.true.
-         Oper(iO)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+iO)%p=>Oper(iO)%p
+         call recycle_oper(DTrace, Oper(iO)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+4
       
       !TODO:change to account for WormHyb Steps
       AccQNWormAdd(Sector)=AccQNWormAdd(Sector)+1
@@ -5565,15 +5443,8 @@ subroutine StepWormHybAdd(Sector,flavor)
 
       !put operators memory in operator pool
       do iO=1,size(Oper)
-         if(associated(Oper(iO)%p%state))deallocate(Oper(iO)%p%state)
-         if(associated(Oper(iO)%p%cache))deallocate(Oper(iO)%p%cache)
-         if(associated(Oper(iO)%p%slogmax))deallocate(Oper(iO)%p%slogmax)
-         if(associated(Oper(iO)%p%clogmax))deallocate(Oper(iO)%p%clogmax)
-         Oper(iO)%p%calc_new=.true.
-         Oper(iO)%p%cache_written = .false.
-         DTrace%OperPool(DTrace%iOperPool+iO)%p=>Oper(iO)%p
+         call recycle_oper(DTrace, Oper(iO)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+4
     
       !make sure we change sector after updating pool
       Sector=SectorZ
@@ -5735,15 +5606,8 @@ subroutine StepWormHybRem(Sector)
       call update_trace_EB(DTrace, global=.true.)
 
       do iO=1,size(Oper)
-         if(associated(Oper(iO)%p%state))deallocate(Oper(iO)%p%state)
-         if(associated(Oper(iO)%p%cache))deallocate(Oper(iO)%p%cache)
-         if(associated(Oper(iO)%p%slogmax))deallocate(Oper(iO)%p%slogmax)
-         if(associated(Oper(iO)%p%clogmax))deallocate(Oper(iO)%p%clogmax)
-         DTrace%OperPool(DTrace%iOperPool+iO)%p=>Oper(iO)%p
-         Oper(iO)%p%calc_new=.true.
-         Oper(iO)%p%cache_written = .false.
+         call recycle_oper(DTrace, Oper(iO)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+4
       
       !TODO: might be replaced by simply taking the adress from the worm container
       AccWormRem(Sector)=AccWormRem(Sector)+1
@@ -6826,20 +6690,9 @@ subroutine StepAdd_mine()
    ! Fortran 90 does not guarantee nullified pointers
    nullify(temp); nullify(Q); nullify(R)
 
-   if(DTrace%iOperPool < 2)then
-      do CA=1,2
-         allocate(Oper(CA)%p)
-!        allocate(Oper(CA)%p%normr(DTrace%NTruncStatesMax))
-!        allocate(Oper(CA)%p%norml(DTrace%NTruncStatesMax))
-         Oper(CA)%p%calc_new=.true.
-      enddo
-   else
-      Oper(1)%p=>DTrace%OperPool(DTrace%iOperPool)%p
-      Oper(2)%p=>DTrace%OperPool(DTrace%iOperPool-1)%p
-      DTrace%OperPool(DTrace%iOperPool)%p=>null()
-      DTrace%OperPool(DTrace%iOperPool-1)%p=>null()
-      DTrace%iOperPool=DTrace%iOperPool-2
-   endif
+   do CA = 1, 2
+      call fresh_oper(DTrace, Oper(CA)%p)
+   end do
    Oper(1)%p%calc_new=.true.
    Oper(2)%p%calc_new=.true.
    Oper(1)%p%has_hyb=.true.
@@ -6870,9 +6723,8 @@ subroutine StepAdd_mine()
    if(.not.qn)then
       AccQNAdd=AccQNAdd+1
       do CA=1,2
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+2
       return
    endif
 
@@ -6889,9 +6741,8 @@ subroutine StepAdd_mine()
       call print_trace_screen(dtrace)
       AccQNAdd=AccQNAdd+1
       do CA=1,2
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+2
       return
    endif
 
@@ -6910,9 +6761,8 @@ subroutine StepAdd_mine()
       !if(.not.qn)then
          !AccQNAdd=AccQNAdd+1
          !do CA=1,2
-            !DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+            !call recycle_oper(DTrace, Oper(CA)%p)
          !enddo
-         !DTrace%iOperPool=DTrace%iOperPool+2
          !return
       !endif
    !endif
@@ -7054,14 +6904,8 @@ subroutine StepAdd_mine()
       call my_remove_Oper(DTrace,Oper)
       !!! put operators back in operator pool
       do CA=1,size(Oper)
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
-         !Oper(CA)%p%calc_new=.true.
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
-      DTrace%iOperPool=DTrace%iOperPool+2
 
       if(b_offdiag)then
       if(b_full_offdiag)then
@@ -7237,15 +7081,9 @@ subroutine StepRem_mine()
       
       !!! put operators back in operator pool
       do CA=1,size(Oper)
-         if(associated(Oper(CA)%p%state))deallocate(Oper(CA)%p%state)
-         if(associated(Oper(CA)%p%cache))deallocate(Oper(CA)%p%cache)
-         if(associated(Oper(CA)%p%slogmax))deallocate(Oper(CA)%p%slogmax)
-         if(associated(Oper(CA)%p%clogmax))deallocate(Oper(CA)%p%clogmax)
-         DTrace%OperPool(DTrace%iOperPool+CA)%p=>Oper(CA)%p
-         !Oper(CA)%p%calc_new=.true.
+         call recycle_oper(DTrace, Oper(CA)%p)
       enddo
       
-      DTrace%iOperPool=DTrace%iOperPool+2
       AccRem(1)=AccRem(1)+1
    else
       !!! reject
