@@ -82,6 +82,7 @@ if (USE_NFFT)
     # in the previous findPackage(NFFT) call an old version of NFFT could have been found. Here we override it with our up-to-date self-compiled version. We don't use the include directories.
     set(NFFT_LIBRARIES ${PROJECT_BINARY_DIR}/nfft_local/lib/libnfft3.a)
     add_library(nfft STATIC IMPORTED)
+    target_link_libraries(nfft INTERFACE ${FFTW_LIBRARIES})
     set_target_properties(nfft PROPERTIES IMPORTED_LOCATION ${NFFT_LIBRARIES})
     add_dependencies(nfft nfft_local)
   endif(NOT NFFT_FOUND)

@@ -1,0 +1,70 @@
+Bootstrap: docker
+From: alpine:latest
+Stage: build
+
+%environment
+    export LC_ALL=C
+    export OPENBLAS_NUM_THREADS=1
+
+%post
+#   INSTALL PREREQUISITE PACKAGES
+    apk --no-cache update
+    apk --no-cache upgrade
+    apk --no-cache add bash build-base git cmake make gfortran g++ gcc openblas-dev fftw-dev python3-dev py3-numpy-dev py3-numpy-f2py py3-scipy py3-h5py openmpi py3-mpi4py py3-configobj
+
+#   FETCH AND BUILD NFFT
+    busybox wget https://github.com/NFFT/nfft/releases/download/3.5.3/nfft-3.5.3.tar.gz
+    tar -xvzf nfft-*.tar.gz
+    rm nfft-*.tar.gz
+    cd nfft-*
+    bash configure --enable-portable-binary --prefix=/usr
+    make -j
+    make install
+    cd ..
+
+#   FETCH AND BUILD W2DYNAMICS
+    git clone https://github.com/w2dynamics/w2dynamics.git
+    cd w2dynamics
+    mkdir build
+    cd build
+    cmake .. \
+          -DOPT_HOST_ARCH=OFF \
+	  -DCMAKE_INSTALL_PREFIX=/usr
+    make VERBOSE=1
+    ctest --output-on-failure
+    make install
+
+Bootstrap: docker
+From: alpine:latest
+Stage: final
+
+%environment
+    export LC_ALL=C
+    export OPENBLAS_NUM_THREADS=1
+
+%files from build
+    /usr/bin/DMFT.py
+    /usr/bin/cthyb
+    /usr/bin/hgrep
+    /usr/bin/Maxent.py
+    /usr/lib/libnfft3*
+    /usr/lib/python*/site-packages/w2dyn
+
+%post
+#   INSTALL REQUIREMENTS
+    apk --no-cache update
+    apk --no-cache upgrade
+    apk --no-cache add openssh-client-default libgfortran libstdc++ openblas fftw-double-libs python3 py3-numpy py3-scipy py3-h5py openmpi py3-mpi4py py3-configobj
+
+
+%apprun DMFT.py
+    exec python3 /usr/bin/DMFT.py "$@"
+
+%apprun cthyb
+    exec python3 /usr/bin/cthyb "$@"
+
+%apprun hgrep
+    exec python3 /usr/bin/hgrep "$@"
+
+%apprun Maxent.py
+    exec python3 /usr/bin/Maxent.py "$@"
