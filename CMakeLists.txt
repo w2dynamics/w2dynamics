@@ -124,31 +124,6 @@ target_include_directories(fortranobject PUBLIC "${F2PY_INCLUDE_DIR}")
 set_property(TARGET fortranobject PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 find_package(H5PY)
-find_package(HDF5 1.6 COMPONENTS Fortran)# enforce the availability of the Fortran bindings. FIXME: Test on a suitable computer
-
-if((NOT H5PY_FOUND) AND (NOT HDF5_FOUND))
-include(ExternalProject)
-    set(hdf5_local_major_version "1.10")
-    set(hdf5_local_minor_version "6")
-    find_package(ZLIB)
-    #HDF5 also requires in its configure step a C++ compiler
-    ExternalProject_Add(HDF5_LOCAL
-        URL https://support.hdfgroup.org/ftp/HDF5/releases/hdf5-${hdf5_local_major_version}/hdf5-${hdf5_local_major_version}.${hdf5_local_minor_version}/src/hdf5-${hdf5_local_major_version}.${hdf5_local_minor_version}.tar.gz
-	PREFIX hdf5_local
-        CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --enable-fortran
-        BUILD_COMMAND make
-        INSTALL_COMMAND make install
-	URL_HASH SHA256=5f9a3ee85db4ea1d3b1fa9159352aebc2af72732fc2f58c96a3f0768dba0e9aa
-    )
-    set(HDF5_INCLUDE_DIRS ${PROJECT_BINARY_DIR}/hdf5_local/include)
-    set(HDF5_Fortran_LIBRARIES ${PROJECT_BINARY_DIR}/hdf5_local/lib/libhdf5_fortran.so;${ZLIB_LIBRARIES})
-    set(HDF5_LIBRARY_DIRS ${PROJECT_BINARY_DIR}/hdf5_local/lib/)
-    set(HDF5_Fortran_COMPILER_EXECUTABLE ${PROJECT_BINARY_DIR}/hdf5_local/bin/h5fc)
-    #Try again to find HDF5
-    set(ENV{HDF5_ROOT} ${PROJECT_BINARY_DIR}/hdf5_local)
-    find_package(HDF5 1.6 COMPONENTS Fortran)
-endif()
-
 find_package(MPI4PY)
 find_package(SCIPY 0.10)
 IF(NOT SCIPY_FOUND)
