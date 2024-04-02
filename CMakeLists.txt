@@ -68,14 +68,16 @@ if (USE_NFFT)
   if(NOT NFFT_FOUND)
     find_package(FFTW REQUIRED)
     include(ExternalProject)
-    set(_nfft_version "3.5.2")
+    list(GET FFTW_LIBRARIES 0 FFTW_LIBFILEPATH)
+    get_filename_component(FFTW_LIBDIR "${FFTW_LIBFILEPATH}" DIRECTORY)
+    set(_nfft_version "3.5.3")
     ExternalProject_Add(nfft_local
       URL https://www-user.tu-chemnitz.de/~potts/nfft/download/nfft-${_nfft_version}.tar.gz
       PREFIX nfft_local
-      CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --libdir=<INSTALL_DIR>/lib
+      CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --libdir=<INSTALL_DIR>/lib --with-fftw3-libdir=${FFTW_LIBDIR} --with-fftw3-includedir=${FFTW_INCLUDES}
       BUILD_COMMAND make
       INSTALL_COMMAND make install
-      URL_HASH SHA256=cf3b2f3b2eabd79e49a5fbabf7f8d73fc3c57c4f68ae71e29f6dead853ab2901
+      URL_HASH SHA256=caf1b3b3e5bf8c33a6bfd7eca811d954efce896605ecfd0144d47d0bebdf4371
       )
     # in the previous findPackage(NFFT) call an old version of NFFT could have been found. Here we override it with our up-to-date self-compiled version. We don't use the include directories.
     set(NFFT_LIBRARIES ${PROJECT_BINARY_DIR}/nfft_local/lib/libnfft3.a)
