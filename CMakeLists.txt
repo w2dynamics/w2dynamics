@@ -194,20 +194,76 @@ ADD_SUBDIRECTORY(testsuite/ctqmc.tests)
 ADD_SUBDIRECTORY(testsuite/w2dyn.tests)
 enable_testing()
 
-# Compile all Python files to bytecode, then install the package
-# including bytecode files to the Python site-package path and
-# executables to program path
-option(INSTALL_EXECUTABLES "Install executable scripts DMFT.py, cthyb, Maxent.py and hgrep to the executable directory (depends on prefix, e.g. /usr/bin)" ON)
+
+# INSTALLATION
 
 message(STATUS "Configuration for installation (optional):")
-message(STATUS "Installation prefix directory (variable CMAKE_INSTALL_PREFIX): ${CMAKE_INSTALL_PREFIX}")
-message(STATUS "Installing executables DMFT.py, cthyb, Maxent.py, hgrep (option INSTALL_EXECUTABLES): ${INSTALL_EXECUTABLES}")
+
+# default / fallback paths relative to CMAKE_INSTALL_PREFIX
+set(INSTALL_PATH_SITE_PACKAGES "lib/python${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}/site-packages")
+set(INSTALL_PATH_SCRIPTS "bin")
+
+if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+
+  execute_process(
+    COMMAND ${PYTHON_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_path('platlib'));"
+    RESULT_VARIABLE PY_SYSCONFIG_PLATLIB_FAILURE
+    OUTPUT_VARIABLE PY_SYSCONFIG_PLATLIB_PATH
+    ERROR_QUIET
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  if (NOT PY_SYSCONFIG_PLATLIB_FAILURE)
+    message(STATUS "Using path obtained from Python sysconfig module for package installation")
+    message(STATUS "Package installation path: ${PY_SYSCONFIG_PLATLIB_PATH}")
+    set(INSTALL_PATH_SITE_PACKAGES "${PY_SYSCONFIG_PLATLIB_PATH}")
+  endif()
+
+  execute_process(
+    COMMAND ${PYTHON_EXECUTABLE} -c "import sysconfig; print(sysconfig.get_path('scripts'));"
+    RESULT_VARIABLE PY_SYSCONFIG_SCRIPTS_FAILURE
+    OUTPUT_VARIABLE PY_SYSCONFIG_SCRIPTS_PATH
+    ERROR_QUIET
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+  if (NOT PY_SYSCONFIG_SCRIPTS_FAILURE)
+    message(STATUS "Using path obtained from Python sysconfig module for script installation")
+    message(STATUS "Script installation path: ${PY_SYSCONFIG_SCRIPTS_PATH}")
+    set(INSTALL_PATH_SCRIPTS "${PY_SYSCONFIG_SCRIPTS_PATH}")
+  endif()
+
+  if ((NOT PY_SYSCONFIG_PLATLIB_FAILURE) OR (NOT PY_SYSCONFIG_SCRIPTS_FAILURE))
+    message(STATUS "Set CMAKE_INSTALL_PREFIX to override default installation paths")
+  endif()
+
+else()
+
+  message(STATUS "Installation prefix directory (variable CMAKE_INSTALL_PREFIX): ${CMAKE_INSTALL_PREFIX}")
+
+endif()
+
+option(INSTALL_EXECUTABLES "Install executable scripts DMFT.py, cthyb, Maxent.py and hgrep to the executable directory (depends on prefix, e.g. /usr/bin)" ON)
+
+message(STATUS "Installing executable scripts DMFT.py, cthyb, Maxent.py, hgrep (option INSTALL_EXECUTABLES): ${INSTALL_EXECUTABLES}")
 
 install(DIRECTORY w2dyn
-  DESTINATION lib/python${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}/site-packages
+  DESTINATION "${INSTALL_PATH_SITE_PACKAGES}"
   COMPONENT Python_Package)
 if(INSTALL_EXECUTABLES)
-  install(PROGRAMS DMFT.py cthyb hgrep Maxent.py
-    DESTINATION bin
-    COMPONENT Executable_Scripts)
+  set(SCRIPT_FILES DMFT.py cthyb hgrep Maxent.py)
+  foreach(SCRIPT_FILE ${SCRIPT_FILES})
+    install(
+      CODE  "file(READ \"${CMAKE_CURRENT_SOURCE_DIR}/${SCRIPT_FILE}\" SCRIPT_CONTENT)
+             file(WRITE \"${CMAKE_CURRENT_BINARY_DIR}/${SCRIPT_FILE}.cmake.out\" \"#!${PYTHON_EXECUTABLE}\n# Preceding path inserted by cmake during installation\n\")
+             file(APPEND \"${CMAKE_CURRENT_BINARY_DIR}/${SCRIPT_FILE}.cmake.out\" \"\${SCRIPT_CONTENT}\")"
+      COMPONENT Executable_Scripts
+    )
+    install(
+      PROGRAMS "${CMAKE_CURRENT_BINARY_DIR}/${SCRIPT_FILE}.cmake.out"
+      DESTINATION "${INSTALL_PATH_SCRIPTS}"
+      COMPONENT Executable_Scripts
+      RENAME "${SCRIPT_FILE}"
+    )
+    install(CODE  "file(REMOVE \"${CMAKE_CURRENT_BINARY_DIR}/${SCRIPT_FILE}.cmake.out\")"
+            COMPONENT Executable_Scripts)
+  endforeach()
 endif()
