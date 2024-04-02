@@ -271,7 +271,6 @@ for iter_no in range(stat_iterations+worm_iterations):
         output.write_quantity("giw", [result.giw.mean()])
         output.write_quantity("siw", [result.siw.mean()])
         output.write_quantity("smom", [result.smom.mean()])
-        output.write_quantity("occ", [result.other["occ"].mean()])
         output.write_impurity_result(0, result.other)
         if result_worm is not None:
             output.write_impurity_result(0, result_worm.other)
