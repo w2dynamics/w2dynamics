@@ -108,8 +108,16 @@ find_package(
 execute_process(
   COMMAND "${PYTHON_EXECUTABLE}" -c
           "import numpy.f2py; print(numpy.f2py.get_include())"
+  RESULT_VARIABLE GET_INCLUDE_FAILED
   OUTPUT_VARIABLE F2PY_INCLUDE_DIR
   OUTPUT_STRIP_TRAILING_WHITESPACE)
+if (${GET_INCLUDE_FAILED})
+  execute_process(
+    COMMAND "${PYTHON_EXECUTABLE}" -c
+            "import numpy.f2py; print(numpy.f2py.__path__[0] + '/src')"
+    OUTPUT_VARIABLE F2PY_INCLUDE_DIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+endif(${GET_INCLUDE_FAILED})
 
 add_library(fortranobject OBJECT "${F2PY_INCLUDE_DIR}/fortranobject.c")
 target_link_libraries(fortranobject PUBLIC Python::NumPy)
