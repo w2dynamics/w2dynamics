@@ -136,11 +136,11 @@ if __name__ == '__main__':
 
         # we refer to tau or iw array as ximag in the following
         if options.tag == "gtau" or options.tag == "gtau_worm":
-            freqval = hf[("axes", ".axes")[file_version[0]-1]]["taubin"].value
+            freqval = hf[("axes", ".axes")[file_version[0]-1]]["taubin"][()]
         elif options.tag == "siw" or options.tag == "giw":
-            freqval = hf[("axes", ".axes")[file_version[0]-1]]["iw"].value
+            freqval = hf[("axes", ".axes")[file_version[0]-1]]["iw"][()]
         elif options.tag == "ntau-n0" or options.tag == "sztau-sz0":
-            freqval = hf[("axes", ".axes")[file_version[0]-1]]["tausus"].value
+            freqval = hf[("axes", ".axes")[file_version[0]-1]]["tausus"][()]
         else:
             print("Warning: ascending integers will be used as x-axis")
             freqval = Enumerator()
