@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """ %prog [--help] <file.hdf5>
 
 Adds gloctau: Fourier transform of gloc with p-band error estimate added

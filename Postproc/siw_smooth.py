@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """ %prog [--help] [-i iter] [-u] [-t threshold] [-l maxorder] <file.hdf5> 
 
 Computes siw-smooth and giw-smooth and adds it to output file

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """Helper script to generate a bootstrap error for the quantities (siw, gtau,
 gtau_worm ...) of the w2dynamics hdf5 output file. Generates plain text files
 which can be processed by MaxEnt.py afterwards.

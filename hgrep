@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """Tool for extracting information from HDF5 output files"""
 from __future__ import (absolute_import, division,
                         print_function, unicode_literals)

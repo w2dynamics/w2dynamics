@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # example:
 #  ./permute_bands.py Hk.dat $(seq 1 5) $(seq 11 28) $(seq 6 10) $(seq 29 46)
 from __future__ import print_function
