@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """ taylorfit_selfenergy.py [--help] [--iteration=i] <file.hdf5> 
 
 Computes the Taylor fit to the real-axis self energy and writes it

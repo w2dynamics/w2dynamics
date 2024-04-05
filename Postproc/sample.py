@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """ %prog [--help] <file.hdf5> 
 
 Add description of your script here. PLEASE DO THAT!

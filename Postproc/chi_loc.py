@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Calculates local spin suceptibility from an HDF5 file
 

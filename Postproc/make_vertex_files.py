@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """ %prog [--help] <file.hdf5> 
 
 Generates vert_chi, vert_chi_pp and gm_wim files from HDF5

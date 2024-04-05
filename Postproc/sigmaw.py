@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """Allows for manipulation of the Green's function in real frequency space"""
 from __future__ import print_function
 import numpy as np
