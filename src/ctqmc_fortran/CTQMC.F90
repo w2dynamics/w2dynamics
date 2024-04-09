@@ -5830,7 +5830,8 @@ subroutine StepWormReplace(Sector)
    endif
    
    TryWormRep(Sector)=TryWormRep(Sector)+1
-   
+
+   nobj = 1
    !select one of the two worm operators for exchange
    if(Sector .eq. SectorG .or. Sector .eq. SectorG4) then
       rand=randint(1, size(DTrace%wormContainer))
