@@ -52,6 +52,9 @@ set_target_properties(MAXENTLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
   if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
     set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c" PROPERTIES
       COMPILE_OPTIONS "-Wno-error=incompatible-function-pointer-types")
+  elseif (CMAKE_C_COMPILER_ID STREQUAL "IntelLLVM")
+    set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c" PROPERTIES
+      COMPILE_OPTIONS "-Wno-error=incompatible-function-pointer-types")
   elseif (CMAKE_C_COMPILER_ID STREQUAL "GNU" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 14)
     set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c" PROPERTIES
       COMPILE_OPTIONS "-Wno-error=incompatible-pointer-types")
