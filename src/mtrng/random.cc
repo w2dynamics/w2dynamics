@@ -48,73 +48,10 @@ private:
 
 #endif /* HAVE_CXX11RANDOM */
 
-class CStdlibRandom;
-
-/** Return log2(x+1), thus avoiding overflow for x == -1 */
-static unsigned log2p1(unsigned x) {
-    ++x;
-    if (x == 0)
-        return log2p1(-2) + 1;
-    unsigned res = 0;
-    while (x > 1) {
-        x >>= 1;
-        ++res;
-    }
-    return res;
-}
-
-class CStdlibRandom;
-static CStdlibRandom *current = NULL;
-
-/**
- * Wrapper around the C standard random number generator `stdlib.h`
- *
- * This class wraps around the C standard PRNG functions `rand()` and
- * `srand()`.  This PRNG is almost always of the shift-modulo type, which
- * produces random numbers of poor quality, low entropy and short period.
- * However, since it is the only PRNG for old C++ versions, we provide a
- * wrapper here.
- *
- * This class is a singleton (it may only be instantiated *once*), since the
- * underlying C library function store the current state in a global.
- */
-class CStdlibRandom
-{
-public:
-    static unsigned entropy() { return log2p1(RAND_MAX); }
-
-    CStdlibRandom(unsigned seed=0) {
-        assert(current == NULL && "class is a singleton");
-        current = this;
-        this->seed(seed);
-    }
-
-    ~CStdlibRandom() {
-        if (current == this)
-            current = NULL;
-    }
-
-    void seed(unsigned seed) { srand(seed); }
-
-    double rand () {
-        assert(current != NULL && "class is a singleton");
-        return rand()/(RAND_MAX + 1.0);
-    }
-
-    int randint (int min, int max) {
-        assert(current != NULL && "class is a singleton");
-	int res = min + (int)(((double)(max + 1 - min)) * this->rand());
-	return (res <= max ? res : max);
-    }
-};
-
-
-// Make sure we always have a RNG
 #if HAVE_CXX11RANDOM
     typedef Cxx11Random DefaultRandom;
 #else
-    #pragma message "WARNING: Falling back on poor Stdlib RNG. Check results."
-    typedef CStdlibRandom DefaultRandom;
+    #error "Support for the RNGs provided by the C++ standard library in C++11 and higher is required"
 #endif
 
 
