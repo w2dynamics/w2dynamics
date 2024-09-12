@@ -2675,7 +2675,7 @@ type(TLogDet) function get_FullLogDet(this,DStates)
    do iB=1,DStates%NBands
       do iS=1,2
          if(associated(this%MinV(iB,iS)%Mat))then
-         if(size(this%Minv(iB,iS)%Mat(1,:)).gt.0)then
+         if(size(this%Minv(iB,iS)%Mat, 2).gt.0)then
             call get_LogDetFull(size(this%Minv(iB,iS)%Mat(1,:)),this%MInv(iB,iS)%Mat,tDet)
             get_FullLogDet = tDet * get_FullLogDet
          endif
