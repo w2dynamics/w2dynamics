@@ -62,7 +62,7 @@ element). If \fIstart\fR or \fIstop\fR are omitted, they default to the 1 and
 For example, \fB:\fR is shorthand for \fB1:-1:1\fR and selects all elements (see
 \fBExamples\fR).
 
-Selecting iterations works a bit differenty: there are two special iterations,
+Selecting iterations works a bit differently: there are two special iterations,
 \fBstart\fR and \fBfinish\fR, which store data for the beginning and the end of
 the run. If you omit the iteration selection, or use \fB:\fR for it, then these
 iterations are included as well. If you specify only parts of the iterations,
