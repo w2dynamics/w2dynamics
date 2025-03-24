@@ -93,7 +93,7 @@ class Lattice:
         raise NotImplementedError()
 
     def gloc(self, iw, mu, siw, siw_gw=None):
-        """Compute the local Green's function from the quantitiy `A(iw)`.
+        r"""Compute the local Green's function from the quantitiy `A(iw)`.
 
         In principle, for this lattice, perform the sum:
 
@@ -106,7 +106,7 @@ class Lattice:
         raise NotImplementedError()
 
     def gmodel(self, iw, mu, smom, smom_gw=None, strategy='local'):
-        """Compute a model Green's function and its analytical sum.
+        r"""Compute a model Green's function and its analytical sum.
 
         For this lattice, perform the (approximate) sum:
 
@@ -379,7 +379,7 @@ class KspaceHamiltonian(Lattice):
 
 
     class EVTraceFactory(Lattice.TraceFactory):
-        """Computing a set trace by changing to the eigenbasis of A - H
+        r"""Computing a set trace by changing to the eigenbasis of A - H
 
         This functor exploits two facts: (1) the trace of a matrix `tr(S)` is
         invariant under a change of basis and (2) the eigenbasis of `S` is the

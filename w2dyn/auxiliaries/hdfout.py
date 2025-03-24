@@ -392,6 +392,6 @@ class HdfOutput:
                         qtty_node.create_dataset("value", data=qtty_value)
             except (OSError, RuntimeError, ValueError):
                 sys.stderr.write(
-                    "\nWARNING: Ignoring field {} for multiple worm components.\n\n".format(qtty_name))
+                    "\nWARNING: Ignoring second attempt to write field {} (e.g. for multiple worm components).\n\n".format(qtty_name))
         if self.is_writer:
             self.file.flush()

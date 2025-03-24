@@ -2,12 +2,6 @@ from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 from warnings import warn
 
-try:
-    from . import CTQMC
-except:
-    warn("CTQMC binary module failed to load. Please make sure to correctly build the compiled components of w2dynamics using the cmake build system.")
-
-
 BANNER = r"""
            ______
          _/XXXXXX\ ___ __  ____   /|   W2DYNAMICS - Wuerzburg/Wien strong
