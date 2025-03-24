@@ -179,6 +179,19 @@ Percentage4OperatorMove = float(min=0,max=1,default=0.000)     # percentage of g
 
 MeasSsquare           = integer(default=0)                  # write S^2; note that due to planned changes this parameter may become unnecessary and be removed in a future version
 
+[CI]
+# bath fitting
+npoles                = integer(min=1, default=10)
+epsbathfit            = float(default=1e-7)            # sdr: terminate if difference below this parameter for a few steps
+epsbatheigval         = float(default=0)               # sdr: truncate X eigenvalues below this parameter
+niw_fit               = integer(min=3, default=100)
+sdr_min_iter          = integer(min=0, default=50)
+sdr_max_iter          = integer(min=0, default=200)
+bath_fit_method       = option('adapol', 'bfgs', 'sdr', 'sdr_bfgs', default='sdr_bfgs')
+initial_bath          = force_list(default=None)  # nbath energies, nbath * nflavors V; nflavors runs faster, nbath is determined automatically and would override npoles
+assume_spin_symmetry  = boolean(default=False)
+write_hamiltonian     = option("final", "always", "never", default="never")
+
 #this section contains all other parameters
 [General]
 #DOS flat/semicirc/ReadIn/Bethe/Bethe_in_tau
@@ -189,6 +202,7 @@ muimpFile       = string(default=None)          # filename of the muimp file
 nanostructure   = string(default=None)          # filename of the H_k file
 EPSEQ           = float(default=1e-6)           # epsilon for identical atom in unit cell
 equiv           = force_list(default=None)
+solver          = option('CTHYB', default='CTHYB')  # impurity solver
 
 # Include GW Self-Energy
 GW              = integer(default=0)

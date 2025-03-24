@@ -141,7 +141,11 @@ paramag = cfg["General"]["magnetism"] == "para"
 # Initialise solver
 log("Initialising solver ...")
 Nseed = cfg["QMC"]["NSeed"] + mpi_rank
-solver = impurity.CtHybSolver(cfg, Nseed, 0,0,0, not use_mpi, mpi_comm)
+
+if cfg["General"]["solver"] == "CTHYB":
+    solver = impurity.CtHybSolver(cfg, Nseed, 0,0,0, not use_mpi, mpi_comm)
+else:
+    raise ValueError("Invalid option provided for General.solver")
 
 #FIXME: hack
 cfg["QMC"]["FTType"]=cfg["General"]["FTType"]
