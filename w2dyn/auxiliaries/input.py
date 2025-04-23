@@ -54,9 +54,9 @@ def read_u_matrix(u_file, spin=False):
 
     # now read the remaining lines
     if spin:
-        line_re = r"\s*" + r"(\d+)\s*([ud])\s+" * 4 + r"([^\s]*)\s*$"
+        line_re = r"\s*(?:" + r"(\d+)\s*([ud])\s+" * 4 + r"([^\s\#]*)\s*)?(?:\#.*)?\s*$"
     else:
-        line_re = r"\s*" + r"(\d+)\s+" * 4 + r"([^\s]*)\s*$"
+        line_re = r"\s*(?:" + r"(\d+)\s+" * 4 + r"([^\s\#]*)\s*)?(?:\#.*)?\s*$"
     line_re = re.compile(line_re, re.I | re.X)
 
     entries = []
@@ -73,6 +73,8 @@ def read_u_matrix(u_file, spin=False):
         match = line_re.match(line)
         if not match:
             raise ValueError("invalid U matrix entry:\n%s" % line)
+        elif None in match.groups():
+            continue
         entry = list(match.groups())
         entry[-1] = float(entry[-1])
 
