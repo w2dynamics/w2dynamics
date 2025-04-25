@@ -99,7 +99,7 @@ def read_u_matrix(u_file, spin=False):
     return u_matrix
 
 
-def write_u_matrix(out, u_matrix, comment=None):
+def write_u_matrix(out, u_matrix, comment=None, force_spin=False):
     """Writes a full four-index U matrix f$ U_{ijkl} f$ to a text file.
 
     Expects a file object out that can be written to, u_matrix as
@@ -149,7 +149,8 @@ def write_u_matrix(out, u_matrix, comment=None):
     # check whether the interaction fits spin-independent format
     absoluteu = np.abs(u_matrix)
     atol = 1.0e-8 * np.amin(absoluteu[absoluteu > 0.0])
-    if all((np.allclose(u_matrix[:, 0, :, 0, :, 0, :, 0],
+    if (not force_spin
+        and all((np.allclose(u_matrix[:, 0, :, 0, :, 0, :, 0],
                         u_matrix[:, s1, :, s2, :, s3, :, s4],
                         atol=atol)
             if (s1, s2, s3, s4) in ((0, 0, 0, 0),
@@ -159,7 +160,7 @@ def write_u_matrix(out, u_matrix, comment=None):
             else np.allclose(0.0,
                              u_matrix[:, s1, :, s2, :, s3, :, s4],
                              atol=atol))
-           for s1, s2, s3, s4 in np.ndindex(u_matrix.shape[1:8:2])):
+           for s1, s2, s3, s4 in np.ndindex(u_matrix.shape[1:8:2]))):
         orbmatrix = u_matrix[:, 0, :, 0, :, 0, :, 0]
         nonzero_indices = np.nonzero(orbmatrix)
         np.savetxt(out,
