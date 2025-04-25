@@ -14,7 +14,6 @@ import scipy.optimize as opt
 
 import w2dyn.auxiliaries.transform as tf
 import w2dyn.auxiliaries.postprocessing as postproc
-from w2dyn.auxiliaries.input import write_u_matrix
 from w2dyn.auxiliaries.statistics import DistributedSample
 from w2dyn.dmft.selfcons import iw_to_tau_fast
 from w2dyn.dmft.impurity import (ImpuritySolver,
@@ -57,18 +56,6 @@ class EDIpySolver(ImpuritySolver):
         def f(floatvar):
             return f"{floatvar:e}".replace('e', 'd')
 
-        umatrixname = None
-        if self.mpi_rank == 0:
-            umatrixfd, umatrixname = mkstemp(".restart", "umat.", Path.cwd(), True)
-            with open(umatrixfd, "x") as file:
-                write_u_matrix(file,
-                               np.flip(self.problem.interaction.u_matrix, axis=(1, 3, 5, 7)),
-                               force_spin=True)
-            # paths containing '/' must not be passed to read_input
-            # and .restart is appended automatically
-            umatrixname = Path(umatrixname).stem
-        umatrixname = self.mpi_comm.bcast(umatrixname, root=0)
-
         params = dedent(f"""\
         NORB={self.problem.norbitals}                 !Number of impurity orbitals (max 5).
         NBATH={c["CI"]["npoles"]}                     !Number of bath sites:(normal=>Nbath per orb)(hybrid=>Nbath total)(replica/general=>Nbath=Nreplica/Ngeneral)
@@ -107,7 +94,8 @@ class EDIpySolver(ImpuritySolver):
         ED_SPARSE_H=T                                 !flag to select  storage of sparse matrix H (mem--, cpu++) if TRUE, or direct on-the-fly H*v product (mem++, cpu--) if FALSE
         ED_TOTAL_UD=T                                 !flag to select which type of quantum numbers have to be considered: T (default) total Nup-Ndw, F orbital based Nup-Ndw
         ED_TWIN=F                                     !flag to reduce (T) or not (F,default) the number of visited sector using twin symmetry.
-        ED_READ_UMATRIX=T                             !flag to read (T) or not (F,default) the two-body operators from an external file.
+        ED_READ_UMATRIX=F                             !flag to read (T) or not (F,default) the two-body operators from an external file.
+        ED_USE_KANAMORI=F                             !flag to use (T,default) or not (F) input variables for Kanamori coefficients.
         ED_OBS_ALL=F                                  !flag to print observables for every loop.
         ED_SOLVE_OFFDIAG_GF={l(not self.g_diagonal_only)} !flag to select the calculation of the off-diagonal impurity GF. this is T by default if bath_type/=normal
         ED_PRINT_SIGMA=F                              !flag to print impurity Self-energies
@@ -171,7 +159,7 @@ class EDIpySolver(ImpuritySolver):
         SECTORFILE=sectors                            !File where to retrieve/store the sectors contributing to the spectrum.
         HFILE=hamiltonian                             !File where to retrieve/store the bath parameters.
         HLOCFILE=inputHLOC.in                         !File read the input local H.
-        UMATRIX_FILE={umatrixname}                    !File read the two-body operator list from.
+        UMATRIX_FILE=umatrix                          !File read the two-body operator list from.
         PRINT_INPUT_VARS=F                            !Flag to toggle console printing of input variables list
         LOGFILE=6                                     !LOG unit."""
                           )
@@ -206,9 +194,13 @@ class EDIpySolver(ImpuritySolver):
 
         # solver uses a different convention for muimp
         self.muimp = -self.muimp
-        self.umatrix = self.problem.interaction.u_matrix.reshape(
-                             self.problem.nflavours, self.problem.nflavours,
-                             self.problem.nflavours, self.problem.nflavours)
+
+        # hermitize explicitly (check whether this is really needed)
+        self.problem.interaction.u_matrix = 0.5 * (
+            self.problem.interaction.u_matrix
+            + np.conj(np.transpose(self.problem.interaction.u_matrix,
+                                   (4, 5, 6, 7, 0, 1, 2, 3)))
+        )
 
     def solve(self, iter_no, step_cache=None, prefixdir=None):
         stdout.flush()
@@ -231,9 +223,10 @@ class EDIpySolver(ImpuritySolver):
         if type(step_cache) is list:
             step_cache.append(newcache)
 
-        # transposition and flip by convention
+        # transposition by convention
         fiw = np.transpose(self.fiw, (1, 3, 0, 2, 4))[:, :, :, :, ::-1]
         # w2dynamics has spins in (down, up) order
+        # flip w2d to ed spin order
         fiw = np.flip(fiw, axis=(0, 1))
         omega = 2.0 * np.pi * (np.arange(-fiw.shape[-1]//2, fiw.shape[-1]//2) + 0.5) / self.problem.beta
 
@@ -247,11 +240,29 @@ class EDIpySolver(ImpuritySolver):
             chdir(ed_wdir)
 
         self.config_to_edipack()
+        # flip w2d to ed spin order
         self.ed.set_hloc(np.flip(self.muimp.transpose(1, 3, 0, 2), axis=(0, 1)).astype(complex))
 
         bath = self.ed.init_solver()
         if "bath" in oldcache and oldcache["bath"].shape == bath.shape:
             bath = oldcache["bath"]
+
+        self.ed.reset_umatrix()
+        # flip w2d to ed spin order
+        ed_umat = np.flip(self.problem.interaction.u_matrix, axis=(1, 3, 5, 7))
+        nonzero_umat_indices = np.transpose(
+            np.nonzero(ed_umat)
+        )
+        for i in nonzero_umat_indices:
+            value = ed_umat[tuple(i)]
+            for icol, val in enumerate(i):
+                if icol % 2 == 1: # spin: 0 to down, 1 to up
+                    i[icol] = ord('d') + (ord('u') - ord('d')) * val
+            self.ed.add_twobody_operator(i[0], chr(i[1]),
+                                         i[2], chr(i[3]),
+                                         i[4], chr(i[5]),
+                                         i[6], chr(i[7]),
+                                         value.real)  # accepts only real
 
         if iter_no == 0 and self.config["CI"]["initial_bath"] is not None:
             bath = np.array([float(x) for x in self.config["CI"]["initial_bath"]])
@@ -271,6 +282,7 @@ class EDIpySolver(ImpuritySolver):
         log(f"Bath fit: whole range tot. mismatch {result['fiw-fit-error-rss']}")
         log(f"Bath fit: whole range max mismatch {result['fiw-fit-error-max']}", flush=True)
 
+        # flip ed to w2d spin order
         fiw_fit = np.flip(fiw_fit, axis=(0, 1))
         fiw_fit = np.transpose(fiw_fit, (2, 0, 3, 1, 4))
         result["fiw-fit"] = fiw_fit
@@ -331,6 +343,7 @@ class EDIpySolver(ImpuritySolver):
         # result["rho1"] = np.reshape(rho1, (self.problem.norbitals, 2) * 2)
         # result["rho2"] = np.reshape(rho2, (self.problem.norbitals, 2) * 4)
 
+        # flip ed to w2d spin order
         giw = np.transpose(
             np.flip(self.ed.get_gimp(ishape=5, axis='m'), axis=(0, 1)),
             (2, 0, 3, 1, 4)
