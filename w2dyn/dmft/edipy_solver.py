@@ -207,9 +207,10 @@ class EDIpySolver(ImpuritySolver):
         stderr.flush()
 
         def log(*args, **kwargs):
-            print(time.strftime("%y-%m-%d %H:%M:%S"), *args, **kwargs)
+            if self.mpi_rank == 0:
+                print(time.strftime("%y-%m-%d %H:%M:%S"), *args, **kwargs)
 
-        time_qmc = time.perf_counter()
+        time_solver = time.perf_counter()
 
         # Solver-specific cache
         firstrun = True
@@ -319,29 +320,103 @@ class EDIpySolver(ImpuritySolver):
         # log(f"Ground state total energy: {energy}")
         # result["aim-total-gs-energy"] = energy
 
-        time_qmc = time.perf_counter() - time_qmc
-        result["time-qmc"] = time_qmc
+        time_solver = time.perf_counter() - time_solver
+        result["time-qmc"] = time_solver
 
-        # Extract output quantities
-        occ = np.full((self.problem.norbitals, 2) * 2, np.nan, dtype=np.float64)
+        def op_c(orb, sp, norb=self.problem.norbitals):
+            # reverse only orb, spin compensated by ed -> w2d
+            orb = 1 - orb
+            mat = np.zeros(2**(2 * norb) - 1, dtype=np.float64)
+            mat[0::2] = 1
+            mat = np.diagflat(mat, k=1)
+            mat = np.reshape(mat, (2,) * (2 * norb * 2))
+            mat = np.moveaxis(mat,
+                              (norb * 2 - 1, 2 * norb * 2 - 1),
+                              (orb + sp * norb, norb * 2 + orb + sp * norb))
+            return np.reshape(mat, (2**(2 * norb),
+                                    2**(2 * norb)))
 
-        soccs = np.zeros((self.problem.norbitals, 2), dtype=np.float64)
-        soccs[...] = self.ed.get_dens()[:, np.newaxis] / 2.0
-        soccs += self.ed.get_mag("z")[:, np.newaxis] * np.array([-0.5, 0.5])[np.newaxis, :]
+        def op_cdag(orb, sp, norb=self.problem.norbitals):
+            # reverse only orb, spin compensated by ed -> w2d
+            orb = 1 - orb
+            mat = np.zeros(2**(2 * norb) - 1, dtype=np.float64)
+            mat[0::2] = 1
+            mat = np.diagflat(mat, k=-1)
+            mat = np.reshape(mat, (2,) * (2 * norb * 2))
+            mat = np.moveaxis(mat,
+                              (norb * 2 - 1, 2 * norb * 2 - 1),
+                              (orb + sp * norb, norb * 2 + orb + sp * norb))
+            return np.reshape(mat, (2**(2 * norb),
+                                    2**(2 * norb)))
 
-        for o in range(self.problem.norbitals):
-            for s in (0, 1):
-                occ[o, s, o, s] = soccs[o, s]
+        try:
+            rdm = np.loadtxt("reduced_density_matrix.ed")
+            # could be indexed with occupation numbers if reshaped like this:
+            # rdm = np.reshape(rdm, (2,) * (2 * self.problem.norbitals * 2))  # factors of 2: row/col and spin
 
-        doccs = self.ed.get_docc()
+            occ = np.zeros((self.problem.norbitals, 2) * 2, dtype=np.float64)
+            rho1 = np.zeros((self.problem.norbitals, 2) * 2, dtype=np.complex128)
+            rho2 = np.zeros((self.problem.norbitals, 2) * 4, dtype=np.complex128)
+            for o1 in range(self.problem.norbitals):
+                for s1 in (0, 1):
+                    for o2 in range(self.problem.norbitals):
+                        for s2 in (0, 1):
+                            rho1[o1, s1, o2, s2] = np.trace(rdm @ op_cdag(o1, s1) @ op_c(o2, s2))
+                            if o1 == o2 and s1 == s2:
+                                occ[o1, s1, o2, s2] = (
+                                    rho1[o1, s1, o2, s2].real
+                                )
+                            for o3 in range(self.problem.norbitals):
+                                for s3 in (0, 1):
+                                    for o4 in range(self.problem.norbitals):
+                                        for s4 in (0, 1):
+                                            rho2[o1, s1, o2, s2, o3, s3, o4, s4] = np.trace(
+                                                rdm
+                                                @ op_cdag(o1, s1)
+                                                @ op_cdag(o2, s2)
+                                                @ op_c(o3, s3)
+                                                @ op_c(o4, s4)
+                                            )
+                                            if (o1 == o4 and s1 == s4
+                                                and o3 == o2 and s3 == s2
+                                                and o1 != o2 and s1 != s2):
+                                                occ[o1, s1, o2, s2] = (
+                                                    rho2[o1, s1, o2, s2, o3, s3, o4, s4].real
+                                                )
 
-        for o in range(self.problem.norbitals):
-            for s in (0, 1):
-                occ[o, s, o, 1 - s] = doccs[o]
+            result["occ"] = occ
+            result["rho1"] = rho1
+            result["rho2"] = rho2
 
-        result["occ"] = occ
-        # result["rho1"] = np.reshape(rho1, (self.problem.norbitals, 2) * 2)
-        # result["rho2"] = np.reshape(rho2, (self.problem.norbitals, 2) * 4)
+            # occbasis state index, orb, sp -> occupation
+            obm = np.zeros((2**(2 * self.problem.norbitals), self.problem.norbitals, 2), dtype=int)
+            divisor = 2
+            for s in (0, 1):  # descending in ed order = ascending in w2d order
+                for o in range(self.problem.norbitals - 1, -1, -1):
+                    obm[1::divisor, o, s] = 1
+                    divisor *= 2
+
+            result["occbasis-mapping"] = obm
+            result["densitymatrix"] = rdm
+        except Exception as e:
+            # Extract output quantities
+            occ = np.full((self.problem.norbitals, 2) * 2, np.nan, dtype=np.float64)
+
+            soccs = np.zeros((self.problem.norbitals, 2), dtype=np.float64)
+            soccs[...] = self.ed.get_dens()[:, np.newaxis] / 2.0
+            soccs += self.ed.get_mag("z")[:, np.newaxis] * np.array([-0.5, 0.5])[np.newaxis, :]
+
+            for o in range(self.problem.norbitals):
+                for s in (0, 1):
+                    occ[o, s, o, s] = soccs[o, s]
+
+            doccs = self.ed.get_docc()
+
+            for o in range(self.problem.norbitals):
+                for s in (0, 1):
+                    occ[o, s, o, 1 - s] = doccs[o]
+
+            result["occ"] = occ
 
         # flip ed to w2d spin order
         giw = np.transpose(
