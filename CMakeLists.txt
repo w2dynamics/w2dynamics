@@ -74,7 +74,7 @@ if (USE_NFFT)
     ExternalProject_Add(nfft_local
       URL https://www-user.tu-chemnitz.de/~potts/nfft/download/nfft-${_nfft_version}.tar.gz
       PREFIX nfft_local
-      CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --libdir=<INSTALL_DIR>/lib --with-fftw3-libdir=${FFTW_LIBDIR} --with-fftw3-includedir=${FFTW_INCLUDES}
+      CONFIGURE_COMMAND <SOURCE_DIR>/configure --disable-applications --prefix=<INSTALL_DIR> --libdir=<INSTALL_DIR>/lib --with-fftw3-libdir=${FFTW_LIBDIR} --with-fftw3-includedir=${FFTW_INCLUDES}
       BUILD_COMMAND make
       INSTALL_COMMAND make install
       URL_HASH SHA256=caf1b3b3e5bf8c33a6bfd7eca811d954efce896605ecfd0144d47d0bebdf4371
