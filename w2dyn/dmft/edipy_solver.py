@@ -224,14 +224,17 @@ class EDIpySolver(ImpuritySolver):
         if type(step_cache) is list:
             step_cache.append(newcache)
 
-        # transposition by convention
-        fiw = np.transpose(self.fiw, (1, 3, 0, 2, 4))[:, :, :, :, ::-1]
+        # F[o, s, o, s, w] -> Delta[s, s, o, o, w]
+        fiw = np.conj(np.transpose(self.fiw, (1, 3, 0, 2, 4)))
+        g0iw = np.transpose(orbspin.invert(self.problem.g0inviw), (2, 4, 1, 3, 0))
         # w2dynamics has spins in (down, up) order
         # flip w2d to ed spin order
         fiw = np.flip(fiw, axis=(0, 1))
+        g0iw = np.flip(g0iw, axis=(0, 1))
         omega = 2.0 * np.pi * (np.arange(-fiw.shape[-1]//2, fiw.shape[-1]//2) + 0.5) / self.problem.beta
 
         fiw_pos = fiw[..., fiw.shape[-1]//2:]
+        g0iw_pos = g0iw[..., g0iw.shape[-1]//2:]
         omega_pos = omega[omega.size//2:]
 
         if prefixdir is not None:
@@ -277,9 +280,12 @@ class EDIpySolver(ImpuritySolver):
 
         if iter_no == 0 and self.config["CI"]["initial_bath"] is not None:
             bath = np.array([float(x) for x in self.config["CI"]["initial_bath"]])
-        else:
+        elif self.config["EDIPACK"]["CG_SCHEME"] == "delta":
             bath = self.ed.chi2_fitgf(fiw_pos.astype(complex), bath, ispin=0)
             bath = self.ed.chi2_fitgf(fiw_pos.astype(complex), bath, ispin=1)
+        elif self.config["EDIPACK"]["CG_SCHEME"] == "weiss":
+            bath = self.ed.chi2_fitgf(g0iw_pos.astype(complex), bath, ispin=0)
+            bath = self.ed.chi2_fitgf(g0iw_pos.astype(complex), bath, ispin=1)
         log(f"BATH: {bath}")
 
         # WRITE FIT RESULTS TO RESULT DICT
@@ -295,7 +301,7 @@ class EDIpySolver(ImpuritySolver):
 
         # flip ed to w2d spin order
         fiw_fit = np.flip(fiw_fit, axis=(0, 1))
-        fiw_fit = np.transpose(fiw_fit, (2, 0, 3, 1, 4))
+        fiw_fit = np.conj(np.transpose(fiw_fit, (2, 0, 3, 1, 4)))
         result["fiw-fit"] = fiw_fit
 
         self.problem.g0inviw = (1.0j * (omega[:, None, None, None, None]
@@ -433,7 +439,11 @@ class EDIpySolver(ImpuritySolver):
             np.flip(self.ed.get_gimp(ishape=5, axis='m'), axis=(0, 1)),
             (2, 0, 3, 1, 4)
         )
-        giw = np.concatenate((np.conj(giw[..., ::-1]), giw), axis=4)
+        giw = np.concatenate(
+            (np.conj(np.transpose(giw, (2, 3, 0, 1, 4))[..., ::-1]),
+             giw),
+            axis=4
+        )
         result["gomega"] = np.transpose(
             np.flip(self.ed.get_gimp(ishape=5, axis='r'), axis=(0, 1)),
             (2, 0, 3, 1, 4)
