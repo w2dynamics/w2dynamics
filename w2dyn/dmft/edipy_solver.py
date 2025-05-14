@@ -47,7 +47,7 @@ class EDIpySolver(ImpuritySolver):
 
         self.g_diagonal_only = (config["QMC"]["offdiag"] == 0)
 
-    def config_to_edipack(self):
+    def config_to_edipack(self, ed_mode):
         c = self.config
 
         def l(boolvar):
@@ -87,7 +87,7 @@ class EDIpySolver(ImpuritySolver):
         CHIDENS_FLAG=F
         CHIPAIR_FLAG=F
         CHIEXCT_FLAG=F
-        ED_MODE=normal
+        ED_MODE={ed_mode}
         ED_FINITE_TEMP={l(c["EDIPACK"]["ED_FINITE_TEMP"])}
         ED_SECTORS=F
         ED_SECTORS_SHIFT=1
@@ -240,7 +240,17 @@ class EDIpySolver(ImpuritySolver):
             ed_wdir.mkdir(parents=True, exist_ok=True)
             chdir(ed_wdir)
 
-        self.config_to_edipack()
+        # check for spin-offdiagonals
+        if (all(np.allclose(self.muimp[:, s1, :, 1 - s1], 0)
+                for s1 in (0, 1))
+            and all(np.allclose(self.fiw[:, s1, :, 1 - s1, :], 0)
+                    for s1 in (0, 1))
+            and np.allclose(np.imag(self.muimp), 0)):
+            ed_mode = "normal"
+        else:
+            ed_mode = "nonsu2"
+
+        self.config_to_edipack(ed_mode)
         # flip w2d to ed spin order
         self.ed.set_hloc(np.flip(self.muimp.transpose(1, 3, 0, 2), axis=(0, 1)).astype(complex))
 
