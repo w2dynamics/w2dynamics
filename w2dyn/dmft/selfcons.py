@@ -405,10 +405,10 @@ class DMFTStep:
         self.imp_problems = []
 
         if (self.use_gw == 1) and (np.sum(self.siw_full) != 0):
-            muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc.real - self.sigma_hartree - np.sum(self.smom_gw, axis=0)/self.lattice.nkpoints)
+            muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc - self.sigma_hartree - np.sum(self.smom_gw, axis=0)/self.lattice.nkpoints)
         else:
-            muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc.real - self.sigma_hartree)
-          
+            muimp = (self.mu * self._eye - self.dc_full - self.lattice.hloc - self.sigma_hartree)
+
         atom = 0
         for ineq, siw_block, smom_block in zip(self.ineq_list, self.siw_dd, self.smom_dd):
             # extract d-d blocks and perform inversion.
@@ -420,28 +420,10 @@ class DMFTStep:
             if self.mpi_comm is not None:
                 g0inviw_block = self.mpi_strategy.allgather(g0inviw_block)
 
-            # Remove self-energy using the Dyson equation.  Note that in 
+            # Remove self-energy using the Dyson equation.  Note that in
             # d+p or general multi-site, the d-d block is extracted *before*
             # the inversion and therefore the impurity self-energy is used.
             g0inviw_block += siw_block
-
-# giorgio: Symmetrisierung von G0inviw
-            g0inviw_block.real[:,...] = 0.5*(g0inviw_block.real[:,...]+g0inviw_block.real[::-1,...])
-            g0inviw_block.imag[:,...] = 0.5*(g0inviw_block.imag[:,...]-g0inviw_block.imag[::-1,...])
-
-            nbands=g0inviw_block.shape[1]
-            niw=g0inviw_block.shape[0]
-            g0inviw_block=g0inviw_block.reshape(niw,nbands*2,nbands*2)
-
-            g0_new=np.zeros_like(g0inviw_block,dtype=complex)
-            for i in range(0,niw):
-               tmp=g0inviw_block[i,:,:]
-               g0_new[i,:,:]=0.5*(tmp.transpose(1,0)+tmp)
-
-            g0_new=g0_new.reshape(niw,nbands,2,nbands,2)
-            g0inviw_block=g0_new
-
-# giorgio   ######
 
             # in principle, since the bare impurity propagator reads:
             # `1/G_0(iw) =  iw - muimp - F(iw)`, we have a freedom where to put
@@ -456,32 +438,41 @@ class DMFTStep:
             # the second moment of the DOS.
             hloc_block = ineq.d_downfold(self.lattice.hloc)
 
-            # GW Inclusion and Inclusion of GW 0th Moment  
+            # GW Inclusion and Inclusion of GW 0th Moment
             if (self.use_gw == 1) and (np.sum(self.siw_full) != 0):
                 norbitals_per_atom = self.lattice.norbitals // self.natoms
                 orbits = slice( atom*norbitals_per_atom , (atom+1)*norbitals_per_atom )
                 # => Model based
-                if self.use_gw_kaverage == 0:    
+                if self.use_gw_kaverage == 0:
                     smom_gw2 = np.sum(self.smom_gw[:,orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
                     fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2)) #+ C1 - C2 - C3 - C4 - smom_gw2  # (-) CORRECT HERE!
                     # => K-average based
-                else:                                 
+                else:
                     smom_gw2 = np.sum(self.smom_gw[:,orbits,:,orbits,:] * self.smom_gw[:,orbits,:,orbits,:], axis=0)/self.lattice.nkpoints
                     fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2)) - smom_gw2    # MINUS SIGN IS CORRECT HERE!
             # No GW in first iteration
             else:
                 fmom1_block = (np.einsum("isjt,jtku->isku", hloc_block, hloc_block) - ineq.d_downfold(self.lattice.hmom2))
-            
+
             muimp_block = ineq.d_downfold(muimp)
 
-            # fiw is defined in the bath picture, which means that:
-            #      G0(iw)^{-1} = iw + muimp - F(-iw);   F(-iw) = F*(iw)
-            # TODO: check if that is still true with complex F(tau)
-            fiw_block = -1j*self.iwf[:,None,None,None,None] * eye_block \
-                            + muimp_block - g0inviw_block.conj()
-            fiw_model = fmom1_block/(1j*self.iwf[:,None,None,None,None])
+            # In w2dynamics, hybridization lines `F` go from impurity creator
+            # to annihilator, thus representing the propagation of bath "holes"
+            # rather than the usual electrons (`\Delta`):
+            #
+            #     F_{ij}(\tau) = \Delta_{ji}(-\tau)
+            #
+            # Since Hermiticity implies that `F_{ij}(\tau) = F^*_{ji}(\tau)`
+            # and `F_{ij}(\omega) = F^*_{ji}(-\omega)`, we have that:
+            #
+            #     F_{ij}(\omega) = \Delta^*_{ij}(\omega)
+            #
+            fiw_block = 1j*self.iwf[:,None,None,None,None] * eye_block \
+                        + muimp_block - g0inviw_block[:,:,:,:,:]
+            fiw_block = np.conj(fiw_block)
+            fiw_model = np.conj(fmom1_block)/(1j*self.iwf[:,None,None,None,None])
 
-            # GW Inclusion 
+            # GW Inclusion
             if (self.use_gw == 1) and (np.sum(self.siw_full) != 0) and (self.use_gw_kaverage == 0):
                 extension_of = 1
                 fiw_block_asymptotic, fiw_model_asymptotic, model_mom1 = self.gw.Reach_asymptotics_for_Hybridization(fiw_block, fiw_model, self.iwf, extension_of)
@@ -490,14 +481,14 @@ class DMFTStep:
             else:
                 ftau_block = iw_to_tau_fast(fiw_block - fiw_model, self.nftau, self.beta, axis=0) - fmom1_block/2.
                 fmom_block = np.asarray((np.zeros_like(fmom1_block), fmom1_block))
-            
+
             imp_problem = impurity.ImpurityProblem(
                     self.beta, g0inviw_block, fiw_block, fmom_block, ftau_block,
                     muimp_block, ineq.dd_int, None, None, ineq.symmetry_moves,
                     self.paramag)
             self.imp_problems.append(imp_problem)
             atom = atom + 1
-        
+
     def write_imp_problems(self, output):
         g0iw = [orbspin.invert(p.g0inviw) for p in self.imp_problems]
 
