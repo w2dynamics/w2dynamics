@@ -306,9 +306,11 @@ class CtHybSolver(ImpuritySolver):
         ctqmc.init_solver(self.umatrix, self.ftau, self.muimp, self.screening, iter_no+1)
 
         firstrun = True
-        if type(mc_config_inout) is list and len(mc_config_inout) > 0:
+        if (self.config["QMC"]["ReuseMCConfig"] != 0
+                and type(mc_config_inout) is list
+                and len(mc_config_inout) > 0):
             firstrun = False
-            mc_config_inout.pop().set_to_ctqmc(ctqmc)
+            mc_config_inout.pop(0).set_to_ctqmc(ctqmc)
 
         if self.config["QMC"]["segment"] == 0:
             ctqmc.set_taudiffmax(self.config["QMC"]["TaudiffMax"]

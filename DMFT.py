@@ -446,8 +446,7 @@ compute_fourpnt = cfg["QMC"]["FourPnt"]
 siw_method = cfg["General"]["SelfEnergy"]
 smom_method = cfg["General"]["siw_moments"]
 
-if cfg["QMC"]["ReuseMCConfig"] != 0:
-    mccfgs = []
+step_cache = []
 
 # DMFT loop
 for iter_no in range(total_iterations + 1):
@@ -554,19 +553,13 @@ for iter_no in range(total_iterations + 1):
 
             log("Solving impurity problem no. %d ...", iimp+1)
             solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
-            if cfg["QMC"]["ReuseMCConfig"] != 0:
-                if iter_no > 0:
-                    mccfgcontainer = [mccfgs.pop(0)]
-                else:
-                    mccfgcontainer = []
-                result = solver.solve(iter_no, mccfgcontainer, **solver_kwargs)
-                result_worm = None
-                mccfgs.append(mccfgcontainer[0])
-            elif cfg['QMC']['WormMeasGiw'] != 0 or cfg['QMC']['WormMeasGSigmaiw'] != 0 or cfg['QMC']['WormMeasQQ'] != 0:
+
+            if cfg['QMC']['WormMeasGiw'] != 0 or cfg['QMC']['WormMeasGSigmaiw'] != 0 or cfg['QMC']['WormMeasQQ'] != 0:
                 result, result_worm = solver.solve_worm(iter_no, log_function=log)
             else:
-                result = solver.solve(iter_no, **solver_kwargs)
+                result = solver.solve(iter_no, step_cache, **solver_kwargs)
                 result_worm = None
+
             result.postprocessing(siw_method, smom_method)
             giws.append(result.giw.mean())
             siws.append(result.siw.mean())
@@ -623,7 +616,7 @@ for iter_no in range(total_iterations + 1):
             log("Solving impurity problem no. %d ...", iimp+1)
 
             #empty mc configuration for first run
-            mc_cfg_container = []
+            step_cache = []
             worm_sector = worm.get_sector_index(cfg['QMC'])
             log("Sampling components of worm sector %d ...", worm_sector)
 
@@ -642,7 +635,7 @@ for iter_no in range(total_iterations + 1):
             for icomponent in component_list:
                 log("Sampling component %d", icomponent)
                 solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
-                result_gen, result_comp = solver.solve_comp_stats(iter_no, worm_sector, icomponent, mc_cfg_container)
+                result_gen, result_comp = solver.solve_comp_stats(iter_no, worm_sector, icomponent, step_cache)
 
                 # only write result if component-list is user-specified
                 # or when eta>0, i.e. the component exists
