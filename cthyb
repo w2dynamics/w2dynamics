@@ -236,7 +236,6 @@ for iter_no in range(stat_iterations+worm_iterations):
     iter_start = time.time()
     if iter_no < stat_iterations:
         iter_type = "stat"
-        iter_no -= worm_iterations
         if mpi_iamroot:
             output.open_iteration("stat", iter_no)
     else:
@@ -259,9 +258,11 @@ for iter_no in range(stat_iterations+worm_iterations):
 
         solver.set_problem(imp_problem, compute_fourpnt)
 
-        if (cfg['QMC']['WormMeasGiw'] != 0
+        if cfg["General"]["solver"] == "CTHYB" and (
+                cfg['QMC']['WormMeasGiw'] != 0
                 or cfg['QMC']['WormMeasGSigmaiw'] != 0
-                or cfg['QMC']['WormMeasQQ'] != 0):
+                or cfg['QMC']['WormMeasQQ'] != 0
+        ):
             result, result_worm = solver.solve_worm(iter_no, log_function=log)
         else:
             result = solver.solve(iter_no, step_cache)

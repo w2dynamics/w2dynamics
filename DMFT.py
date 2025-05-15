@@ -554,7 +554,11 @@ for iter_no in range(total_iterations + 1):
             log("Solving impurity problem no. %d ...", iimp+1)
             solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
 
-            if cfg['QMC']['WormMeasGiw'] != 0 or cfg['QMC']['WormMeasGSigmaiw'] != 0 or cfg['QMC']['WormMeasQQ'] != 0:
+            if cfg["General"]["solver"] == "CTHYB" and (
+                    cfg['QMC']['WormMeasGiw'] != 0
+                    or cfg['QMC']['WormMeasGSigmaiw'] != 0
+                    or cfg['QMC']['WormMeasQQ'] != 0
+            ):
                 result, result_worm = solver.solve_worm(iter_no, log_function=log)
             else:
                 result = solver.solve(iter_no, step_cache, **solver_kwargs)
