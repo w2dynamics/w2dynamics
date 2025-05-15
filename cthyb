@@ -232,6 +232,7 @@ step_cache = []
 
 # Statistic/Worm steps loop
 for iter_no in range(stat_iterations+worm_iterations):
+    solver_kwargs = {}
     # figure out type of iteration
     iter_start = time.time()
     if iter_no < stat_iterations:
@@ -254,6 +255,12 @@ for iter_no in range(stat_iterations+worm_iterations):
     output.write_quantity("muimp", [muimp])
  
     if iter_type == "stat":
+        if cfg["General"]["solver"] == "EDIPACK":
+            solver_kwargs.update(
+                {"prefixdir": (output.filename
+                               + f"_ed_iter{iter_no}")}
+            )
+
         log("Solving impurity problem ...")
 
         solver.set_problem(imp_problem, compute_fourpnt)
@@ -265,7 +272,7 @@ for iter_no in range(stat_iterations+worm_iterations):
         ):
             result, result_worm = solver.solve_worm(iter_no, log_function=log)
         else:
-            result = solver.solve(iter_no, step_cache)
+            result = solver.solve(iter_no, step_cache, **solver_kwargs)
             result_worm = None
 
         result.postprocessing(siw_method, smom_method)
