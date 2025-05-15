@@ -183,7 +183,7 @@ def write_u_matrix(out, u_matrix, comment=None, force_spin=False):
             out.write(("{} {:c} " * 4 + "{u_val:.18e}\n").format(*indices, u_val=value))
 
 
-def read_epsk_vk_file(epsk_file, vk_file):
+def read_epsk_vk_file(epsk_file, vk_file, norbitals):
     r"""Reads an epsk and a vk file.
 
     Returns a triple:
@@ -200,9 +200,12 @@ def read_epsk_vk_file(epsk_file, vk_file):
     if epsk.shape != vki.shape:
         raise ValueError("epsk and Vk files must agree in shape")
 
-    # Add a spin dimension
-    epsk = epsk[:,None].repeat(2, -1)
-    vki = vki[:,:,None].repeat(2, -1).reshape(vki.shape[0], -1)
+    if vki.shape[1] == norbitals:
+        # Add a spin dimension
+        epsk = epsk[:,None].repeat(2, -1)
+        vki = vki[:,:,None].repeat(2, -1).reshape(vki.shape[0], -1)
+    elif vki.shape[1] != 2 * norbitals:
+        raise ValueError("Vk columns must correspond to impurity orbitals")
 
     epsk = epsk.reshape(-1)
     vki = np.vstack([np.diag(vki_row) for vki_row in vki])

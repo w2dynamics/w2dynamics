@@ -170,7 +170,7 @@ if cfg["General"]["DOS"] == "EDcheck":
     iwf = tf.matfreq(beta, 'fermi', niw)
     nftau = cfg["QMC"]["Nftau"]
     tauf = np.linspace(0., beta, num=nftau, endpoint=True)
-    diag, epsk, vki = mpi_on_root(lambda: aux_input.read_epsk_vk_file("epsk", "Vk"))
+    diag, epsk, vki = mpi_on_root(lambda: aux_input.read_epsk_vk_file("epsk", "Vk", norbitals))
     fiw, ftau = tf.hybr_from_sites(epsk, vki, iwf, tauf, beta)
     fmom = vki.conj().T.dot(vki)
 
