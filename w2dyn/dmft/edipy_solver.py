@@ -342,29 +342,25 @@ class EDIpySolver(ImpuritySolver):
 
         def op_c(orb, sp, norb=self.problem.norbitals):
             # reverse only orb, spin compensated by ed -> w2d
-            orb = 1 - orb
-            mat = np.zeros(2**(2 * norb) - 1, dtype=np.float64)
-            mat[0::2] = 1
-            mat = np.diagflat(mat, k=1)
-            mat = np.reshape(mat, (2,) * (2 * norb * 2))
-            mat = np.moveaxis(mat,
-                              (norb * 2 - 1, 2 * norb * 2 - 1),
-                              (orb + sp * norb, norb * 2 + orb + sp * norb))
+            orb = norb - 1 - orb
+            halfshape = (2,) * (norb * 2)  # occupation number basis state dims
+            mat = np.zeros(halfshape + halfshape, dtype=np.float64)
+            for i in np.ndindex(halfshape):
+                # iterate over column / ingoing
+                if i[orb + sp * norb] == 0:
+                    # skip if arg orb/sp unoccupied
+                    continue
+                # make index with arg orb/sp unoccupied in j
+                j = list(i)
+                j[orb + sp * norb] = 0
+                j = tuple(j)
+                # sign: -1 if odd number of preceding orb/sp occupied
+                mat[j + i] = 1 - 2 * (np.sum(i[:orb + sp * norb]) % 2)
             return np.reshape(mat, (2**(2 * norb),
                                     2**(2 * norb)))
 
         def op_cdag(orb, sp, norb=self.problem.norbitals):
-            # reverse only orb, spin compensated by ed -> w2d
-            orb = 1 - orb
-            mat = np.zeros(2**(2 * norb) - 1, dtype=np.float64)
-            mat[0::2] = 1
-            mat = np.diagflat(mat, k=-1)
-            mat = np.reshape(mat, (2,) * (2 * norb * 2))
-            mat = np.moveaxis(mat,
-                              (norb * 2 - 1, 2 * norb * 2 - 1),
-                              (orb + sp * norb, norb * 2 + orb + sp * norb))
-            return np.reshape(mat, (2**(2 * norb),
-                                    2**(2 * norb)))
+            return np.transpose(op_c(orb, sp, norb))
 
         try:
             rdm = np.loadtxt("reduced_density_matrix.ed")
@@ -396,7 +392,7 @@ class EDIpySolver(ImpuritySolver):
                                             )
                                             if (o1 == o4 and s1 == s4
                                                 and o3 == o2 and s3 == s2
-                                                and o1 != o2 and s1 != s2):
+                                                and (o1 != o2 or s1 != s2)):
                                                 occ[o1, s1, o2, s2] = (
                                                     rho2[o1, s1, o2, s2, o3, s3, o4, s4].real
                                                 )
