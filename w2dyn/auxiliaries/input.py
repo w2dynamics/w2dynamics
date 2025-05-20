@@ -40,7 +40,7 @@ def read_u_matrix(u_file, spin=False):
         u_file = open(u_file, "r")
 
     # reading header of the form "3 BANDS", possibly preceded by comments
-    header_re = re.compile(r"\s*(?:([\d]+)\s+bands?\s*)?(?:\#.*)?$",
+    header_re = re.compile(r"\s*(?:([\d]+)\s+bands?\s*)?(?:[\#%!].*)?$",
                            re.I | re.X)
     norbitals = None
     while norbitals is None:
@@ -54,9 +54,9 @@ def read_u_matrix(u_file, spin=False):
 
     # now read the remaining lines
     if spin:
-        line_re = r"\s*(?:" + r"(\d+)\s*([ud])\s+" * 4 + r"([^\s\#]*)\s*)?(?:\#.*)?\s*$"
+        line_re = r"\s*(?:" + r"(\d+)\s*([ud])\s+" * 4 + r"([^\s\#%!]*)\s*)?(?:[\#%!].*)?\s*$"
     else:
-        line_re = r"\s*(?:" + r"(\d+)\s+" * 4 + r"([^\s\#]*)\s*)?(?:\#.*)?\s*$"
+        line_re = r"\s*(?:" + r"(\d+)\s+" * 4 + r"([^\s\#%!]*)\s*)?(?:[\#%!].*)?\s*$"
     line_re = re.compile(line_re, re.I | re.X)
 
     entries = []

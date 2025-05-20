@@ -1,25 +1,21 @@
 from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 import time
-from warnings import warn
 from textwrap import dedent
 from sys import stdout, stderr
 from pathlib import Path
 from os import chdir
 from tempfile import mkstemp
+from threading import Lock
 
 import numpy as np
-import scipy
-import scipy.optimize as opt
 
-import w2dyn.auxiliaries.transform as tf
 import w2dyn.auxiliaries.postprocessing as postproc
+import w2dyn.dmft.orbspin as orbspin
 from w2dyn.auxiliaries.statistics import DistributedSample
 from w2dyn.dmft.selfcons import iw_to_tau_fast
 from w2dyn.dmft.impurity import (ImpuritySolver,
                                  StatisticalImpurityResult)
-
-import w2dyn.dmft.orbspin as orbspin
 
 
 def lattice_convention(qtty):
@@ -33,8 +29,11 @@ def lattice_convention(qtty):
 
 
 class EDIpySolver(ImpuritySolver):
+    solver_lock = Lock()
+
     """EDIpy solver"""
-    def __init__(self, config, seed=0, Uw=0, Uw_Mat=0, epsn=0, interactive=False, mpi_comm=None):
+    def __init__(self, config, seed=0, Uw=0, Uw_Mat=0, epsn=0,
+                 interactive=False, mpi_comm=None):
         super(EDIpySolver, self).__init__(config)
 
         from edipy2 import global_env
@@ -170,7 +169,8 @@ class EDIpySolver(ImpuritySolver):
             paramfd, paramname = mkstemp(".conf", "inED.", Path.cwd(), True)
             with open(paramfd, "x") as file:
                 file.write(params)
-            paramname = Path(paramname).name  # paths containing dirs must not be passed to read_input
+            # paths containing dirs must not be passed to read_input
+            paramname = Path(paramname).name
         paramname = self.mpi_comm.bcast(paramname, root=0)
         self.ed.read_input(paramname)
         self.mpi_comm.Barrier()
@@ -179,11 +179,18 @@ class EDIpySolver(ImpuritySolver):
         # problem
         self.problem = problem
 
-        # remove hybridization and one-particle Hamiltonian off-diagonals in diagonal calculation
+        # remove hybridization and one-particle Hamiltonian
+        # off-diagonals in diagonal calculation
         if self.g_diagonal_only:
-            self.ftau = orbspin.promote_diagonal(orbspin.extract_diagonal(self.problem.ftau))
-            self.fiw = orbspin.promote_diagonal(orbspin.extract_diagonal(self.problem.fiw))
-            self.muimp = orbspin.promote_diagonal(orbspin.extract_diagonal(self.problem.muimp))
+            self.ftau = orbspin.promote_diagonal(
+                orbspin.extract_diagonal(self.problem.ftau)
+            )
+            self.fiw = orbspin.promote_diagonal(
+                orbspin.extract_diagonal(self.problem.fiw)
+            )
+            self.muimp = orbspin.promote_diagonal(
+                orbspin.extract_diagonal(self.problem.muimp)
+            )
         else:
             self.ftau = self.problem.ftau
             self.fiw = self.problem.fiw
@@ -227,16 +234,20 @@ class EDIpySolver(ImpuritySolver):
 
         # F[o, s, o, s, w] -> Delta[s, s, o, o, w]
         fiw = np.conj(np.transpose(self.fiw, (1, 3, 0, 2, 4)))
-        g0iw = np.transpose(orbspin.invert(self.problem.g0inviw), (2, 4, 1, 3, 0))
+        g0iw = np.transpose(
+            orbspin.invert(self.problem.g0inviw),
+            (2, 4, 1, 3, 0)
+        )
         # w2dynamics has spins in (down, up) order
         # flip w2d to ed spin order
         fiw = np.flip(fiw, axis=(0, 1))
         g0iw = np.flip(g0iw, axis=(0, 1))
-        omega = 2.0 * np.pi * (np.arange(-fiw.shape[-1]//2, fiw.shape[-1]//2) + 0.5) / self.problem.beta
+        omega = 2.0 * np.pi * (np.arange(-fiw.shape[-1]//2,
+                                         fiw.shape[-1]//2)
+                               + 0.5) / self.problem.beta
 
         fiw_pos = fiw[..., fiw.shape[-1]//2:]
         g0iw_pos = g0iw[..., g0iw.shape[-1]//2:]
-        omega_pos = omega[omega.size//2:]
 
         if prefixdir is not None:
             w2d_wdir = Path.cwd()
@@ -254,9 +265,13 @@ class EDIpySolver(ImpuritySolver):
         else:
             ed_mode = "nonsu2"
 
+        EDIpySolver.solver_lock.acquire()
         self.config_to_edipack(ed_mode)
         # flip w2d to ed spin order
-        self.ed.set_hloc(np.flip(self.muimp.transpose(1, 3, 0, 2), axis=(0, 1)).astype(complex))
+        self.ed.set_hloc(np.flip(
+            self.muimp.transpose(1, 3, 0, 2),
+            axis=(0, 1)
+        ).astype(complex))
 
         bath = self.ed.init_solver()
         if "bath" in oldcache and oldcache["bath"].shape == bath.shape:
@@ -280,7 +295,8 @@ class EDIpySolver(ImpuritySolver):
                                          value.real)  # accepts only real
 
         if iter_no == 0 and self.config["CI"]["initial_bath"] is not None:
-            bath = np.array([float(x) for x in self.config["CI"]["initial_bath"]])
+            bath = np.array([float(x)
+                             for x in self.config["CI"]["initial_bath"]])
         elif self.config["EDIPACK"]["CG_SCHEME"] == "delta":
             bath = self.ed.chi2_fitgf(fiw_pos.astype(complex), bath, ispin=0)
             bath = self.ed.chi2_fitgf(fiw_pos.astype(complex), bath, ispin=1)
@@ -297,26 +313,48 @@ class EDIpySolver(ImpuritySolver):
         result["fiw-fit-error-rss"] = np.sqrt(np.sum(np.abs(fiw - fiw_fit)**2))
         result["fiw-fit-error-max"] = np.amax(np.abs(fiw - fiw_fit))
 
-        log(f"Bath fit: whole range tot. mismatch {result['fiw-fit-error-rss']}")
-        log(f"Bath fit: whole range max mismatch {result['fiw-fit-error-max']}", flush=True)
+        log(f"Bath fit: whole range tot. "
+            "mismatch {result['fiw-fit-error-rss']}")
+        log(f"Bath fit: whole range max "
+            "mismatch {result['fiw-fit-error-max']}", flush=True)
 
         # flip ed to w2d spin order
         fiw_fit = np.flip(fiw_fit, axis=(0, 1))
         fiw_fit = np.conj(np.transpose(fiw_fit, (2, 0, 3, 1, 4)))
         result["fiw-fit"] = fiw_fit
 
-        self.problem.g0inviw = (1.0j * (omega[:, None, None, None, None]
-                                         * np.eye(self.problem.norbitals)[None, :, None, :, None]
-                                         * np.eye(2)[None, None, :, None, :])
-                                - self.muimp[None, :, :, :, :]
-                                - np.transpose(fiw_fit, (4, 0, 1, 2, 3)))
+        edipack_g0 = np.flip(
+            self.ed.get_g0and(1.0j * omega, bath, ishape=5),
+            axis=(0, 1)
+        ).transpose(4, 2, 0, 3, 1)
+        edipack_g0inviw = orbspin.invert(edipack_g0)
 
-        result["g0inviw-imp"] = np.transpose(self.problem.g0inviw, (1, 2, 3, 4, 0))
-        result["g0iw-imp"] = np.transpose(orbspin.invert(self.problem.g0inviw), (1, 2, 3, 4, 0))
+        self.problem.g0inviw = edipack_g0inviw
+
+        # FIXME: figure out problem here
+        # self.problem.g0inviw = (
+        #     1.0j * (omega[:, None, None, None, None]
+        #             * np.eye(self.problem.norbitals)[None, :, None, :, None]
+        #             * np.eye(2)[None, None, :, None, :])
+        #     - self.muimp[None, :, :, :, :]
+        #     - np.transpose(fiw_fit, (4, 0, 1, 2, 3))
+        # )
+
+        result["g0inviw-imp"] = np.transpose(self.problem.g0inviw,
+                                             (1, 2, 3, 4, 0))
+        # result["g0iw-imp"] = np.transpose(
+        #     orbspin.invert(self.problem.g0inviw),
+        #     (1, 2, 3, 4, 0)
+        # )
+        result["g0iw-imp"] = np.transpose(edipack_g0, (1, 2, 3, 4, 0))
+
         # FIXME: adapt to edipack if possible
         # result["fiw-bath-energies"] = np.array([e for e, _ in bathparams])
-        # result["fiw-bath-hybvecs"] = np.stack([np.reshape(v, (self.problem.norbitals, 2))
-        #                                        for _, v in bathparams], axis=0)
+        # result["fiw-bath-hybvecs"] = np.stack(
+        #     [np.reshape(v, (self.problem.norbitals, 2))
+        #      for _, v in bathparams],
+        #     axis=0
+        # )
 
         self.ed.solve(bath)
         newcache["bath"] = bath
@@ -325,10 +363,13 @@ class EDIpySolver(ImpuritySolver):
         # totalocc = sum(qci.Operator.op_number(index, nf=nf)
         #                for index in range(nf))
         # totalocc_res = totalocc.braket(wfgs, wfgs)
-        # log(f"Found ground state with total expected filling {totalocc_res:.5f}")
+        # log(f"Found ground state with total expected filling "
+        #     f"{totalocc_res:.5f}")
         # result["aim-total-occ"] = totalocc_res
 
-        # totalsz = sum((-1 + 2 * (index % 2)) * qci.Operator.op_number(index, nf=nf) for index in range(nf))
+        # totalsz = sum((-1 + 2 * (index % 2))
+        #               * qci.Operator.op_number(index, nf=nf)
+        #               for index in range(nf))
         # totalsz_res = totalsz.braket(wfgs, wfgs)
         # log(f"Found ground state with total expected spin {totalsz_res:.5f}")
         # result["aim-total-sz"] = totalsz_res
@@ -339,6 +380,8 @@ class EDIpySolver(ImpuritySolver):
 
         time_solver = time.perf_counter() - time_solver
         result["time-qmc"] = time_solver
+
+        self.mpi_comm.Barrier()  # prevent undeterministic occ problems
 
         def op_c(orb, sp, norb=self.problem.norbitals):
             # reverse only orb, spin compensated by ed -> w2d
@@ -365,16 +408,22 @@ class EDIpySolver(ImpuritySolver):
         try:
             rdm = np.loadtxt("reduced_density_matrix.ed")
             # could be indexed with occupation numbers if reshaped like this:
-            # rdm = np.reshape(rdm, (2,) * (2 * self.problem.norbitals * 2))  # factors of 2: row/col and spin
+            # factors of 2: row/col and spin
+            # rdm = np.reshape(rdm, (2,) * (2 * self.problem.norbitals * 2))
 
-            occ = np.zeros((self.problem.norbitals, 2) * 2, dtype=np.float64)
-            rho1 = np.zeros((self.problem.norbitals, 2) * 2, dtype=np.complex128)
-            rho2 = np.zeros((self.problem.norbitals, 2) * 4, dtype=np.complex128)
+            occ = np.zeros((self.problem.norbitals, 2) * 2,
+                           dtype=np.float64)
+            rho1 = np.zeros((self.problem.norbitals, 2) * 2,
+                            dtype=np.complex128)
+            rho2 = np.zeros((self.problem.norbitals, 2) * 4,
+                            dtype=np.complex128)
             for o1 in range(self.problem.norbitals):
                 for s1 in (0, 1):
                     for o2 in range(self.problem.norbitals):
                         for s2 in (0, 1):
-                            rho1[o1, s1, o2, s2] = np.trace(rdm @ op_cdag(o1, s1) @ op_c(o2, s2))
+                            rho1[o1, s1, o2, s2] = np.trace(rdm
+                                                            @ op_cdag(o1, s1)
+                                                            @ op_c(o2, s2))
                             if o1 == o2 and s1 == s2:
                                 occ[o1, s1, o2, s2] = (
                                     rho1[o1, s1, o2, s2].real
@@ -383,7 +432,8 @@ class EDIpySolver(ImpuritySolver):
                                 for s3 in (0, 1):
                                     for o4 in range(self.problem.norbitals):
                                         for s4 in (0, 1):
-                                            rho2[o1, s1, o2, s2, o3, s3, o4, s4] = np.trace(
+                                            rho2[o1, s1, o2, s2,
+                                                 o3, s3, o4, s4] = np.trace(
                                                 rdm
                                                 @ op_cdag(o1, s1)
                                                 @ op_cdag(o2, s2)
@@ -394,7 +444,8 @@ class EDIpySolver(ImpuritySolver):
                                                 and o3 == o2 and s3 == s2
                                                 and (o1 != o2 or s1 != s2)):
                                                 occ[o1, s1, o2, s2] = (
-                                                    rho2[o1, s1, o2, s2, o3, s3, o4, s4].real
+                                                    rho2[o1, s1, o2, s2,
+                                                         o3, s3, o4, s4].real
                                                 )
 
             result["occ"] = occ
@@ -402,7 +453,8 @@ class EDIpySolver(ImpuritySolver):
             result["rho2"] = rho2
 
             # occbasis state index, orb, sp -> occupation
-            obm = np.zeros((2**(2 * self.problem.norbitals), self.problem.norbitals, 2), dtype=int)
+            obm = np.zeros((2**(2 * self.problem.norbitals),
+                            self.problem.norbitals, 2), dtype=int)
             divisor = 2
             for s in (0, 1):  # descending in ed order = ascending in w2d order
                 for o in range(self.problem.norbitals - 1, -1, -1):
@@ -413,11 +465,13 @@ class EDIpySolver(ImpuritySolver):
             result["densitymatrix"] = rdm
         except Exception as e:
             # Extract output quantities
-            occ = np.full((self.problem.norbitals, 2) * 2, np.nan, dtype=np.float64)
+            occ = np.full((self.problem.norbitals, 2) * 2, np.nan,
+                          dtype=np.float64)
 
             soccs = np.zeros((self.problem.norbitals, 2), dtype=np.float64)
             soccs[...] = self.ed.get_dens()[:, np.newaxis] / 2.0
-            soccs += self.ed.get_mag("z")[:, np.newaxis] * np.array([-0.5, 0.5])[np.newaxis, :]
+            soccs += (self.ed.get_mag("z")[:, np.newaxis]
+                      * np.array([-0.5, 0.5])[np.newaxis, :])
 
             for o in range(self.problem.norbitals):
                 for s in (0, 1):
@@ -450,7 +504,8 @@ class EDIpySolver(ImpuritySolver):
             (2, 0, 3, 1, 4)
         )
 
-        gtau_ft = iw_to_tau_fast(giw, self.config["QMC"]["Ntau"], self.problem.beta, axis=-1)
+        gtau_ft = iw_to_tau_fast(giw, self.config["QMC"]["Ntau"],
+                                 self.problem.beta, axis=-1)
         result["gtau-ft"] = gtau_ft
 
         giw = np.ascontiguousarray(giw.transpose(4, 0, 1, 2, 3))
@@ -458,6 +513,7 @@ class EDIpySolver(ImpuritySolver):
                                 self.mpi_comm)
 
         self.ed.finalize_solver()
+        EDIpySolver.solver_lock.release()
 
         if prefixdir is not None:
             chdir(w2d_wdir)
@@ -488,8 +544,8 @@ class EDIpySolver(ImpuritySolver):
         return result
 
 
-    def solve_component(self,iter_no,isector,icomponent,mc_config_inout=[]):
-        raise NotImplementedError()
+    def solve_component(self, iter_no, isector, icomponent, mc_config_inout):
+        raise NotImplementedError("Not available in ED solver")
 
-    def solve_worm(self, iter_no, log_function=None):
-        raise NotImplementedError()
+    def solve_worm(self, iter_no, log_function):
+        raise NotImplementedError("Not available in ED solver")
