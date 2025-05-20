@@ -425,6 +425,9 @@ class DMFTStep:
             # the inversion and therefore the impurity self-energy is used.
             g0inviw_block += siw_block
 
+            g0inviw_block = 0.5 * (g0inviw_block +
+                                   np.conj(np.transpose(g0inviw_block, (0, 3, 4, 1, 2)))[::-1, ...])
+
             # in principle, since the bare impurity propagator reads:
             # `1/G_0(iw) =  iw - muimp - F(iw)`, we have a freedom where to put
             # constant shifts.  However, constant terms in `F(iw)` translate to
