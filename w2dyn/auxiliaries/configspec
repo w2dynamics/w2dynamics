@@ -76,6 +76,8 @@ EPSTRACEVEC    	= float(default=1e-15)          # Amplitude in the local trace
 EPSSANDWICH   	= float(default=1e-15)          # Value of one summand of the local trace
 EPSEVEC		= float(default=1e-15)
 EPSBLOCK        = float(default=1e-13)          # Threshold for entries of the Hamiltonian to be disregarded for automatic quantum number choice and automatic block partitioning, relative to the entry of the local Hamiltonian with the largest magnitude
+real_ham_tolerance = float(min=0, default=1e-15)          # absolute tolerance below which to truncate imaginary parts in the local Hamiltonian
+real_ftau_tolerance = float(min=0, default=1e-15)         # absolute tolerance below which to truncate imaginary parts in the imaginary time hybridization function
 PercentageGlobalMove = float(min=0,max=1,default=0.005)     # percentage of global moves
 PercentageTauShiftMove = float(min=0,max=1,default=0.005)  # percentage of tau-shift moves
 PercentageOuterMove = float(min=0,max=1,default=0)  # percentage of moves potentially changing the block of the Hamiltonian whose basis states are used as outer states in the local trace among pair insertions and removals

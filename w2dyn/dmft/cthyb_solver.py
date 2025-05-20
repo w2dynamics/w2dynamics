@@ -256,6 +256,25 @@ class CtHybSolver(ImpuritySolver):
         self.umatrix = self.problem.interaction.u_matrix.reshape(
                              self.problem.nflavours, self.problem.nflavours,
                              self.problem.nflavours, self.problem.nflavours)
+
+        if np.allclose(np.imag(self.muimp), 0,
+                       atol=self.config["QMC"]["real_ham_tolerance"]):
+            self.muimp = np.real(self.muimp)
+        else:
+            raise ValueError("muimp (hloc) imaginary part above tolerance")
+
+        if np.allclose(np.imag(self.ftau), 0,
+                       atol=self.config["QMC"]["real_ftau_tolerance"]):
+            self.ftau = np.real(self.ftau)
+        else:
+            raise ValueError("ftau imaginary part above tolerance")
+
+        if np.allclose(np.imag(self.umatrix), 0,
+                       atol=self.config["QMC"]["real_ham_tolerance"]):
+            self.umatrix = np.real(self.umatrix)
+        else:
+            raise ValueError("umatrix imaginary part above tolerance")
+
         if self.Uw == 0:
             self.screening = self.problem.screening.transpose(1, 2, 3, 4, 0).real
 
