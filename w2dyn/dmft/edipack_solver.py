@@ -28,15 +28,17 @@ def lattice_convention(qtty):
     return orbspin.promote_diagonal(qtty.transpose(2, 0, 1))
 
 
-class EDIpySolver(ImpuritySolver):
+class EDIpackSolver(ImpuritySolver):
+    """EDIpack ED solver"""
+    # Lock to prevent concurrent use of EDIpack through multiple calls
+    # to EDIpackSolver.solve in one process
     solver_lock = Lock()
 
-    """EDIpy solver"""
     def __init__(self, config, seed=0, Uw=0, Uw_Mat=0, epsn=0,
                  interactive=False, mpi_comm=None):
-        super(EDIpySolver, self).__init__(config)
+        super(EDIpackSolver, self).__init__(config)
 
-        from edipy2 import global_env
+        from edipack2py import global_env
         self.ed = global_env
 
         self.mpi_comm = mpi_comm
@@ -265,7 +267,7 @@ class EDIpySolver(ImpuritySolver):
         else:
             ed_mode = "nonsu2"
 
-        EDIpySolver.solver_lock.acquire()
+        EDIpackSolver.solver_lock.acquire()
         self.config_to_edipack(ed_mode)
         # flip w2d to ed spin order
         self.ed.set_hloc(np.flip(
@@ -513,7 +515,7 @@ class EDIpySolver(ImpuritySolver):
                                 self.mpi_comm)
 
         self.ed.finalize_solver()
-        EDIpySolver.solver_lock.release()
+        EDIpackSolver.solver_lock.release()
 
         if prefixdir is not None:
             chdir(w2d_wdir)
