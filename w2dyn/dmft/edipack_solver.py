@@ -18,6 +18,66 @@ from w2dyn.dmft.impurity import (ImpuritySolver,
                                  StatisticalImpurityResult)
 
 
+replicaerr = ValueError(
+    "EDIPACK.BATH_TYPE is replica "
+    "but no bath basis file has been provided.\n"
+    "Set EDIPACK.bathbasisfile to the path of a file in "
+    "EDIpack bath Hamiltonian file format, i.e.\n"
+    "  i\n"
+    "  V_0 lambda_00 ... lambda_0i\n"
+    "  ... ...       ... ...\n"
+    "  V_r lambda_r0 ... lambda_ri\n"
+    "\n"
+    "  mat_0_00_re mat_0_00_im mat_0_01_re ...\n"
+    "  ...\n"
+    "  mat_0_m0_re ...\n"
+    "\n"
+    "  mat_1_00_re ...\n"
+    "  ...\n"
+    "\n"
+    "  ...\n"
+    "\n"
+    "  mat_i_00_re ...\n"
+    "with i the number or basis matrices, r the number of "
+    "replicas, m the number of orbitals (SU(2)) or twice "
+    "the number of orbitals (with explicit spin) and V ignored.\n"
+    "In case of explicit spin, set EDIPACK.basisconv_w2d to "
+    "True if the matrices are given in "
+    "w2dynamics spin convention rather than EDIpack spin "
+    "convention."
+)
+
+
+generalerr = ValueError(
+    "EDIPACK.BATH_TYPE is general "
+    "but no bath basis file has been provided.\n"
+    "Set EDIPACK.bathbasisfile to the path of a file in EDIpack "
+    "bath Hamiltonian file format, i.e.\n"
+    "  i\n"
+    "  V_00 ... V_0m lambda_00 ... lambda_0i\n"
+    "  ... ...       ... ...\n"
+    "  V_r0 ... V_rm lambda_r0 ... lambda_ri\n"
+    "\n"
+    "  mat_0_00_re mat_0_00_im mat_0_01_re ...\n"
+    "  ...\n"
+    "  mat_0_m0_re ...\n"
+    "\n"
+    "  mat_1_00_re ...\n"
+    "  ...\n"
+    "\n"
+    "  ...\n"
+    "\n"
+    "  mat_i_00_re ...\n"
+    "with i the number or basis matrices, r the number of "
+    "replicas, m the number of orbitals (SU(2)) or twice "
+    "the number of orbitals (with explicit spin) and V ignored.\n"
+    "In case of explicit spin, set EDIPACK.basisconv_w2d to "
+    "True if the matrices are given "
+    "in w2dynamics spin convention rather than EDIpack spin "
+    "convention."
+)
+
+
 def lattice_convention(qtty):
     """Function to be used for tranposing and reshaping three-dimensional
     band/spin-diagonal arrays with (band, spin) as first two
@@ -251,12 +311,6 @@ class EDIpackSolver(ImpuritySolver):
         fiw_pos = fiw[..., fiw.shape[-1]//2:]
         g0iw_pos = g0iw[..., g0iw.shape[-1]//2:]
 
-        if prefixdir is not None:
-            w2d_wdir = Path.cwd()
-            ed_wdir = Path(prefixdir)
-            ed_wdir.mkdir(parents=True, exist_ok=True)
-            chdir(ed_wdir)
-
         # check for spin-offdiagonals
         if (all(np.allclose(self.muimp[:, s1, :, 1 - s1], 0)
                 for s1 in (0, 1))
@@ -267,6 +321,42 @@ class EDIpackSolver(ImpuritySolver):
         else:
             ed_mode = "nonsu2"
 
+        def check_bathbasis_nonsu2(bm):
+            if (not np.allclose(bm[0, 1], 0)
+                or not np.allclose(bm[1, 0], 0)
+                or not np.allclose(bm[0, 0], bm[1, 1])):
+                return True
+            return False
+
+        if (bath_type := self.config["EDIPACK"]["BATH_TYPE"]) in (
+                "replica",
+                "general"
+        ):
+            if f"{bath_type}bath" in oldcache:
+                basis, lambdas = oldcache[f"{bath_type}bath"]
+            else:
+                if self.config["EDIPACK"]["bathbasisfile"] is None:
+                    raise replicaerr if bath_type == "replica" else generalerr
+                with open(self.config["EDIPACK"]["bathbasisfile"], "r") as f:
+                    basis, lambdas, _ = read_bath_basis_file(
+                        f,
+                        general=(False if bath_type == "replica" else True),
+                        w2d_spin_convention=self.config["EDIPACK"]["basisconv_w2d"],
+                        norb=self.problem.norbitals,
+                        spin_autodetect=True
+                    )
+            if check_bathbasis_nonsu2(basis):
+                ed_mode = "nonsu2"
+            newcache[f"{bath_type}bath"] = (basis, lambdas)
+            if lambdas.shape[0] != self.config["EDIPACK"]["NBATH"]:
+                raise ValueError("Bath basis file inconsistent with NBATH")
+
+        if prefixdir is not None:
+            w2d_wdir = Path.cwd()
+            ed_wdir = Path(prefixdir)
+            ed_wdir.mkdir(parents=True, exist_ok=True)
+            chdir(ed_wdir)
+
         EDIpackSolver.solver_lock.acquire()
         self.config_to_edipack(ed_mode)
         # flip w2d to ed spin order
@@ -274,6 +364,11 @@ class EDIpackSolver(ImpuritySolver):
             self.muimp.transpose(1, 3, 0, 2),
             axis=(0, 1)
         ).astype(complex))
+
+        if self.config["EDIPACK"]["BATH_TYPE"] == "replica":
+            self.ed.set_hreplica(basis, lambdas)
+        elif self.config["EDIPACK"]["BATH_TYPE"] == "general":
+            self.ed.set_hgeneral(basis, lambdas)
 
         bath = self.ed.init_solver()
         if "bath" in oldcache and oldcache["bath"].shape == bath.shape:
@@ -546,8 +641,135 @@ class EDIpackSolver(ImpuritySolver):
         return result
 
 
-    def solve_component(self, iter_no, isector, icomponent, mc_config_inout):
-        raise NotImplementedError("Not available in ED solver")
+def read_bath_basis_file(f,
+                         general=False,
+                         spin=False,
+                         w2d_spin_convention=False,
+                         norb=None,
+                         spin_autodetect=False):
+    """Read the basis matrices and coefficients for a replica /
+    general bath from a file object containing data in the EDIpack
+    bath hamiltonian file format.
 
-    def solve_worm(self, iter_no, log_function):
-        raise NotImplementedError("Not available in ED solver")
+    Parameters
+    ----------
+    f: file object to read from
+    general: general bath (otherwise replica)
+    spin: spin dimensions present (in EDIpack-generated if non-SU(2))
+    w2d_spin_convention: assume faster running spin dim in order down, up
+    norb: number of orbitals (for size checking)
+    spin_autodetect: autodetect spin (only allowed if norb provided)
+    """
+    while (nextline := f.readline().strip()).startswith("#"):
+        pass  # ignore comment header(s)
+    nbasis = int(nextline)  # size of basis
+
+    # coefficient lines (possibly flavor dependent hybridization V
+    # followed by basis coefficients lambda)
+    coefflines = []
+    while (nextline := f.readline().strip()) != '':
+        coefflines.append(nextline)
+    coefficients = np.genfromtxt(coefflines)
+
+    matdim = None
+    if norb is not None:
+        nflav = 2 * norb
+        if general and spin_autodetect:
+            if coefficients.shape[1] == (nflav + nbasis):
+                spin = True
+            elif coefficients.shape[1] == (norb + nbasis):
+                spin = False
+            else:
+                raise ValueError("bath basis file malformed: "
+                                 "wrong number of columns: "
+                                 f"expected {norb} (V) + {nbasis} (lambda) "
+                                 f"or {nflav} (V) + {nbasis} (lambda), "
+                                 f"found {coefficients.shape[1]}")
+            matdim = norb if not spin else nflav
+        elif not spin_autodetect:
+            matdim = norb if not spin else nflav
+        flavdim = 1 if not general else norb if not spin else nflav
+
+        if coefficients.shape[1] != (flavdim + nbasis):
+            raise ValueError("bath basis file malformed: "
+                             "wrong number of columns: "
+                             f"expected {flavdim} (V) + {nbasis} (lambda), "
+                             f"found {coefficients.shape[1]}")
+    else:
+        if spin_autodetect:
+            raise ValueError("spin_autodetect but norb is None")
+        flavdim = coefficients.shape[1] - nbasis
+        nflav = None if not general else flavdim * 2 if not spin else flavdim
+        norb = None if not general else nflav // 2
+        matdim = None if not general else norb if not spin else nflav
+
+    vs = coefficients[:, :flavdim]
+    lambdas = coefficients[:, flavdim:]
+    nreplica = coefficients.shape[0]
+
+    if general and spin and w2d_spin_convention:
+        vs = np.transpose(np.flip(np.reshape(vs, (nreplica, norb, 2)), axis=2),
+                          (0, 2, 1))
+    elif general and spin:
+        vs = np.reshape(vs, (nreplica, 2, norb))
+    elif not general:
+        vs = vs[:, 0]
+
+    # basis matrices
+    basis = []
+    for i in range(nbasis):
+        matrixlines = []
+        while (nextline := f.readline().strip()) != '':
+            # complex numbers in actual EDIpack output are "(real,
+            # imag)", we want only numbers and whitespace
+            matrixlines.append(nextline.translate(str.maketrans("(),", "   ")))
+
+        basismatrix = np.genfromtxt(matrixlines)
+        basismatrix = basismatrix[:, 0::2] + 1.0j * basismatrix[:, 1::2]
+
+        if not general and spin_autodetect:
+            matdim = basismatrix.shape[0]
+            if matdim == nflav:
+                spin = True
+            elif matdim == norb:
+                spin = False
+            else:
+                raise ValueError("bath basis file malformed: "
+                                 f"matrix {i} has {matdim} rows, "
+                                 f"expected {norb} or {nflav} rows")
+
+
+        if basismatrix.shape[0] != basismatrix.shape[1]:
+            raise ValueError("bath basis file malformed: "
+                             f"matrix {i} not square")
+        if matdim is None:
+            matdim = basismatrix.shape[0]
+            nflav = matdim if spin else 2 * matdim
+            norb = nflav // 2
+        if basismatrix.shape[0] != matdim:
+            raise ValueError("bath basis file malformed: "
+                             f"matrix {i} has {basismatrix.shape[0]} rows, "
+                             f"expected {matdim} rows")
+
+        # transform into (spin, spin, orb, orb) with spin order up, down
+        if spin and w2d_spin_convention:
+            basismatrix = np.transpose(
+                np.flip(
+                    np.reshape(basismatrix,
+                               (norb, 2, norb, 2)),
+                    axis=(1, 3)
+                ),
+                (1, 3, 0, 2)
+            )
+        elif spin:
+            basismatrix = np.reshape(basismatrix, (2, norb, 2, norb))
+        else:
+            bm = np.zeros((2, norb, 2, norb), dtype=basismatrix.dtype)
+            bm[0, :, 0, :] = basismatrix[...]
+            bm[1, :, 1, :] = basismatrix[...]
+            basismatrix = bm
+
+        basis.append(basismatrix)
+
+    basis = np.transpose(np.array(basis), (1, 3, 2, 4, 0))
+    return basis, lambdas, vs

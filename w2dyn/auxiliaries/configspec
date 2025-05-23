@@ -197,6 +197,8 @@ write_hamiltonian     = option("final", "always", "never", default="never")
 [EDIPACK]
 NBATH               = integer(min=1, default=6)
 BATH_TYPE           = option("normal", "hybrid", "replica", "general", default="normal")
+bathbasisfile       = string(default=None)       # bath basis file for replica and general
+basisconv_w2d       = boolean(default=False)     # bath basis not in EDIpack convention but in w2dynamics convention, i.e. spin index running faster than orbital and in down, up order
 ED_FINITE_TEMP      = boolean(default=False)
 ED_TWIN             = boolean(default=False)
 ED_VERBOSE          = integer(min=0, max=5, default=2)
