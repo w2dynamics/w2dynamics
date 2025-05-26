@@ -22,7 +22,6 @@ from w2dyn.auxiliaries import config
 from w2dyn.auxiliaries.utilities import diagonal_covariance
 
 from w2dyn.dmft import impurity
-from w2dyn.dmft.edipy_solver import EDIpySolver
 from w2dyn.dmft import lattice
 from w2dyn.dmft import atoms
 from w2dyn.dmft import interaction
@@ -268,6 +267,7 @@ Uw_Mat = cfg["General"]["Uw_Mat"]
 if cfg["General"]["solver"] == "CTHYB":
     solver = impurity.CtHybSolver(cfg, Nseed, Uw, Uw_Mat, epsn, not use_mpi, mpi_comm)
 elif cfg["General"]["solver"] == "EDIPACK":
+    from w2dyn.dmft.edipy_solver import EDIpySolver
     solver = EDIpySolver(cfg, Nseed, Uw, Uw_Mat, epsn, not use_mpi, mpi_comm)
 else:
     raise ValueError("Invalid option provided for General.solver")
