@@ -45,7 +45,8 @@ class EDIpySolver(ImpuritySolver):
         if mpi_comm is not None:
             self.mpi_rank = mpi_comm.Get_rank()
 
-        self.g_diagonal_only = (config["QMC"]["offdiag"] == 0)
+        # FIXME: auto-determine
+        self.g_diagonal_only = False
 
     def config_to_edipack(self, ed_mode):
         c = self.config
@@ -93,7 +94,7 @@ class EDIpySolver(ImpuritySolver):
         ED_SECTORS_SHIFT=1
         ED_SPARSE_H=T
         ED_TOTAL_UD=T
-        ED_TWIN=F
+        ED_TWIN={l(c["EDIPACK"]["ED_TWIN"])}
         ED_READ_UMATRIX=F
         ED_USE_KANAMORI=F
         ED_OBS_ALL=F
