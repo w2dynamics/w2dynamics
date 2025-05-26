@@ -22,6 +22,7 @@ from w2dyn.auxiliaries import config
 from w2dyn.auxiliaries.utilities import diagonal_covariance
 
 from w2dyn.dmft import impurity
+from w2dyn.dmft.edipy_solver import EDIpySolver
 from w2dyn.dmft import lattice
 from w2dyn.dmft import atoms
 from w2dyn.dmft import interaction
@@ -266,6 +267,8 @@ Uw_Mat = cfg["General"]["Uw_Mat"]
 
 if cfg["General"]["solver"] == "CTHYB":
     solver = impurity.CtHybSolver(cfg, Nseed, Uw, Uw_Mat, epsn, not use_mpi, mpi_comm)
+elif cfg["General"]["solver"] == "EDIPACK":
+    solver = EDIpySolver(cfg, Nseed, Uw, Uw_Mat, epsn, not use_mpi, mpi_comm)
 else:
     raise ValueError("Invalid option provided for General.solver")
 #if use_mpi:
@@ -543,6 +546,12 @@ for iter_no in range(total_iterations + 1):
                 cfg["QMC"]["Nwarmups"] = cfg["QMC"]["Nwarmups2Plus"]
 
         for iimp, imp_problem in enumerate(dmft_step.imp_problems):
+            if cfg["General"]["solver"] == "EDIPACK":
+                solver_kwargs.update(
+                    {"prefixdir": (output.filename
+                                   + f"_ed_iter{total_iter_no}_imp{iimp}")}
+                )
+
             log("Solving impurity problem no. %d ...", iimp+1)
             solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
             if cfg["QMC"]["ReuseMCConfig"] != 0:
