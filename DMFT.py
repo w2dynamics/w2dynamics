@@ -487,7 +487,7 @@ for iter_no in range(total_iterations + 1):
                        or (mu_method == 'kappa' and not kmuiter.has_mu())):
             log("Computing lattice problem for old mu = %g ...", dmft_step.mu)
             dmft_step.siw2gloc()
-            log("Total density = %g", dmft_step.densities.sum())
+            log("Total density = %g", np.real_if_close(dmft_step.densities.sum()))
 
             log("Writing lattice quantities for old mu to output file ...")
             dmft_step.write_before_mu_search(output,
@@ -500,7 +500,7 @@ for iter_no in range(total_iterations + 1):
 
     log("Computing lattice problem for mu = %g ...", dmft_step.mu)
     dmft_step.siw2gloc()
-    log("Total density = %g", dmft_step.densities.sum())
+    log("Total density = %g", np.real_if_close(dmft_step.densities.sum()))
 
     log("Writing lattice quantities to output file ...")
     dmft_step.write_lattice_problem(output,
