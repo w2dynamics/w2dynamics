@@ -192,6 +192,12 @@ initial_bath          = force_list(default=None)  # nbath energies, nbath * nfla
 assume_spin_symmetry  = boolean(default=False)
 write_hamiltonian     = option("final", "always", "never", default="never")
 
+[EDIPACK]
+bath_type   = option("normal", "hybrid", "replica", "general", default="normal")
+finite_temp = boolean(default=False)
+verbosity   = integer(min=0, max=5, default=2)
+cutoff      = float(min=0, default=1e-9)
+
 #this section contains all other parameters
 [General]
 #DOS flat/semicirc/ReadIn/Bethe/Bethe_in_tau
@@ -202,7 +208,7 @@ muimpFile       = string(default=None)          # filename of the muimp file
 nanostructure   = string(default=None)          # filename of the H_k file
 EPSEQ           = float(default=1e-6)           # epsilon for identical atom in unit cell
 equiv           = force_list(default=None)
-solver          = option('CTHYB', default='CTHYB')  # impurity solver
+solver          = option('CTHYB', 'EDIPACK', default='CTHYB')  # impurity solver
 
 # Include GW Self-Energy
 GW              = integer(default=0)
