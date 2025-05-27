@@ -279,3 +279,13 @@ class ImpuritySolver(object):
         """Instructs the solver to solve the impurity problem set and return the
            result as an instance of ImpurityResult."""
         raise NotImplementedError()
+
+
+def __getattr__(name):
+    if name in ("CtHybSolver", "CtHybConfig"):
+        warn(f"Importing {name} from w2dyn.dmft.impurity is deprecated, "
+             "import it from w2dyn.dmft.cthyb_solver instead.",
+             FutureWarning)
+        import w2dyn.dmft.cthyb_solver as cs
+        return getattr(cs, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
