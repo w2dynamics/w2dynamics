@@ -6,6 +6,14 @@ QUANTITIES = {
         axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
         desc="Weiss field including spin/orbital off-diagonal terms"
         ),
+    "g0iw-imp": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
+        desc="Impurity non-interacting Green's function"
+        ),
+    "g0inviw-imp": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
+        desc="Inverse of impurity non-interacting Green's function"
+        ),
     "siw-full": dict(
         axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
         desc="Full self-energy in matsubara expansion (with jackknife error)"
@@ -34,9 +42,73 @@ QUANTITIES = {
         axes=["ineq", "band", "spin", "iw"],
         desc="hybridisation function in Matsubara frequencies"
         ),
+    "fiw-full": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
+        desc="hybridisation function in Matsubara frequencies"
+        ),
+    "fiw-fit": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "iw"],
+        desc="hybridisation function in Matsubara frequencies from fitted discrete bath"
+        ),
+    "fiw-fit-error-rss": dict(
+        axes=["ineq"],
+        desc="Bath fit error, square root of sum of absolute squares of differences over the full Matsubara axis"
+        ),
+    "fiw-fit-error-max": dict(
+        axes=["ineq"],
+        desc="Bath fit error, largest absolute difference of an element"
+        ),
+    "aim-total-occ": dict(
+        axes=["ineq"],
+        desc="Total occupation of discrete Anderson impurity model"
+        ),
+    "aim-total-sz": dict(
+        axes=["ineq"],
+        desc="Total spin-z of discrete Anderson impurity model"
+        ),
+    "aim-total-gs-energy": dict(
+        axes=["ineq"],
+        desc="Approximate ground state energy of discrete Anderson impurity model"
+        ),
+    "aim-total-gs-energy-variance": dict(
+        axes=["ineq"],
+        desc="Energy variance of approximate ground state of discrete Anderson impurity model"
+        ),
+    "fiw-bath-energies": dict(
+        axes=["ineq", "level-index"],
+        desc="single-particle energy levels of the discrete bath sites"
+        ),
+    "fiw-bath-numhybs": dict(
+        axes=["ineq", "level-index"],
+        desc="number of sites per energy level of the discrete bath sites"
+        ),
+    "fiw-bath-hybvecs": dict(
+        axes=["ineq", "site-index", "band", "spin"],
+        desc="hybridization coefficient vectors of the discrete bath sites"
+        ),
     "ftau": dict(
         axes=["ineq", "band", "spin", "tauf"],
         desc="hybridisation function in imaginary time"
+        ),
+    "ftau-fit": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "tauf"],
+        desc="hybridisation function in imaginary time from fitted discrete bath"
+        ),
+    "aim-lanc-coeff-ac": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "index"],
+        desc="Tridiagonal matrix diagonal element a for starting state c|psi0>"
+        ),
+    "aim-lanc-coeff-acdag": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "index"],
+        desc="Tridiagonal matrix diagonal element a for starting state cdag|psi0>"
+        ),
+    "aim-lanc-coeff-bc": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "index"],
+        desc="Tridiagonal matrix off-diagonal element a for starting state c|psi0>"
+        ),
+    "aim-lanc-coeff-bcdag": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "index"],
+        desc="Tridiagonal matrix off-diagonal element a for starting state cdag|psi0>"
         ),
     "ftau-full": dict(
         axes=["ineq", "band1", "spin1", "band2", "spin2", "tauf"],
@@ -53,6 +125,10 @@ QUANTITIES = {
     "gtau-full": dict(
         axes=["ineq", "band1", "spin1", "band2", "spin2", "taubin"],
         desc="impurity Green's function on the imaginary time axis, full offdiagonal"
+        ),
+    "gtau-ft": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "tau"],
+        desc="impurity Green's function on the imaginary time axis from Fourier transform of Matsubara frequency data"
         ),
     "gtau": dict(
         axes=["ineq", "band", "spin", "taubin"],
@@ -89,6 +165,14 @@ QUANTITIES = {
     "giw": dict(
         axes=["ineq", "band", "spin", "iw"],
         desc="impurity Green's function used as input for Dyson equation"
+        ),
+    "gomega": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "realw"],
+        desc="impurity Green's function on the real frequency axis"
+        ),
+    "somega": dict(
+        axes=["ineq", "band1", "spin1", "band2", "spin2", "realw"],
+        desc="impurity self-energy on the real frequency axis"
         ),
     "giw-cov": dict(
         axes=["ineq", "band", "spin", "pos-iw", "part", "pos-iw", "part"],

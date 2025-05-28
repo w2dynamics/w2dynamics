@@ -21,7 +21,6 @@ from w2dyn.auxiliaries import hdfout
 from w2dyn.auxiliaries import config
 from w2dyn.auxiliaries.utilities import diagonal_covariance
 
-from w2dyn.dmft import impurity
 from w2dyn.dmft import lattice
 from w2dyn.dmft import atoms
 from w2dyn.dmft import interaction
@@ -264,7 +263,14 @@ cfg["QMC"]["FTType"]=cfg["General"]["FTType"]
 Uw = cfg["General"]["Uw"]
 Uw_Mat = cfg["General"]["Uw_Mat"]
 
-solver = impurity.CtHybSolver(cfg, Nseed, Uw, Uw_Mat, epsn, not use_mpi, mpi_comm)
+if cfg["General"]["solver"] == "CTHYB":
+    from w2dyn.dmft.cthyb_solver import CtHybSolver
+    solver = CtHybSolver(cfg, Nseed, Uw, Uw_Mat, epsn, not use_mpi, mpi_comm)
+elif cfg["General"]["solver"] == "EDIPACK":
+    from w2dyn.dmft.edipack_solver import EDIpackSolver
+    solver = EDIpackSolver(cfg, Nseed, Uw, Uw_Mat, epsn, not use_mpi, mpi_comm)
+else:
+    raise ValueError("Invalid option provided for General.solver")
 #if use_mpi:
 #    log("Using MPI-enabled solver")
 #    solver = mpi.MPIStatisticalSolver(solver)
@@ -440,11 +446,11 @@ compute_fourpnt = cfg["QMC"]["FourPnt"]
 siw_method = cfg["General"]["SelfEnergy"]
 smom_method = cfg["General"]["siw_moments"]
 
-if cfg["QMC"]["ReuseMCConfig"] != 0:
-    mccfgs = []
+step_cache = []
 
 # DMFT loop
 for iter_no in range(total_iterations + 1):
+    solver_kwargs = {}
     # figure out type of iteration
     iter_time1=time.time()
     if solver.abort:
@@ -480,7 +486,7 @@ for iter_no in range(total_iterations + 1):
                        or (mu_method == 'kappa' and not kmuiter.has_mu())):
             log("Computing lattice problem for old mu = %g ...", dmft_step.mu)
             dmft_step.siw2gloc()
-            log("Total density = %g", dmft_step.densities.sum())
+            log("Total density = %g", np.real_if_close(dmft_step.densities.sum()))
 
             log("Writing lattice quantities for old mu to output file ...")
             dmft_step.write_before_mu_search(output,
@@ -493,7 +499,7 @@ for iter_no in range(total_iterations + 1):
 
     log("Computing lattice problem for mu = %g ...", dmft_step.mu)
     dmft_step.siw2gloc()
-    log("Total density = %g", dmft_step.densities.sum())
+    log("Total density = %g", np.real_if_close(dmft_step.densities.sum()))
 
     log("Writing lattice quantities to output file ...")
     dmft_step.write_lattice_problem(output,
@@ -503,6 +509,22 @@ for iter_no in range(total_iterations + 1):
         log("Generating impurity problems from lattice problem ...")
         dmft_step.gloc2fiw()
         dmft_step.write_imp_problems(output)
+
+    if (cfg["CI"]["write_hamiltonian"] == 'always'
+        or (cfg["CI"]["write_hamiltonian"] != 'never' and iter_type == "finish")):
+        for iimp, imp_problem in enumerate(dmft_step.imp_problems):
+            def fit_bath_and_write_quanty_hamiltonian():
+                from w2dyn.dmft.ci_solver import CISolver
+                cisolver = CISolver(cfg, Nseed, Uw, Uw_Mat, epsn, not use_mpi, mpi_comm)
+                cisolver.set_problem(imp_problem)
+                return cisolver.solve(
+                    iter_no,
+                    write_ham=f"hamiltonian_{iter_type}-{iter_no+1:03}_{iimp}",
+                    only_write_ham=True
+                )
+
+            result = mpi_on_root(fit_bath_and_write_quanty_hamiltonian)
+            output.write_impurity_result(iimp, result.other)
 
     # The finish iteration is just there to get the final chemical
     # potential, lattice quantities and hybridization. No more QMC run
@@ -524,21 +546,27 @@ for iter_no in range(total_iterations + 1):
                 cfg["QMC"]["Nwarmups"] = cfg["QMC"]["Nwarmups2Plus"]
 
         for iimp, imp_problem in enumerate(dmft_step.imp_problems):
+            if cfg["General"]["solver"] == "EDIPACK":
+                solver_kwargs.update(
+                    {"prefixdir": (
+                        output.filename
+                        + f"_ed_iter_{iter_type}-{iter_no+1:03}_imp{iimp}"
+                    )}
+                )
+
             log("Solving impurity problem no. %d ...", iimp+1)
             solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
-            if cfg["QMC"]["ReuseMCConfig"] != 0:
-                if iter_no > 0:
-                    mccfgcontainer = [mccfgs.pop(0)]
-                else:
-                    mccfgcontainer = []
-                result = solver.solve(iter_no, mccfgcontainer)
-                result_worm = None
-                mccfgs.append(mccfgcontainer[0])
-            elif cfg['QMC']['WormMeasGiw'] != 0 or cfg['QMC']['WormMeasGSigmaiw'] != 0 or cfg['QMC']['WormMeasQQ'] != 0:
+
+            if cfg["General"]["solver"] == "CTHYB" and (
+                    cfg['QMC']['WormMeasGiw'] != 0
+                    or cfg['QMC']['WormMeasGSigmaiw'] != 0
+                    or cfg['QMC']['WormMeasQQ'] != 0
+            ):
                 result, result_worm = solver.solve_worm(iter_no, log_function=log)
             else:
-                result = solver.solve(iter_no)
+                result = solver.solve(iter_no, step_cache, **solver_kwargs)
                 result_worm = None
+
             result.postprocessing(siw_method, smom_method)
             giws.append(result.giw.mean())
             siws.append(result.siw.mean())
@@ -595,7 +623,7 @@ for iter_no in range(total_iterations + 1):
             log("Solving impurity problem no. %d ...", iimp+1)
 
             #empty mc configuration for first run
-            mc_cfg_container = []
+            step_cache = []
             worm_sector = worm.get_sector_index(cfg['QMC'])
             log("Sampling components of worm sector %d ...", worm_sector)
 
@@ -614,7 +642,7 @@ for iter_no in range(total_iterations + 1):
             for icomponent in component_list:
                 log("Sampling component %d", icomponent)
                 solver.set_problem(imp_problem, cfg["QMC"]["FourPnt"])
-                result_gen, result_comp = solver.solve_comp_stats(iter_no, worm_sector, icomponent, mc_cfg_container)
+                result_gen, result_comp = solver.solve_comp_stats(iter_no, worm_sector, icomponent, step_cache)
 
                 # only write result if component-list is user-specified
                 # or when eta>0, i.e. the component exists

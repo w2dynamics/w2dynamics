@@ -211,7 +211,10 @@ class HdfOutput:
         ax = hf.create_group(".axes")
         beta = config["General"]["beta"]
         qcfg = config["QMC"]
+        edcfg = config["EDIPACK"]
         ax.create_dataset("iw", data=_tf.matfreq(beta, "fermi", 2*qcfg["Niw"]))
+        if config["General"]["solver"] == "EDIPACK":
+            ax.create_dataset("realw", data=np.linspace(edcfg["WINI"], edcfg["WFIN"], edcfg["LREAL"]))
         ax.create_dataset("pos-iw", data=_tf.matfreq(beta, "fermi", 2*qcfg["Niw"])[qcfg["Niw"]:])
         ax.create_dataset("tau", data=np.linspace(0, beta, qcfg["Ntau"]))
         ax.create_dataset("tauf", data=np.linspace(0, beta, qcfg["Nftau"]))
@@ -392,6 +395,6 @@ class HdfOutput:
                         qtty_node.create_dataset("value", data=qtty_value)
             except (OSError, RuntimeError, ValueError):
                 sys.stderr.write(
-                    "\nWARNING: Ignoring field {} for multiple worm components.\n\n".format(qtty_name))
+                    "\nWARNING: Ignoring second attempt to write field {} (e.g. for multiple worm components).\n\n".format(qtty_name))
         if self.is_writer:
             self.file.flush()

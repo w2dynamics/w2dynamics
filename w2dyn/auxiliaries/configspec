@@ -76,6 +76,8 @@ EPSTRACEVEC    	= float(default=1e-15)          # Amplitude in the local trace
 EPSSANDWICH   	= float(default=1e-15)          # Value of one summand of the local trace
 EPSEVEC		= float(default=1e-15)
 EPSBLOCK        = float(default=1e-13)          # Threshold for entries of the Hamiltonian to be disregarded for automatic quantum number choice and automatic block partitioning, relative to the entry of the local Hamiltonian with the largest magnitude
+real_ham_tolerance = float(min=0, default=1e-15)          # absolute tolerance below which to truncate imaginary parts in the local Hamiltonian
+real_ftau_tolerance = float(min=0, default=1e-15)         # absolute tolerance below which to truncate imaginary parts in the imaginary time hybridization function
 PercentageGlobalMove = float(min=0,max=1,default=0.005)     # percentage of global moves
 PercentageTauShiftMove = float(min=0,max=1,default=0.005)  # percentage of tau-shift moves
 PercentageOuterMove = float(min=0,max=1,default=0)  # percentage of moves potentially changing the block of the Hamiltonian whose basis states are used as outer states in the local trace among pair insertions and removals
@@ -179,6 +181,77 @@ Percentage4OperatorMove = float(min=0,max=1,default=0.000)     # percentage of g
 
 MeasSsquare           = integer(default=0)                  # write S^2; note that due to planned changes this parameter may become unnecessary and be removed in a future version
 
+[CI]
+# bath fitting
+npoles                = integer(min=1, default=10)
+epsbathfit            = float(default=1e-7)            # sdr: terminate if difference below this parameter for a few steps
+epsbatheigval         = float(default=0)               # sdr: truncate X eigenvalues below this parameter
+niw_fit               = integer(min=3, default=100)
+sdr_min_iter          = integer(min=0, default=50)
+sdr_max_iter          = integer(min=0, default=200)
+bath_fit_method       = option('adapol', 'bfgs', 'sdr', 'sdr_bfgs', default='sdr_bfgs')
+initial_bath          = force_list(default=None)  # nbath energies, nbath * nflavors V; nflavors runs faster, nbath is determined automatically and would override npoles
+assume_spin_symmetry  = boolean(default=False)
+write_hamiltonian     = option("final", "always", "never", default="never")
+
+[EDIPACK]
+NBATH               = integer(min=1, default=6)
+NPH                 = integer(min=0, default=0)
+BATH_TYPE           = option("normal", "hybrid", "replica", "general", default="normal")
+bathbasisfile       = string(default=None)       # bath basis file for replica and general
+basisconv_w2d       = boolean(default=False)     # bath basis not in EDIpack convention but in w2dynamics convention, i.e. spin index running faster than orbital and in down, up order
+SB_FIELD            = float(default=0)
+G_PH                = float_list(default=None)
+W0_PH               = float(default=0)
+A_PH                = float(default=0)
+GPHFILE             = string(default="NONE")
+CHISPIN_FLAG        = boolean(default=False)
+CHIDENS_FLAG        = boolean(default=False)
+CHIPAIR_FLAG        = boolean(default=False)
+CHIEXCT_FLAG        = boolean(default=False)
+ED_FINITE_TEMP      = boolean(default=False)
+ED_SECTORS          = boolean(default=False)
+ED_SECTORS_SHIFT    = integer(default=1)
+ED_SPARSE_H         = boolean(default=True)
+ED_TOTAL_UD         = boolean(default=True)
+ED_TWIN             = boolean(default=False)
+ED_PRINT_CHISPIN    = boolean(default=True)
+ED_PRINT_CHIDENS    = boolean(default=True)
+ED_PRINT_CHIPAIR    = boolean(default=True)
+ED_PRINT_CHIEXCT    = boolean(default=True)
+ED_VERBOSE          = integer(min=0, max=5, default=2)
+LREAL               = integer(min=1, default=5000)
+LFIT                = integer(min=1, default=1000)
+WINI                = float(default=-5.0)
+WFIN                = float(default=5.0)
+EPS                 = float(min=0, default=1e-2)
+CUTOFF              = float(min=0, default=1e-9)
+GS_THRESHOLD        = float(min=0, default=1e-9)
+LANC_METHOD         = option('ARPACK', 'LANCZOS', default='ARPACK')
+LANC_NSTATES_SECTOR = integer(min=1, default=2)
+LANC_NSTATES_TOTAL  = integer(min=1, default=1)
+LANC_NSTATES_STEP   = integer(min=1, default=2)
+LANC_NCV_FACTOR     = integer(min=1, default=10)
+LANC_NCV_ADD        = integer(min=0, default=0)
+LANC_NITER          = integer(min=1, default=512)
+LANC_NGFITER        = integer(min=1, default=200)
+LANC_TOLERANCE      = float(min=0, default=1e-18)
+LANC_DIM_THRESHOLD  = integer(min=1, default=1024)
+CG_METHOD           = integer(min=0, max=1, default=0)
+CG_GRAD             = integer(min=0, max=1, default=0)
+CG_FTOL             = float(min=0, default=1e-5)
+CG_STOP             = integer(min=0, max=2, default=0)
+CG_NITER            = integer(min=1, default=500)
+CG_WEIGHT           = integer(min=1, max=3, default=1)
+CG_SCHEME           = option('delta', 'weiss', default='weiss')
+CG_NORM             = option('elemental', 'frobenius', default='elemental')
+CG_POW              = integer(min=1, default=2)
+CG_MINIMIZE_VER     = boolean(default=False)
+CG_MINIMIZE_HH      = float(default=1e-4)
+JZ_BASIS            = boolean(default=False)
+JZ_MAX              = boolean(default=False)
+JZ_MAX_VALUE        = float(default=1000)
+
 #this section contains all other parameters
 [General]
 #DOS flat/semicirc/ReadIn/Bethe/Bethe_in_tau
@@ -189,6 +262,7 @@ muimpFile       = string(default=None)          # filename of the muimp file
 nanostructure   = string(default=None)          # filename of the H_k file
 EPSEQ           = float(default=1e-6)           # epsilon for identical atom in unit cell
 equiv           = force_list(default=None)
+solver          = option('CTHYB', 'EDIPACK', default='CTHYB')  # impurity solver
 
 # Include GW Self-Energy
 GW              = integer(default=0)

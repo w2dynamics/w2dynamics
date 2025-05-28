@@ -40,7 +40,7 @@ def read_u_matrix(u_file, spin=False):
         u_file = open(u_file, "r")
 
     # reading header of the form "3 BANDS", possibly preceded by comments
-    header_re = re.compile(r"\s*(?:([\d]+)\s+bands?\s*)?(?:\#.*)?$",
+    header_re = re.compile(r"\s*(?:([\d]+)\s+bands?\s*)?(?:[\#%!].*)?$",
                            re.I | re.X)
     norbitals = None
     while norbitals is None:
@@ -54,9 +54,9 @@ def read_u_matrix(u_file, spin=False):
 
     # now read the remaining lines
     if spin:
-        line_re = r"\s*" + r"(\d+)\s*([ud])\s+" * 4 + r"([^\s]*)\s*$"
+        line_re = r"\s*(?:" + r"(\d+)\s*([ud])\s+" * 4 + r"([^\s\#%!]*)\s*)?(?:[\#%!].*)?\s*$"
     else:
-        line_re = r"\s*" + r"(\d+)\s+" * 4 + r"([^\s]*)\s*$"
+        line_re = r"\s*(?:" + r"(\d+)\s+" * 4 + r"([^\s\#%!]*)\s*)?(?:[\#%!].*)?\s*$"
     line_re = re.compile(line_re, re.I | re.X)
 
     entries = []
@@ -73,6 +73,8 @@ def read_u_matrix(u_file, spin=False):
         match = line_re.match(line)
         if not match:
             raise ValueError("invalid U matrix entry:\n%s" % line)
+        elif None in match.groups():
+            continue
         entry = list(match.groups())
         entry[-1] = float(entry[-1])
 
@@ -97,7 +99,7 @@ def read_u_matrix(u_file, spin=False):
     return u_matrix
 
 
-def write_u_matrix(out, u_matrix, comment=None):
+def write_u_matrix(out, u_matrix, comment=None, force_spin=False):
     """Writes a full four-index U matrix f$ U_{ijkl} f$ to a text file.
 
     Expects a file object out that can be written to, u_matrix as
@@ -147,7 +149,8 @@ def write_u_matrix(out, u_matrix, comment=None):
     # check whether the interaction fits spin-independent format
     absoluteu = np.abs(u_matrix)
     atol = 1.0e-8 * np.amin(absoluteu[absoluteu > 0.0])
-    if all((np.allclose(u_matrix[:, 0, :, 0, :, 0, :, 0],
+    if (not force_spin
+        and all((np.allclose(u_matrix[:, 0, :, 0, :, 0, :, 0],
                         u_matrix[:, s1, :, s2, :, s3, :, s4],
                         atol=atol)
             if (s1, s2, s3, s4) in ((0, 0, 0, 0),
@@ -157,7 +160,7 @@ def write_u_matrix(out, u_matrix, comment=None):
             else np.allclose(0.0,
                              u_matrix[:, s1, :, s2, :, s3, :, s4],
                              atol=atol))
-           for s1, s2, s3, s4 in np.ndindex(u_matrix.shape[1:8:2])):
+           for s1, s2, s3, s4 in np.ndindex(u_matrix.shape[1:8:2]))):
         orbmatrix = u_matrix[:, 0, :, 0, :, 0, :, 0]
         nonzero_indices = np.nonzero(orbmatrix)
         np.savetxt(out,
@@ -180,7 +183,7 @@ def write_u_matrix(out, u_matrix, comment=None):
             out.write(("{} {:c} " * 4 + "{u_val:.18e}\n").format(*indices, u_val=value))
 
 
-def read_epsk_vk_file(epsk_file, vk_file):
+def read_epsk_vk_file(epsk_file, vk_file, norbitals):
     r"""Reads an epsk and a vk file.
 
     Returns a triple:
@@ -197,9 +200,12 @@ def read_epsk_vk_file(epsk_file, vk_file):
     if epsk.shape != vki.shape:
         raise ValueError("epsk and Vk files must agree in shape")
 
-    # Add a spin dimension
-    epsk = epsk[:,None].repeat(2, -1)
-    vki = vki[:,:,None].repeat(2, -1).reshape(vki.shape[0], -1)
+    if vki.shape[1] == norbitals:
+        # Add a spin dimension
+        epsk = epsk[:,None].repeat(2, -1)
+        vki = vki[:,:,None].repeat(2, -1).reshape(vki.shape[0], -1)
+    elif vki.shape[1] != 2 * norbitals:
+        raise ValueError("Vk columns must correspond to impurity orbitals")
 
     epsk = epsk.reshape(-1)
     vki = np.vstack([np.diag(vki_row) for vki_row in vki])
