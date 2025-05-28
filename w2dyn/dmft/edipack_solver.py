@@ -111,6 +111,7 @@ class EDIpackSolver(ImpuritySolver):
 
     def config_to_edipack(self, ed_mode):
         c = self.config
+        edc = self.config["EDIPACK"]
 
         def l(boolvar):
             return "T" if boolvar else "F"
@@ -120,10 +121,10 @@ class EDIpackSolver(ImpuritySolver):
 
         params = dedent(f"""\
         NORB={self.problem.norbitals}
-        NBATH={c["EDIPACK"]["NBATH"]}
+        NBATH={edc["NBATH"]}
         NSPIN=2
-        NPH=0
-        BATH_TYPE={c["EDIPACK"]["BATH_TYPE"]}
+        NPH={edc["NPH"]}
+        BATH_TYPE={edc["BATH_TYPE"]}
         ULOC=0.000000000,0.d0,0.d0,0.d0,0.d0
         UST=0.d0
         JH=0.d0
@@ -132,30 +133,34 @@ class EDIpackSolver(ImpuritySolver):
         NLOOP=100
         NSUCCESS=1
         DMFT_ERROR=1.000000000E-05
-        SB_FIELD=0.0
+        SB_FIELD={f(edc["SB_FIELD"])}
         DELTASC=0.0
         BETA={f(self.problem.beta)}
         XMU=0.d0
-        G_PH={",".join([f(0)]*self.problem.norbitals)}
-        W0_PH=0.d0
-        A_PH=0.d0
-        GPHFILE=NONE
-        SPIN_FIELD_X={",".join([f(0)]*self.problem.norbitals)}
-        SPIN_FIELD_Y={",".join([f(0)]*self.problem.norbitals)}
-        SPIN_FIELD_Z={",".join([f(0)]*self.problem.norbitals)}
+        G_PH={",".join(f(x)
+              for x
+              in (edc["G_PH"]
+                  if edc["G_PH"] is not None
+                  else [0] * self.problem.norbitals))}
+        W0_PH={f(edc["W0_PH"])}
+        A_PH={f(edc["A_PH"])}
+        GPHFILE={edc["GPHFILE"]}
+        SPIN_FIELD_X={",".join([f(0)] * self.problem.norbitals)}
+        SPIN_FIELD_Y={",".join([f(0)] * self.problem.norbitals)}
+        SPIN_FIELD_Z={",".join([f(0)] * self.problem.norbitals)}
         EXC_FIELD=0.d0,0.d0,0.d0,0.d0
-        PAIR_FIELD={",".join([f(0)]*self.problem.norbitals)}
-        CHISPIN_FLAG=F
-        CHIDENS_FLAG=F
-        CHIPAIR_FLAG=F
-        CHIEXCT_FLAG=F
+        PAIR_FIELD={",".join([f(0)] * self.problem.norbitals)}
+        CHISPIN_FLAG={l(edc["CHISPIN_FLAG"])}
+        CHIDENS_FLAG={l(edc["CHIDENS_FLAG"])}
+        CHIPAIR_FLAG={l(edc["CHIPAIR_FLAG"])}
+        CHIEXCT_FLAG={l(edc["CHIEXCT_FLAG"])}
         ED_MODE={ed_mode}
-        ED_FINITE_TEMP={l(c["EDIPACK"]["ED_FINITE_TEMP"])}
-        ED_SECTORS=F
-        ED_SECTORS_SHIFT=1
-        ED_SPARSE_H=T
-        ED_TOTAL_UD=T
-        ED_TWIN={l(c["EDIPACK"]["ED_TWIN"])}
+        ED_FINITE_TEMP={l(edc["ED_FINITE_TEMP"])}
+        ED_SECTORS={l(edc["ED_SECTORS"])}
+        ED_SECTORS_SHIFT={edc["ED_SECTORS_SHIFT"]}
+        ED_SPARSE_H={l(edc["ED_SPARSE_H"])}
+        ED_TOTAL_UD={l(edc["ED_TOTAL_UD"])}
+        ED_TWIN={l(edc["ED_TWIN"])}
         ED_READ_UMATRIX=F
         ED_USE_KANAMORI=F
         ED_OBS_ALL=F
@@ -163,25 +168,25 @@ class EDIpackSolver(ImpuritySolver):
         ED_PRINT_SIGMA=F
         ED_PRINT_G=F
         ED_PRINT_G0=F
-        ED_PRINT_CHISPIN=T
-        ED_PRINT_CHIDENS=T
-        ED_PRINT_CHIPAIR=T
-        ED_PRINT_CHIEXCT=T
+        ED_PRINT_CHISPIN={l(edc["ED_PRINT_CHISPIN"])}
+        ED_PRINT_CHIDENS={l(edc["ED_PRINT_CHIDENS"])}
+        ED_PRINT_CHIPAIR={l(edc["ED_PRINT_CHIPAIR"])}
+        ED_PRINT_CHIEXCT={l(edc["ED_PRINT_CHIEXCT"])}
         ED_ALL_G=T
-        ED_VERBOSE={c["EDIPACK"]["ED_VERBOSE"]}
+        ED_VERBOSE={edc["ED_VERBOSE"]}
         ED_HW_BATH=2.000000000
         ED_OFFSET_BATH=1.000000000E-01
         LMATS={c["QMC"]["Niw"]}
-        LREAL={c["EDIPACK"]["LREAL"]}
+        LREAL={edc["LREAL"]}
         LTAU={c["QMC"]["Ntau"]}
-        LFIT={c["EDIPACK"]["LFIT"]}
+        LFIT={edc["LFIT"]}
         LPOS=100
         NREAD=0.d0
         NERR=1.000000000E-04
         NDELTA=1.000000000E-01
         NCOEFF=1.000000000
-        WINI={f(c["EDIPACK"]["WINI"])}
-        WFIN={f(c["EDIPACK"]["WFIN"])}
+        WINI={f(edc["WINI"])}
+        WFIN={f(edc["WFIN"])}
         XMIN=-3.000000000
         XMAX=3.000000000
         RDM_FLAG=T
@@ -191,33 +196,33 @@ class EDIpackSolver(ImpuritySolver):
         CHIPAIR_FLAG=F
         CHIEXCT_FLAG=F
         HFMODE=F
-        EPS={f(c["EDIPACK"]["EPS"])}
-        CUTOFF={f(c["EDIPACK"]["CUTOFF"])}
-        GS_THRESHOLD={f(c["EDIPACK"]["GS_THRESHOLD"])}
-        LANC_METHOD={c["EDIPACK"]["LANC_METHOD"]}
-        LANC_NSTATES_SECTOR={c["EDIPACK"]["LANC_NSTATES_SECTOR"]}
-        LANC_NSTATES_TOTAL={c["EDIPACK"]["LANC_NSTATES_TOTAL"]}
-        LANC_NSTATES_STEP={c["EDIPACK"]["LANC_NSTATES_STEP"]}
-        LANC_NCV_FACTOR={c["EDIPACK"]["LANC_NCV_FACTOR"]}
-        LANC_NCV_ADD={c["EDIPACK"]["LANC_NCV_ADD"]}
-        LANC_NITER={c["EDIPACK"]["LANC_NITER"]}
-        LANC_NGFITER={c["EDIPACK"]["LANC_NGFITER"]}
-        LANC_TOLERANCE={f(c["EDIPACK"]["LANC_TOLERANCE"])}
-        LANC_DIM_THRESHOLD={c["EDIPACK"]["LANC_DIM_THRESHOLD"]}
-        CG_METHOD={c["EDIPACK"]["CG_METHOD"]}
-        CG_GRAD={c["EDIPACK"]["CG_GRAD"]}
-        CG_FTOL={f(c["EDIPACK"]["CG_FTOL"])}
-        CG_STOP={c["EDIPACK"]["CG_STOP"]}
-        CG_NITER={c["EDIPACK"]["CG_NITER"]}
-        CG_WEIGHT={c["EDIPACK"]["CG_WEIGHT"]}
-        CG_SCHEME={c["EDIPACK"]["CG_SCHEME"]}
-        CG_NORM={c["EDIPACK"]["CG_NORM"]}
-        CG_POW={c["EDIPACK"]["CG_POW"]}
-        CG_MINIMIZE_VER={l(c["EDIPACK"]["CG_MINIMIZE_VER"])}
-        CG_MINIMIZE_HH={f(c["EDIPACK"]["CG_MINIMIZE_HH"])}
-        JZ_BASIS={l(c["EDIPACK"]["JZ_BASIS"])}
-        JZ_MAX={l(c["EDIPACK"]["JZ_MAX"])}
-        JZ_MAX_VALUE={f(c["EDIPACK"]["JZ_MAX_VALUE"])}
+        EPS={f(edc["EPS"])}
+        CUTOFF={f(edc["CUTOFF"])}
+        GS_THRESHOLD={f(edc["GS_THRESHOLD"])}
+        LANC_METHOD={edc["LANC_METHOD"]}
+        LANC_NSTATES_SECTOR={edc["LANC_NSTATES_SECTOR"]}
+        LANC_NSTATES_TOTAL={edc["LANC_NSTATES_TOTAL"]}
+        LANC_NSTATES_STEP={edc["LANC_NSTATES_STEP"]}
+        LANC_NCV_FACTOR={edc["LANC_NCV_FACTOR"]}
+        LANC_NCV_ADD={edc["LANC_NCV_ADD"]}
+        LANC_NITER={edc["LANC_NITER"]}
+        LANC_NGFITER={edc["LANC_NGFITER"]}
+        LANC_TOLERANCE={f(edc["LANC_TOLERANCE"])}
+        LANC_DIM_THRESHOLD={edc["LANC_DIM_THRESHOLD"]}
+        CG_METHOD={edc["CG_METHOD"]}
+        CG_GRAD={edc["CG_GRAD"]}
+        CG_FTOL={f(edc["CG_FTOL"])}
+        CG_STOP={edc["CG_STOP"]}
+        CG_NITER={edc["CG_NITER"]}
+        CG_WEIGHT={edc["CG_WEIGHT"]}
+        CG_SCHEME={edc["CG_SCHEME"]}
+        CG_NORM={edc["CG_NORM"]}
+        CG_POW={edc["CG_POW"]}
+        CG_MINIMIZE_VER={l(edc["CG_MINIMIZE_VER"])}
+        CG_MINIMIZE_HH={f(edc["CG_MINIMIZE_HH"])}
+        JZ_BASIS={l(edc["JZ_BASIS"])}
+        JZ_MAX={l(edc["JZ_MAX"])}
+        JZ_MAX_VALUE={f(edc["JZ_MAX_VALUE"])}
         SECTORFILE=sectors
         HFILE=hamiltonian
         HLOCFILE=inputHLOC.in
@@ -229,7 +234,7 @@ class EDIpackSolver(ImpuritySolver):
         paramname = None
         if self.mpi_rank == 0:
             paramfd, paramname = mkstemp(".conf", "inED.", Path.cwd(), True)
-            with open(paramfd, "x") as file:
+            with open(paramfd, "w") as file:
                 file.write(params)
             # paths containing dirs must not be passed to read_input
             paramname = Path(paramname).name
@@ -278,7 +283,9 @@ class EDIpackSolver(ImpuritySolver):
 
         def log(*args, **kwargs):
             if self.mpi_rank == 0:
-                print(time.strftime("%y-%m-%d %H:%M:%S"), *args, **kwargs)
+                print(time.strftime("%y-%m-%d %H:%M:%S"),
+                      *args,
+                      **{"flush": True, **kwargs})
 
         time_solver = time.perf_counter()
 
@@ -318,8 +325,12 @@ class EDIpackSolver(ImpuritySolver):
                     for s1 in (0, 1))
             and np.allclose(np.imag(self.muimp), 0)):
             ed_mode = "normal"
+            log("Setting ED_MODE=normal after Hamiltonian "
+                "and hybridization check")
         else:
             ed_mode = "nonsu2"
+            log("Setting ED_MODE=nonsu2 after Hamiltonian "
+                "and hybridization check")
 
         def check_bathbasis_nonsu2(bm):
             if (not np.allclose(bm[0, 1], 0)
@@ -337,6 +348,8 @@ class EDIpackSolver(ImpuritySolver):
             else:
                 if self.config["EDIPACK"]["bathbasisfile"] is None:
                     raise replicaerr if bath_type == "replica" else generalerr
+                log(f"Reading basis for BATH_TYPE={bath_type} from "
+                    f"file {self.config['EDIPACK']['bathbasisfile']}")
                 with open(self.config["EDIPACK"]["bathbasisfile"], "r") as f:
                     basis, lambdas, _ = read_bath_basis_file(
                         f,
@@ -347,18 +360,40 @@ class EDIpackSolver(ImpuritySolver):
                     )
             if check_bathbasis_nonsu2(basis):
                 ed_mode = "nonsu2"
+                log("Setting ED_MODE=nonsu2 after bath basis check")
             newcache[f"{bath_type}bath"] = (basis, lambdas)
             if lambdas.shape[0] != self.config["EDIPACK"]["NBATH"]:
                 raise ValueError("Bath basis file inconsistent with NBATH")
 
+        actual_gphfile_param = self.config["EDIPACK"]["GPHFILE"]
+        if self.config["EDIPACK"]["GPHFILE"] != "NONE":
+            log(f"Reading GPHFILE {self.config['EDIPACK']['GPHFILE']}")
+            with open(self.config["EDIPACK"]["GPHFILE"], "rb") as f:
+                gphcontent = f.read()
+        else:
+            gphcontent = None
+
         if prefixdir is not None:
             w2d_wdir = Path.cwd()
+            log(f"Changing to ED runtime directory {prefixdir}")
             ed_wdir = Path(prefixdir)
             ed_wdir.mkdir(parents=True, exist_ok=True)
             chdir(ed_wdir)
 
         EDIpackSolver.solver_lock.acquire()
+
+        if gphcontent is not None:
+            if self.mpi_rank == 0:
+                gphfd, gphpath = mkstemp(prefix="gphfile", dir=Path.cwd())
+                with open(gphfd, "wb") as f:
+                    f.write(gphcontent)
+            else:
+                gphpath = None
+            self.mpi_comm.bcast(gphpath, root=0)
+            self.config["EDIPACK"]["GPHFILE"] = Path(gphpath).name
+
         self.config_to_edipack(ed_mode)
+        self.config["EDIPACK"]["GPHFILE"] = actual_gphfile_param
         # flip w2d to ed spin order
         self.ed.set_hloc(np.flip(
             self.muimp.transpose(1, 3, 0, 2),
@@ -366,8 +401,10 @@ class EDIpackSolver(ImpuritySolver):
         ).astype(complex))
 
         if self.config["EDIPACK"]["BATH_TYPE"] == "replica":
+            log("Setting basis for replica bath")
             self.ed.set_hreplica(basis, lambdas)
         elif self.config["EDIPACK"]["BATH_TYPE"] == "general":
+            log("Setting basis for general bath")
             self.ed.set_hgeneral(basis, lambdas)
 
         bath = self.ed.init_solver()
@@ -395,12 +432,14 @@ class EDIpackSolver(ImpuritySolver):
             bath = np.array([float(x)
                              for x in self.config["CI"]["initial_bath"]])
         elif self.config["EDIPACK"]["CG_SCHEME"] == "delta":
+            log("Fitting bath to hybridization function Delta")
             bath = self.ed.chi2_fitgf(fiw_pos.astype(complex), bath, ispin=0)
             bath = self.ed.chi2_fitgf(fiw_pos.astype(complex), bath, ispin=1)
         elif self.config["EDIPACK"]["CG_SCHEME"] == "weiss":
+            log("Fitting bath to Weiss field G0")
             bath = self.ed.chi2_fitgf(g0iw_pos.astype(complex), bath, ispin=0)
             bath = self.ed.chi2_fitgf(g0iw_pos.astype(complex), bath, ispin=1)
-        log(f"BATH: {bath}")
+        log(f"Bath array: {bath}")
 
         # WRITE FIT RESULTS TO RESULT DICT
         result = {}
@@ -410,10 +449,10 @@ class EDIpackSolver(ImpuritySolver):
         result["fiw-fit-error-rss"] = np.sqrt(np.sum(np.abs(fiw - fiw_fit)**2))
         result["fiw-fit-error-max"] = np.amax(np.abs(fiw - fiw_fit))
 
-        log(f"Bath fit: whole range tot. "
-            "mismatch {result['fiw-fit-error-rss']}")
-        log(f"Bath fit: whole range max "
-            "mismatch {result['fiw-fit-error-max']}", flush=True)
+        log(f"Bath root of summed squares mismatch over the whole frequency range: "
+            f"{result['fiw-fit-error-rss']}")
+        log(f"Bath maximum mismatch over the whole frequency range: "
+            f"{result['fiw-fit-error-max']}", flush=True)
 
         # flip ed to w2d spin order
         fiw_fit = np.flip(fiw_fit, axis=(0, 1))
@@ -453,6 +492,7 @@ class EDIpackSolver(ImpuritySolver):
         #     axis=0
         # )
 
+        log("Performing exact diagonalization")
         self.ed.solve(bath)
         newcache["bath"] = bath
 
@@ -503,6 +543,8 @@ class EDIpackSolver(ImpuritySolver):
             return np.transpose(op_c(orb, sp, norb))
 
         try:
+            log("Processing reduced density matrix")
+
             rdm = np.loadtxt("reduced_density_matrix.ed")
             # could be indexed with occupation numbers if reshaped like this:
             # factors of 2: row/col and spin
@@ -561,7 +603,8 @@ class EDIpackSolver(ImpuritySolver):
             result["occbasis-mapping"] = obm
             result["densitymatrix"] = rdm
         except Exception as e:
-            # Extract output quantities
+            log("Falling back to direct extraction of occupations")
+
             occ = np.full((self.problem.norbitals, 2) * 2, np.nan,
                           dtype=np.float64)
 
@@ -582,6 +625,7 @@ class EDIpackSolver(ImpuritySolver):
 
             result["occ"] = occ
 
+        log("Extracting Green's function and self-energy")
         # flip ed to w2d spin order
         giw = np.transpose(
             np.flip(self.ed.get_gimp(ishape=5, axis='m'), axis=(0, 1)),
@@ -613,6 +657,7 @@ class EDIpackSolver(ImpuritySolver):
         EDIpackSolver.solver_lock.release()
 
         if prefixdir is not None:
+            log("Leaving ED runtime directory for current iteration")
             chdir(w2d_wdir)
 
         # Extract moments of the self-energy from 1- and 2-particle reduced
