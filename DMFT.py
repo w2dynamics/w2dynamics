@@ -450,7 +450,6 @@ step_cache = []
 
 # DMFT loop
 for iter_no in range(total_iterations + 1):
-    total_iter_no = iter_no
     solver_kwargs = {}
     # figure out type of iteration
     iter_time1=time.time()
@@ -518,9 +517,11 @@ for iter_no in range(total_iterations + 1):
                 from w2dyn.dmft.ci_solver import CISolver
                 cisolver = CISolver(cfg, Nseed, Uw, Uw_Mat, epsn, not use_mpi, mpi_comm)
                 cisolver.set_problem(imp_problem)
-                return cisolver.solve(total_iter_no,
-                                      write_ham=f"hamiltonian_{total_iter_no}_{iimp}",
-                                      only_write_ham=True)
+                return cisolver.solve(
+                    iter_no,
+                    write_ham=f"hamiltonian_{iter_type}-{iter_no+1:03}_{iimp}",
+                    only_write_ham=True
+                )
 
             result = mpi_on_root(fit_bath_and_write_quanty_hamiltonian)
             output.write_impurity_result(iimp, result.other)
@@ -547,8 +548,10 @@ for iter_no in range(total_iterations + 1):
         for iimp, imp_problem in enumerate(dmft_step.imp_problems):
             if cfg["General"]["solver"] == "EDIPACK":
                 solver_kwargs.update(
-                    {"prefixdir": (output.filename
-                                   + f"_ed_iter{total_iter_no}_imp{iimp}")}
+                    {"prefixdir": (
+                        output.filename
+                        + f"_ed_iter_{iter_type}-{iter_no+1:03}_imp{iimp}"
+                    )}
                 )
 
             log("Solving impurity problem no. %d ...", iimp+1)
