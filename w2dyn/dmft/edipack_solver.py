@@ -125,7 +125,6 @@ class EDIpackSolver(ImpuritySolver):
         NSPIN=2
         NPH={edc["NPH"]}
         BATH_TYPE={edc["BATH_TYPE"]}
-        ULOC=0.000000000,0.d0,0.d0,0.d0,0.d0
         UST=0.d0
         JH=0.d0
         JX=0.d0
