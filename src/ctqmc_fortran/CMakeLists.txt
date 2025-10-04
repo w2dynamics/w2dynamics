@@ -17,6 +17,7 @@ set(CTQMCSRCNAMES Accumulators.F90
 AngularMomentum.F90
 Ausgabe.F90
 CompoundIndex.F90
+CTQMC.F90
 Lanczos.F90
 LegendrePoly.F90
 MatrixUpdate.F90
@@ -62,8 +63,7 @@ endif (USE_NFFT)
   python_add_library(${_name} MODULE WITH_SOABI
                      "${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c"
                      "${CMAKE_CURRENT_BINARY_DIR}/${_name}-f2pywrappers.f"
-                     "${CMAKE_CURRENT_BINARY_DIR}/${_name}-f2pywrappers2.f90"
-                     "${CMAKE_CURRENT_SOURCE_DIR}/CTQMC.F90")
+                     "${CMAKE_CURRENT_BINARY_DIR}/${_name}-f2pywrappers2.f90")
   if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
     set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c" PROPERTIES
       COMPILE_OPTIONS "-Wno-error=incompatible-function-pointer-types")
