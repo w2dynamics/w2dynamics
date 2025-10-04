@@ -264,6 +264,8 @@ program test
       end do
    end do
 
+   deallocate(ffirstc, flastc, prewinfcmp)
+
 contains
 
    subroutine test_error(line)
