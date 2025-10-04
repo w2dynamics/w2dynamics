@@ -14,6 +14,7 @@
 
 #separate off the names of the source files
 set(MAXENTSRCNAMES 
+MaximumEntropy.F90
 MersenneTwister.F90
 )
 set(MAXENTSRCNAMES ${MAXENTSRCNAMES} PARENT_SCOPE)
@@ -47,8 +48,7 @@ set_target_properties(MAXENTLIB PROPERTIES COMPILE_FLAGS "-DLAPACK77_Interface")
   python_add_library(${_name} MODULE WITH_SOABI
                      "${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c"
                      "${CMAKE_CURRENT_BINARY_DIR}/${_name}-f2pywrappers.f"
-                     "${CMAKE_CURRENT_BINARY_DIR}/${_name}-f2pywrappers2.f90"
-                     "${CMAKE_CURRENT_SOURCE_DIR}/MaximumEntropy.F90")
+                     "${CMAKE_CURRENT_BINARY_DIR}/${_name}-f2pywrappers2.f90")
   if (CMAKE_C_COMPILER_ID STREQUAL "Clang" AND CMAKE_C_COMPILER_VERSION VERSION_GREATER_EQUAL 16)
     set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/${_name}module.c" PROPERTIES
       COMPILE_OPTIONS "-Wno-error=incompatible-function-pointer-types")

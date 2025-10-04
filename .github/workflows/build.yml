@@ -24,12 +24,12 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install gfortran libopenblas-dev libfftw3-dev libhdf5-dev libnfft3-dev
+        sudo apt-get install ninja-build gfortran libopenblas-dev libfftw3-dev libhdf5-dev libnfft3-dev
 
     - name: Install required dependencies using brew
       if: matrix.os == 'macos-latest'
       run: |
-        brew install gcc fftw hdf5 wentzell/triqs/nfft
+        brew install ninja gcc fftw hdf5 wentzell/triqs/nfft
         echo "PATH=$(brew --prefix)/opt/gcc/bin:$PATH" >> $GITHUB_ENV
 
     - name: Set up Python
@@ -39,7 +39,7 @@ jobs:
 
     - name: Configure
       run: |
-        cmake -B build \
+        cmake -B build -G Ninja \
               -DCMAKE_Fortran_COMPILER=gfortran \
               -DCMAKE_C_COMPILER=gcc \
               -DCMAKE_CXX_COMPILER=g++
