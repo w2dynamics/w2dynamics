@@ -52,6 +52,7 @@ PROGRAM CTQMCTIMEEVOLVEINEIGENBASIS
     endif
   enddo
   
+  deallocate(evals, bra_in, bra_out, bra_out_old)
   write (*,*) "success"
   
 END PROGRAM CTQMCTIMEEVOLVEINEIGENBASIS

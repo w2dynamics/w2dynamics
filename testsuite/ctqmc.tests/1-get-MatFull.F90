@@ -20,6 +20,7 @@ PROGRAM CTQMCGETMATDETFULL
   ENDDO
   ENDDO
   CALL get_MatLogDetFull(k, mat, mydet)
+  DEALLOCATE(mat)
   ! check results
   write (*,*) "success"
   
