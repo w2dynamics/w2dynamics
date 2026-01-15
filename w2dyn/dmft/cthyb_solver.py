@@ -908,7 +908,7 @@ class CtHybSolver(ImpuritySolver):
         acctaulist = ctqmc.accpairtau
         acctaulist.sort()
         taudiffmax = DistributedSample([np.array((acctaulist[int(0.995 * phase1pairnum)],))],
-                                       self.mpi_comm).mean()
+                                       self.mpi_comm).mean()[0]
         ctqmc.set_taudiffmax(taudiffmax)
         ctqmc.init_counters()
         ctqmc.ctqmc_calibrate(False,
