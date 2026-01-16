@@ -8,6 +8,7 @@ import sys
 import time
 import optparse
 import warnings
+from warnings import warn
 
 import numpy as np
 
@@ -187,8 +188,20 @@ if cfg["General"]["DOS"] == "EDcheck":
                     paramag)
 
 elif cfg["General"]["DOS"] == "readDelta":
-    # try to load a diagonal hybridisation; if fails, load a offidagonal
+    log("Reading hybridization functions due to option General.DOS = readDelta: ")
+    log("Hybridization functions should be provided as bath hole propagators ")
+    log("F(iw_n) on Matsubara frequencies and F(tau) on imaginary time, related to ")
+    log("electronic functions Delta by ")
+    log("F_ab(iw_n) = Delta_ba(-iw_n) and ")
+    log("F_ab(tau)  = - Delta_ba(beta - tau) ")
+    log("with the convention that diagonal F(tau) and Im(F(iw_n)) are positive ")
+    log("for positive tau < beta and positive w_n.")
+    log("WARNING: Note that incorrect or inconsistent input may not be detected")
     if cfg["QMC"]["offdiag"] == 0:
+       log("Reading F(iw) from file deltaiw in text format:")
+       log("F(iw) columns: w Re(F_1down) Im(F_1down) Re(F_1up) etc.")
+       log("Reading F(tau) from file deltatau in text format:")
+       log("F(tau) columns: tau Re(F_1down) Re(F_1up) Re(F_2down) etc.")
        fiw, ftau, niw, iwf, nftau, tauf = mpi_on_root(
                         lambda: aux_input.read_Delta_iw_tau("deltaiw", "deltatau", beta))
        # convert it to DMFT convention
@@ -197,17 +210,43 @@ elif cfg["General"]["DOS"] == "readDelta":
        fiw = orbspin.promote_diagonal(fiw)
        ftau = orbspin.promote_diagonal(ftau)
     else:
+       log("Reading F(iw) from file deltaiw in text format:")
+       log("F(iw) columns: flavor1 flavor2 w Re(F_f1f2) Im(F_f1f2)")
+       log("Reading F(tau) from file deltatau in text format:")
+       log("F(tau) columns: flavor1 flavor2 tau Re(F_f1f2)")
        fiw, ftau, niw, iwf, nftau, tauf = mpi_on_root(
                         lambda: aux_input.read_Delta_iw_tau_full("deltaiw", "deltatau", beta, norbitals))
        # convert it to DMFT convention
        fiw = fiw.reshape(niw, norbitals, 2, norbitals, 2)
        ftau = ftau.reshape(nftau, norbitals, 2, norbitals, 2)
-    
+
+    # check diagonal hybridization function signs
+    for iorb in range(norbitals):
+        for isp in (0, 1):
+            if np.any(ftau[:, iorb, isp, iorb, isp] < 0):
+                warn(f"The orbital- and spin-diagonal imaginary time "
+                     f"hybridization function F(tau) for {iorb = }, {isp = } "
+                     f"has negative values, which is likely wrong.")
+            if np.any(np.imag(fiw[:fiw.shape[0]//2, iorb, isp, iorb, isp]) > 0):
+                warn(f"The orbital- and spin-diagonal Matsubara "
+                     f"hybridization function F(iw) for {iorb = }, {isp = } "
+                     f"has positive imaginary parts for negative frequencies, "
+                     f"which is likely wrong.")
+            if np.any(np.imag(fiw[fiw.shape[0]//2:, iorb, isp, iorb, isp]) < 0):
+                warn(f"The orbital- and spin-diagonal Matsubara "
+                     f"hybridization function F(iw) for {iorb = }, {isp = } "
+                     f"has negative imaginary parts for positive frequencies, "
+                     f"which is likely wrong.")
+
     _eye = np.eye(2 * norbitals).reshape(norbitals, 2, norbitals, 2)
-    #print "fiw.shape", fiw.shape
-    #print "ftau.shape", ftau.shape
-    #print "iwf.shape", iwf.shape
-    #print "tauf.shape", tauf.shape
+    if 2 * cfg["QMC"]["Niw"] != niw:
+        raise ValueError(f"Number {niw} of total Matsubara frequencies in the "
+                         f"hybridization function does not match the "
+                         f"configuration {2 * cfg['QMC']['Niw'] = }")
+    if cfg["QMC"]["Nftau"] != nftau:
+        raise ValueError(f"Number {nftau} of tau points "
+                         f"in the hybridization function does not match the "
+                         f"configuration {cfg['QMC']['Nftau'] = }")
 
     g0inviw = 1j * iwf[:,None,None,None,None] * _eye + muimp - fiw.conj()
     imp_problem = impurity.ImpurityProblem(
