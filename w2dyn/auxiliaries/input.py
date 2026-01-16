@@ -5,6 +5,7 @@ from __future__ import (absolute_import, division,
                         print_function, unicode_literals)
 import re
 from warnings import warn
+from textwrap import dedent
 
 import numpy as np
 import h5py
@@ -236,7 +237,7 @@ def read_Delta_iw_tau(deltaiw_file, deltatau_file, beta):
    
    1. The matsubara hyb function (deltaiw_file) in the format:
    
-      iv-val re_up_1 im_up_1 re_down_1 im_down_1 ...
+      iv-val re_down_orb1 im_down_orb1 re_up_orb1 im_up_orb1 re_down_orb2 ...
    
    where the last index is for the orbital. 
    The matsubara hybridization function from file needs to be defined
@@ -244,133 +245,235 @@ def read_Delta_iw_tau(deltaiw_file, deltatau_file, beta):
    
    2. The imaginary time hyb function (deltatau_file) in the format:
    
-      tau-val up_1 down_1 ...
+      tau-val down_orb1 up_orb1 down_orb2 ...
    
    Returns:
       - hybriv: hybridization function in matsubara frequencies
       - hybrtau: hybridization function in imaginary time
+      - niw: total number of Matsubara frequencies
       - iwf: fermionic frequency array
       - nftau: number of tau points
       - tauf: tau values
-   
-   FIXME: currently only implemented for diagonaly hybridization functions
-   FIXME: function name conflicts with nano hybridization read-in
    """
    from .transform import matfreq
 
-   #ignoring explicit matsubara and tau values in file
+   hybriv = np.loadtxt(deltaiw_file)
+   hybrtau = np.loadtxt(deltatau_file)
+
+   # generate appropriate frequency- and tau-axis for
+   # beta and the given number of points assuming contiguous positive
+   # Matsubara frequencies and positive tau on a uniform grid
+   # incluidng 0 and beta were given
+   niw = 2 * hybriv.shape[0]
+   nftau = hybrtau.shape[0]
+   iwf = matfreq(beta, 'fermi', niw)  # includes negative frequencies
+   tauf = np.linspace(0., beta, num=nftau, endpoint=True)
+
+   rtol_iwf = 1e-6
+   if not np.allclose(hybriv[:, 0], iwf[niw//2:], atol=0, rtol=rtol_iwf):
+       print("Please respect the following expected input format:",
+             dedent(read_Delta_iw_tau.__doc__), sep='\n')
+       first_index = np.argwhere(np.logical_not(
+           np.isclose(hybriv[:, 0], iwf[niw//2:], atol=0, rtol=rtol_iwf)
+       ))[0][0]
+       print(f"First frequency mismatch ({rtol_iwf = }) at index {first_index}: "
+             f"{hybriv[first_index, 0]} should be {iwf[niw//2 + first_index]}")
+       raise ValueError(f"Matsubara frequencies in hybridization input (first "
+                        f"column of file {deltaiw_file}) differ from expected "
+                        f"frequencies\n"
+                        f"(positive contiguous Matubara frequencies "
+                        f"for {beta = } starting from the one closest to zero)")
+   rtol_tau = 1e-6
+   if not np.allclose(hybrtau[:, 0], tauf, atol=0, rtol=rtol_tau):
+       print("Please respect the following expected input format:",
+             dedent(read_Delta_iw_tau.__doc__), sep='\n')
+       first_index = np.argwhere(np.logical_not(
+           np.isclose(hybrtau[:, 0], tauf, atol=0, rtol=rtol_tau)
+       ))[0][0]
+       print(f"First tau mismatch ({rtol_tau = }) at index {first_index}: "
+             f"{hybrtau[first_index, 0]} should be {tauf[first_index]}")
+       raise ValueError(f"Tau grid in hybridization input (first column of "
+                        f"file {deltatau_file}) differs from expected grid\n"
+                        f"(positive uniformly spaced values from 0 to "
+                        f"{beta = } including both)")
+
+   # remove given frequencies and taus
    hybriv = np.loadtxt(deltaiw_file)[:,1:]
    hybrtau = np.loadtxt(deltatau_file)[:,1:]
    
    #convert float array to complex
    hybriv = hybriv[:,0::2] + 1j*hybriv[:,1::2]
-   
-   #generate conjugate
+
+   # generate negative frequency values by conjugating
    hybriv = np.resize(hybriv,(2*hybriv.shape[0],hybriv.shape[1]))
    hybriv[:int(hybriv.shape[0]/2),:] = np.conj(hybriv[int(hybriv.shape[0]/2):,:])[::-1,:]
 
-   #generating tau and matsubara arrays
-   #tau interval goes from [0,beta]
-   niw = hybriv.shape[0]
-   iwf = matfreq(beta, 'fermi', niw)
-   nftau = hybrtau.shape[0]
-   tauf = np.linspace(0., beta, num=nftau, endpoint=True)
-   
    return hybriv, hybrtau, niw, iwf, nftau, tauf
 
+
 def read_Delta_iw_tau_full(deltaiw_file, deltatau_file, beta, norbitals):
-   r"""Reads the imaginary time and Matsubara hybridization function.
-   
-   Expects two text files:
-   
-   1. The matsubara hyb function (deltaiw_file) in the format:
+    r"""Reads the imaginary time and Matsubara hybridization function.
 
-      flavour1, flavour2, iv, Re(value), Im(value)
+    Expects two text files:
 
-      e.g.
+    1. The matsubara hyb function (deltaiw_file) in the format:
 
-      # flav1 flav2     iv           Re             Im 
-          0     0  -313.84511   3.869071e-07   -0.001049714
-          0     0  -313.21679    3.88461e-07    -0.00105182
-          0     0  -312.58847   3.900242e-07   -0.001053934
-          0     0  -311.96015   3.915969e-07   -0.001056057
-   
-      The matsubara hybridization function from file needs to be defined
-      for negative and positive matsubaras.
-   
-   2. The imaginary time hyb function (deltatau_file) in the format:
+       flavour1, flavour2, iv, Re(value), Im(value)
 
-      flavour1, flavour2, tau, value
+       where the first three columns must be sorted in ascending order
 
-      e.g.
+       e.g.
 
-      # flav1 flav2    tau          value
-          0     0    0.00000      0.1819913
-          0     0    0.00500      0.1817078
-          0     0    0.01000       0.181425
-          0     0    0.01500      0.1811428
+       # flav1 flav2     iv           Re             Im
+           0     0  -313.84511   3.869071e-07   -0.001049714
+           0     0  -313.21679    3.88461e-07    -0.00105182
+           0     0  -312.58847   3.900242e-07   -0.001053934
+           0     0  -311.96015   3.915969e-07   -0.001056057
 
-   Returns:
-      - hybriv: hybridization function in matsubara frequencies
-      - hybrtau: hybridization function in imaginary time
-      - iwf: fermionic frequency array
-      - nftau: number of tau points
-      - tauf: tau values
-   
-   FIXME: function name conflicts with nano hybridization read-in
-   """
-   from .transform import matfreq
+       The matsubara hybridization function from file needs to be defined
+       for negative and positive matsubaras.
 
-   # load the files
-   hybriv = np.loadtxt("fiw.dat")
-   hybrtau = np.loadtxt("ftau.dat")
+    2. The imaginary time hyb function (deltatau_file) in the format:
 
-   # extract how many points
-   niw=int(hybriv.shape[0]/(2*norbitals)**2)
-   nftau=int(hybrtau.shape[0]/(2*norbitals)**2)
+       flavour1, flavour2, tau, Re(value), [optionally Im(value)]
 
-   # check integrity of the files
-   if abs(niw-hybriv.shape[0]/(2*norbitals)**2) > 1e-10:
-      #print "niw", niw
-      #print "hybriv.shape[0]/(2*norbitals)**2 ",  hybriv.shape[0]/(2*norbitals)**2
-      exit(-1)
+       where the first three columns must be sorted in ascending order
 
-   if abs(nftau-hybrtau.shape[0]/(2*norbitals)**2) > 1e-10:
-      #print "nftau", nftau
-      #print "hybrtau.shape[0]/(2*norbitals)**2 ",  hybrtau.shape[0]/(2*norbitals)**2
-      exit(-1)
+       e.g.
 
-   # create arrays to store the functions in
-   ftau=np.zeros(shape=(nftau,norbitals*2,norbitals*2))
-   fiw=np.zeros(shape=(niw,norbitals*2,norbitals*2),dtype=complex)
+       # flav1 flav2    tau          value
+           0     0    0.00000      0.1819913
+           0     0    0.00500      0.1817078
+           0     0    0.01000       0.181425
+           0     0    0.01500      0.1811428
 
-   # loop over flavour**2
-   for i in range(0,(2*norbitals)**2):
+    Returns:
+       - hybriv: hybridization function in matsubara frequencies
+       - hybrtau: hybridization function in imaginary time
+       - iwf: fermionic frequency array
+       - nftau: number of tau points
+    """
 
-      # line in full array, where a new (flavour,flavour) block begins
-      firstpoint=i*nftau+1
-      # the flavours that are currently read
-      flav1=int(hybrtau[firstpoint,0])
-      flav2=int(hybrtau[firstpoint,1])
+    # load the files
+    hybriv = np.loadtxt(deltaiw_file)
+    hybrtau = np.loadtxt(deltatau_file)
 
-      # here comes the tau 
-      ftau[:,flav1,flav2]=hybrtau[i*nftau:i*nftau+nftau,3]
-      tau=hybrtau[i*nftau:i*nftau+nftau,2]
+    # extract how many points
+    nflav = 2 * norbitals
+    niw = hybriv.shape[0] // nflav**2
+    nftau = hybrtau.shape[0] // nflav**2
 
-      # and here comes the Matsubara 
-      firstpoint=i*niw+1
-      #print "firstpoint", firstpoint
-      flav1=int(hybriv[firstpoint,0])
-      flav2=int(hybriv[firstpoint,1])
-      iv=hybriv[firstpoint,2]
-      value=hybriv[firstpoint,3]
+    # check for correct amount of data
+    if niw * nflav**2 != hybriv.shape[0]:
+        print("Please respect the following expected input format:",
+              dedent(read_Delta_iw_tau_full.__doc__), sep='\n')
+        raise ValueError(f"The number of Matsubara frequencies in the "
+                         f"hybridization function input must be the same for "
+                         f"all orbitals and spins, "
+                         f"but {hybriv.shape[0] % nflav**2 = }")
 
-      fiw[:,flav1,flav2]=hybriv[i*niw:i*niw+niw,3]+1.0j*hybriv[i*niw:i*niw+niw,4]
-      iv=hybriv[i*niw:i*niw+niw,2]
-      #print "iv", iv
-      #print "tau", tau
+    if nftau * nflav**2 != hybrtau.shape[0]:
+        print("Please respect the following expected input format:",
+              dedent(read_Delta_iw_tau_full.__doc__), sep='\n')
+        raise ValueError(f"The number of tau points in the "
+                         f"hybridization function input must be the same for "
+                         f"all orbitals and spins, "
+                         f"but {hybrtau.shape[0] % nflav**2 = }")
 
-   return fiw, ftau, niw, iv, nftau, tau
+    # check for correct flavor index orders in hyb(tau) file (flavor
+    # indices per entry in the file, but here only the order is used)
+    if not (
+        np.allclose(*np.broadcast_arrays(
+            np.arange(nflav)[:, np.newaxis, np.newaxis],
+            np.reshape(hybrtau[:, 0], (nflav, nflav, nftau))
+        ))
+        and np.allclose(*np.broadcast_arrays(
+            np.arange(nflav)[np.newaxis, :, np.newaxis],
+            np.reshape(hybrtau[:, 1], (nflav, nflav, nftau))
+        ))
+    ):
+        print("Please respect the following expected input format:",
+              dedent(read_Delta_iw_tau_full.__doc__), sep='\n')
+        raise ValueError("Flavor indices in F(tau) file not in ascending "
+                         "order with second one running faster than first")
+
+    # check for correct tau grid
+    rtol_tau = 1e-6
+    tauf = np.broadcast_to(
+        np.linspace(0, beta, nftau, dtype=np.double)[np.newaxis, np.newaxis, :],
+        (nflav, nflav, nftau)
+    )
+    tauf_file = np.reshape(hybrtau[:, 2], (nflav, nflav, nftau))
+    if not np.allclose(tauf, tauf_file, atol=0, rtol=rtol_tau):
+        print("Please respect the following expected input format:",
+              dedent(read_Delta_iw_tau_full.__doc__), sep='\n')
+        first_index = tuple(np.argwhere(np.logical_not(
+            np.isclose(tauf, tauf_file, atol=0, rtol=rtol_tau)
+        ))[0])
+        print(f"First tau mismatch ({rtol_tau = }) at index {first_index}: "
+              f"{tauf_file[first_index]} should be {tauf[first_index]}")
+        raise ValueError(f"Tau grid in F(tau) input (third column) "
+                         f"differs from expected grid\n"
+                         f"(positive uniformly spaced values in ascending "
+                         f"order from 0 to {beta = } including both)")
+
+
+    # check for correct flavor index orders in hyb(iomega) file (flavor
+    # indices per entry in the file, but here only the order is used)
+    if not (
+        np.allclose(*np.broadcast_arrays(
+            np.arange(nflav)[:, np.newaxis, np.newaxis],
+            np.reshape(hybriv[:, 0], (nflav, nflav, niw))
+        ))
+        and np.allclose(*np.broadcast_arrays(
+            np.arange(nflav)[np.newaxis, :, np.newaxis],
+            np.reshape(hybriv[:, 1], (nflav, nflav, niw))
+        ))
+    ):
+        print("Please respect the following expected input format:",
+              dedent(read_Delta_iw_tau_full.__doc__), sep='\n')
+        raise ValueError("Flavor indices in F(iw) file not in ascending "
+                         "order with second one running faster than first")
+
+    # check for correct Matsubara frequency grid
+    rtol_iwf = 1e-6
+    iwf = np.broadcast_to(
+        ((2 * np.array(list(range(-niw//2, niw//2)), dtype=np.double) + 1)
+         * np.pi / beta)[np.newaxis, np.newaxis, :],
+        (nflav, nflav, niw)
+    )
+    iwf_file = np.reshape(hybriv[:, 2], (nflav, nflav, niw))
+    if not np.allclose(iwf, iwf_file, atol=0, rtol=1e-6):
+        print("Please respect the following expected input format:",
+              dedent(read_Delta_iw_tau_full.__doc__), sep='\n')
+        first_index = tuple(np.argwhere(np.logical_not(
+            np.isclose(iwf, iwf_file, atol=0, rtol=rtol_iwf)
+        ))[0])
+        print(f"First frequency mismatch ({rtol_iwf = }) at index {first_index}: "
+              f"{iwf_file[first_index]} should be {iwf[first_index]}")
+        raise ValueError(f"Matsubara frequencies in F(iw) input (third "
+                         f"column) differ from expected frequencies\n"
+                         f"(same number of negative and positive Matubara "
+                         f"frequencies in ascending order for {beta = })")
+
+    try:
+        # complex
+        ftau = hybrtau[:, 3] + 1.0j * hybrtau[:, 4]
+    except IndexError:
+        # real
+        ftau = hybrtau[:, 3]
+
+    try:
+        fiw = hybriv[:, 3] + 1.0j * hybriv[:, 4]
+    except IndexError:
+        fiw = hybriv[:, 3]
+
+    # reshape and transpose to expected (tau/omega, flav, flav) axes
+    ftau = np.transpose(np.reshape(ftau, (nflav, nflav, nftau)), (2, 0, 1))
+    fiw = np.transpose(np.reshape(fiw, (nflav, nflav, niw)), (2, 0, 1))
+
+    return fiw, ftau, niw, nftau
+
 
 def read_hamiltonian(hk_file, spin_orbit=False):
     r""" Reads a Hamiltonian f$ H_{bb'}(k) f$ from a text file.
