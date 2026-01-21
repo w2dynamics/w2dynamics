@@ -1,1 +1,0 @@
-singularity/w2dynamics_ubuntu2204.def
